@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx
+
+# Hyperledger Fabric generated artifacts
+fabric/**/crypto-config/
+fabric/**/organizations/
+fabric/**/channel-artifacts/
+fabric/**/system-genesis-block/
+fabric/**/*.block
+fabric/**/*.tx
+fabric/**/*.tar.gz
+fabric/**/*.tgz
+fabric/**/wallet/
+
+# SQLite runtime files
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Logs and local editor files
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+.vscode/
+.idea/
