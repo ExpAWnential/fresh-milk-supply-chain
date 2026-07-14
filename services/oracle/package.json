@@ -11,6 +11,7 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "@fresh-milk/storage": "workspace:*",
     "zod": "^3.23.8"
   },
   "devDependencies": {

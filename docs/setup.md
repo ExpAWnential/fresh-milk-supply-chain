@@ -27,8 +27,17 @@ pnpm fabric:deploy-chaincode
 pnpm fabric:stop
 ```
 
-These commands currently call placeholder TypeScript scripts. They should be connected to the selected Fabric topology in a later step.
+These commands currently call placeholder TypeScript scripts. They should be connected to the selected Fabric topology in a later step. `fabric:deploy-chaincode` deploys both the `stakeholder` and `supplychain` chaincodes.
+
+## Off-Chain Database
+
+```bash
+pnpm db:start
+pnpm db:stop
+```
+
+This runs PostgreSQL in Docker and applies `services/storage/schema.sql` on first start.
 
 ## Secrets And Generated Files
 
-Do not commit Fabric certificates, private keys, generated channel artifacts, wallets, SQLite database files or dependency directories.
+Do not commit Fabric certificates, private keys, generated channel artifacts, wallets, database volumes or dependency directories.

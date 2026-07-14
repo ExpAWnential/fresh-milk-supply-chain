@@ -8,21 +8,22 @@ This repository is a TypeScript monorepo scaffold for a permissioned Hyperledger
 The planned architecture includes:
 
 - Hyperledger Fabric network automation.
-- Fabric chaincode for stakeholder registration, batch lifecycle management and temperature compliance evidence.
+- Two Fabric chaincodes: `stakeholder` (registry) and `supplychain` (batch lifecycle and temperature compliance). The supply-chain contracts delegate role checks to the stakeholder registry through a cross-chaincode invocation.
 - An Express backend that will use Fabric Gateway.
 - A separate temperature oracle service.
-- SQLite off-chain storage for raw temperature readings in a later step.
+- PostgreSQL off-chain storage for raw temperature readings and supporting documents.
 - REST endpoints, scripts and terminal output for demonstration instead of a GUI.
 
 ## Current Scope
 
-This first setup step intentionally does not implement the full business logic. The code contains package scaffolding, placeholder interfaces and TODO comments for the planned contracts and services.
+This setup step intentionally does not implement the business logic. The code contains package scaffolding, placeholder interfaces and TODO comments for the planned contracts and services.
 
 Not included yet:
 
 - Demo scripts.
 - Test folders.
-- SQLite schema or repository implementation.
+- Chaincode, backend, oracle and storage implementations.
+- Fabric network topology, CouchDB state database and chaincode events.
 - Fabric certificates, private keys or generated blockchain artifacts.
 
 ## Expected Commands
@@ -57,6 +58,13 @@ Deploy chaincode through the planned Fabric wrapper:
 pnpm fabric:deploy-chaincode
 ```
 
+Start and stop the off-chain PostgreSQL database:
+
+```bash
+pnpm db:start
+pnpm db:stop
+```
+
 Start the backend:
 
 ```bash
@@ -78,7 +86,7 @@ pnpm oracle:dev
 - Batch lifecycle transitions must be validated on-chain.
 - Invalid or out-of-order events must be rejected.
 - Only `ORACLE` may submit temperature evidence.
-- Raw temperature readings must remain off-chain in SQLite.
+- Raw temperature readings must remain off-chain in PostgreSQL.
 - The oracle must canonicalise readings, calculate statistics and compute a SHA-256 hash.
 - Only the hash, off-chain reference, statistics and compliance outcome are stored on-chain.
 - Unsafe evidence must mark the batch as `COLD_CHAIN_BREACH`.

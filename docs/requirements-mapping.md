@@ -9,7 +9,7 @@
 | Batch lifecycle transitions are validated on-chain. | `BatchLifecycleContract` | TODO placeholder |
 | Invalid or out-of-order events are rejected. | `BatchLifecycleContract` | TODO placeholder |
 | Only ORACLE may submit temperature evidence. | `TemperatureComplianceContract` | TODO placeholder |
-| Raw readings remain in SQLite. | Future storage package | Deferred |
+| Raw readings remain in off-chain PostgreSQL. | `services/storage` | Schema and repository placeholders |
 | Oracle canonicalises, calculates statistics and hashes readings. | Oracle service | TODO placeholder |
 | Only hash, reference, stats and outcome are stored on-chain. | Oracle service and chaincode | TODO placeholder |
 | Unsafe evidence marks the batch as COLD_CHAIN_BREACH. | `TemperatureComplianceContract` | TODO placeholder |
