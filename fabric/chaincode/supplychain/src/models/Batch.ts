@@ -1,6 +1,8 @@
+// Every status is reachable by exactly one transaction on BatchLifecycleContract or
+// TemperatureComplianceContract. Statuses with no transaction that can produce them are
+// not modelled.
 export type BatchStatus =
   | "CREATED"
-  | "COLLECTED"
   | "PROCESSED"
   | "IN_TRANSIT"
   | "DELIVERED"

@@ -91,7 +91,7 @@ Roles are not Fabric organisations. Each Fabric X.509 identity is bound to a sta
 record carrying its role, held in the stakeholder registry contract. This gives genuine
 authenticated identities without needing five organisations.
 
-Channel: `milkchannel`. Start with `./network.sh up -s couchdb` from day one, because
+Channel: `milk-channel`. Start with `./network.sh up -s couchdb` from day one, because
 switching the state database later means tearing the network down.
 
 ## 5. Smart contracts
@@ -123,8 +123,9 @@ contracts cooperate rather than sit side by side.
 Transactions: `CreateBatch`, `RecordProcessingEvent`, `StartTransport`, `RecordDelivery`,
 `RecallBatch`, `GetBatch`, `GetBatchHistory`, `QueryBatchesByStatus`.
 
-Lifecycle: `CREATED → PROCESSED → IN_TRANSIT → DELIVERED → COMPLETED`, with
-`COLD_CHAIN_BREACH` and `RECALLED` as exceptional states.
+Lifecycle: `CREATED → PROCESSED → IN_TRANSIT → DELIVERED`, with `COLD_CHAIN_BREACH` and
+`RECALLED` as exceptional states. Every status is reachable by exactly one transaction, so
+no status is modelled that nothing can produce.
 
 Business logic:
 
@@ -291,22 +292,28 @@ authorisation, Repository pattern in the backend.
 
 ## 13. Repository structure
 
+The top-level split is on-chain (`fabric/`) versus off-chain (`services/`), which is the
+same boundary the architecture rests on.
+
 ```
 fresh-milk-supply-chain/
 ├── README.md
-├── docs/            architecture, requirements mapping, contribution log, slides
-├── network/         start/stop/reset/deploy scripts, docker compose (Postgres)
-├── chaincode/
-│   ├── stakeholder/     StakeholderRegistryContract + tests
-│   └── supplychain/     BatchLifecycle + TemperatureCompliance + tests
-├── applications/
-│   ├── api/         Express backend + tests
-│   └── oracle/      temperature oracle + tests
-├── storage/         schema.sql, migrations
-├── data/            compliant-readings.csv, unsafe-readings.csv
-├── scripts/         enrol-identities, seed-demo, run-demo, tamper-evidence
+├── docs/                    architecture, requirements mapping, this design
+├── fabric/
+│   ├── network/             start/stop/deploy scripts
+│   └── chaincode/
+│       ├── stakeholder/     StakeholderRegistryContract + tests
+│       └── supplychain/     BatchLifecycle + TemperatureCompliance + tests
+├── services/
+│   ├── backend/             Express API + tests
+│   ├── oracle/              temperature oracle + tests
+│   └── storage/             schema.sql, docker-compose.yml, repositories
+├── data/                    compliant-readings.csv, unsafe-readings.csv
+├── scripts/                 enrol-identities, seed-demo, run-demo, tamper-evidence
 └── tests/integration/
 ```
+
+`data/`, `scripts/` and `tests/` do not exist yet.
 
 ## 14. Team allocation
 
