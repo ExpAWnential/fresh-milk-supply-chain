@@ -1,5 +1,7 @@
 packages:
   - "fabric/network"
-  - "fabric/chaincode"
+  - "fabric/chaincode/stakeholder"
+  - "fabric/chaincode/supplychain"
   - "services/backend"
   - "services/oracle"
+  - "services/storage"
