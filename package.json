@@ -1,0 +1,26 @@
+{
+  "name": "fresh-milk-supply-chain",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Permissioned Hyperledger Fabric proof of concept for a fresh-milk cold-chain supply chain.",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "fabric:start": "pnpm --filter @fresh-milk/fabric-network start",
+    "fabric:stop": "pnpm --filter @fresh-milk/fabric-network stop",
+    "fabric:deploy-chaincode": "pnpm --filter @fresh-milk/fabric-network deploy-chaincode",
+    "backend:dev": "pnpm --filter @fresh-milk/backend dev",
+    "oracle:dev": "pnpm --filter @fresh-milk/oracle dev"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@9.0.0",
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "tsx": "^4.15.0",
+    "typescript": "^5.5.0"
+  }
+}

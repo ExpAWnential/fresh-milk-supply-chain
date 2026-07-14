@@ -1,0 +1,5 @@
+packages:
+  - "fabric/network"
+  - "fabric/chaincode"
+  - "services/backend"
+  - "services/oracle"
