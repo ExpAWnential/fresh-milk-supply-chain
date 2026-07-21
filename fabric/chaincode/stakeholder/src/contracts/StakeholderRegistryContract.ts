@@ -13,7 +13,8 @@ export class StakeholderRegistryContract extends Contract {
     _certificateId: string
   ): Promise<void> {
     // TODO: Allow only REGULATOR identities to register stakeholders.
-    // TODO: Validate supported roles and bind stakeholder records to Fabric certificate IDs.
+    // TODO: Validate the role is one of: REGULATOR, FARM, PROCESSOR, LOGISTICS, RETAILER, ORACLE.
+    // TODO: Bind the stakeholder record to the caller's Fabric certificate ID.
     // TODO: Reject duplicate stakeholder IDs, and certificate IDs already bound to an active stakeholder.
     throw new Error("registerStakeholder is not implemented yet.");
   }

@@ -64,42 +64,63 @@ go onto the blockchain where the smart contracts check them.
 
 ## 4. What each part does
 
-**The blockchain (Hyperledger Fabric).** A shared record book that the companies keep
-together and none of them can secretly change. It runs with two organisations: a regulator
-side and a supply-chain side that holds the farm, processor, logistics, retailer and sensor
-identities. Each company signs its own entries, so it is always clear who did what and when.
+**The blockchain (Hyperledger Fabric).** A shared record book the companies keep together and
+none of them can secretly change.
 
-**Smart contract 1 — Stakeholder.** Controls who is in the system and what they are allowed
-to do. Only a regulator can add, change the role of, or suspend a company. Each company is
-tied to its own verified identity, so nobody can add themselves or pretend to be someone else.
-A suspended company is blocked from doing anything. The other contracts ask this one "is this
-caller allowed?" before they act.
+- Runs with two organisations: a regulator side, and a supply-chain side holding the farm,
+  processor, logistics, retailer and sensor.
+- Every entry is signed by the company that made it, so who did what and when is always clear.
 
-**Smart contract 2 — Batch lifecycle.** Runs the milk's journey. A batch is created by a farm
-or processor, then moves through processing, transport and delivery. Each step can only be done
-by the right kind of company, and steps cannot be skipped or done out of order. A batch that has
-been recalled, or flagged for a temperature problem, cannot be delivered. Anyone authorised can
-pull up the full history of a batch.
+**Smart contract 1: Stakeholder.** Controls who is in the system and what they can do.
 
-**Smart contract 3 — Temperature compliance.** Judges the cold chain. When the sensor feed
-submits temperature evidence, this contract decides for itself whether the milk got too warm,
-rather than trusting the sensor's word. If it did, the contract flags the batch and raises an
-alert, and the batch cannot be delivered until a regulator clears it. Only the registered sensor
-is allowed to submit evidence.
+- The six roles are: regulator, farm, processor, logistics, retailer, and sensor.
+- Only a regulator can add a company, change its role, or suspend it.
+- Each company is tied to its own verified identity, so nobody can add themselves or pretend to
+  be someone else.
+- A suspended company is blocked from doing anything.
+- The other contracts ask this one "is this caller allowed?" before they act.
 
-**The sensor feed (oracle) and off-chain computation.** A separate program that stands in for
-the temperature loggers on a truck. It reads a batch of readings, works out the minimum, maximum
-and average, and produces a fingerprint of the exact readings. It saves the full readings in the
-database and sends only the summary and the fingerprint to the blockchain. If a reading were
-later changed, the fingerprint would no longer match, which is how tampering is caught.
+**Smart contract 2: Batch lifecycle.** Runs the milk's journey.
+
+- A batch moves in order: created, then processed, then in transit, then delivered.
+- Each step can only be done by the right company: a farm or processor creates it, a processor
+  processes it, logistics transports it, a retailer takes delivery.
+- Steps cannot be skipped or done out of order.
+- A batch that has been recalled, or flagged for a temperature problem, cannot be delivered.
+- Anyone authorised can pull up the full history of a batch.
+
+**Smart contract 3: Temperature compliance.** Judges the cold chain.
+
+- **The rule: milk must stay between 0°C and 5°C. Any reading outside that range is a breach.**
+- When the sensor submits evidence, this contract applies the rule itself rather than trusting
+  the sensor's word.
+- If the milk got too warm, the contract flags the batch and raises an alert, and the batch
+  cannot be delivered until a regulator clears it.
+- Only the registered sensor is allowed to submit evidence.
+
+**The sensor feed (oracle) and off-chain computation.** Stands in for the temperature loggers
+on a truck.
+
+- Reads a batch of readings and works out the minimum, maximum and average.
+- Produces a fingerprint of the exact readings.
+- Saves the full readings in the database, and sends only the summary and the fingerprint to the
+  blockchain.
+- If a reading were later changed, the fingerprint would no longer match, which is how tampering
+  is caught.
 
 **The database (PostgreSQL).** Holds the bulky and sensitive data that does not belong on a
-shared ledger: the full temperature readings and supporting documents. Access is controlled
-through the backend. Only the short summary and the fingerprint live on the blockchain.
+shared ledger.
 
-**The backend (front desk).** Ties the three parts together. It takes requests, acts as the
-right company's identity, talks to both the blockchain and the database, filters what the public
-is allowed to see, and listens for temperature alerts.
+- Stores the full temperature readings and supporting documents.
+- Access is controlled through the backend.
+- Only the short summary and the fingerprint live on the blockchain.
+
+**The backend (front desk).** Ties the three parts together.
+
+- Takes requests and acts as the right company's identity.
+- Talks to both the blockchain and the database.
+- Filters what the public is allowed to see.
+- Listens for temperature alerts.
 
 ## 5. What the demo shows
 
@@ -127,31 +148,3 @@ Task 3 asks for five things, and each maps to a part above:
 The Task 2 quality goals are shown by the demo: integrity (tampering is caught), fast
 traceability (full history in seconds), and non-repudiation (every entry is tied to who
 submitted it and when).
-
-## 7. Design patterns used (name these in the presentation)
-
-Off-chain storage, fingerprint anchoring, oracle, role-based access control, a state machine for
-the batch journey, event alerts, one contract delegating checks to another, and the repository
-pattern in the database layer.
-
-## 8. What "done" looks like
-
-- A regulator can add companies, and a non-regulator cannot.
-- A farm can create a batch, and a logistics company cannot.
-- Batch steps must happen in the correct order.
-- Only the sensor feed can submit temperature evidence.
-- Full readings are in the database and not on the blockchain.
-- A safe check allows delivery, an unsafe one blocks it.
-- A regulator can recall a batch.
-- Changed readings fail the fingerprint check.
-- History shows who submitted each entry and when.
-- The tests pass, and a new team member can follow the setup and run the demo.
-
-## 9. Known limitations to be upfront about
-
-- For the demo the backend holds every company's identity and picks which one to act as. In a real
-  system each company would sign for itself. This is a proof-of-concept shortcut and is stated as
-  such.
-- Everything runs on Fabric's local test network on one laptop, which is the standard way to build
-  a proof of concept, not a production setup.
-- The blockchain must be running before the presentation. It should not be started live.

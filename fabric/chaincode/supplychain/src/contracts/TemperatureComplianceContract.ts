@@ -19,7 +19,9 @@ export class TemperatureComplianceContract extends Contract {
   ): Promise<void> {
     // TODO: Allow only the registered ORACLE stakeholder to submit temperature evidence.
     // TODO: Reject duplicate evidence IDs, and evidence for a batch that is not in transit.
-    // TODO: Derive the compliance outcome on-chain from the submitted statistics.
+    // TODO: Derive the outcome on-chain from the submitted statistics using the PoC cold-chain
+    //       rule: milk must stay between 0°C and 5°C inclusive. Compliant only if minCelsius >= 0
+    //       and maxCelsius <= 5; otherwise it is a breach.
     // TODO: Store only the hash, off-chain reference, statistics and derived outcome.
     // TODO: Set the batch to COLD_CHAIN_BREACH and emit a ColdChainBreach event when unsafe.
     throw new Error("submitTemperatureEvidence is not implemented yet.");
