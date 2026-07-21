@@ -1,5 +1,5 @@
 {
-  "name": "@fresh-milk/chaincode",
+  "name": "@fresh-milk/storage",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,14 +7,16 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "db:start": "docker compose up -d",
+    "db:stop": "docker compose down"
   },
   "dependencies": {
-    "fabric-contract-api": "^2.5.0",
-    "fabric-shim": "^2.5.0"
+    "pg": "^8.12.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
+    "@types/pg": "^8.11.0",
     "typescript": "^5.5.0"
   }
 }
