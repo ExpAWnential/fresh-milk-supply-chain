@@ -14,12 +14,15 @@ its movement, an oracle processes sensor readings, raw readings are stored off-c
 evidence summaries and hashes are anchored on-chain, and the smart contracts decide whether
 the batch may proceed.
 
-## 2. Changes from Task 2 (for the "changes due to feedback" slide)
+## 2. Changes from Task 2 to the Task 3 build
+
+No specific feedback was received on the Task 2 presentation, so the changes below are
+refinements the team made while turning the Task 2 design into a working implementation,
+not responses to marker feedback. The earlier Task 1 feedback, making the NFRs measurable
+and pinning down what is stored on-chain, was already addressed in the Task 2 design.
 
 | Change | Reason |
 |---|---|
-| NFRs made measurable | Task 2 feedback |
-| Explicit on-chain / off-chain data split defined | Task 2 feedback |
 | Oracle component added | Task 3 requirement, and cold-chain evidence needs a trusted feed |
 | Role and lifecycle enforcement moved *into* the contracts | Contracts must hold business logic, not just data |
 | Consumers removed from the blockchain network | Consumers get a filtered public REST endpoint instead. A permissioned channel does not give per-field confidentiality, so channel membership is not a good consumer access mechanism |

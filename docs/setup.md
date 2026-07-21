@@ -1,43 +1,64 @@
 # Setup
 
+Steps to get a working blockchain and database running locally.
+
 ## Prerequisites
 
 - Node.js 20 or newer.
-- pnpm 9 or newer.
-- Docker for local Hyperledger Fabric containers.
-- Hyperledger Fabric binaries and container images.
+- Docker Desktop, installed and running.
 
-## Install
+## 1. Get the project dependencies
 
 ```bash
 pnpm install
 ```
 
-## Build
+## 2. Download Hyperledger Fabric
+
+This pulls Fabric's sample network, its command-line tools and the Docker images.
+Run it once. It installs into `~/fabric-samples`.
 
 ```bash
-pnpm build
+cd ~
+curl -sSL https://raw.githubusercontent.com/hyperledger/fabric/main/scripts/install-fabric.sh | bash -s docker binary samples
 ```
 
-## Planned Local Network Commands
+## 3. Start the blockchain
+
+We build on Fabric's `test-network`. `-s couchdb` gives the searchable database the
+project relies on for traceability queries.
 
 ```bash
-pnpm fabric:start
-pnpm fabric:deploy-chaincode
-pnpm fabric:stop
+cd ~/fabric-samples/test-network
+./network.sh up -s couchdb
+./network.sh createChannel -c milkchannel
 ```
 
-These commands currently call placeholder TypeScript scripts. They should be connected to the selected Fabric topology in a later step. `fabric:deploy-chaincode` deploys both the `stakeholder` and `supplychain` chaincodes.
+Check it is running with `docker ps`. You should see `orderer`, two `peer0` and two
+`couchdb` containers.
 
-## Off-Chain Database
+## 4. Start the off-chain database
 
 ```bash
 pnpm db:start
-pnpm db:stop
 ```
 
-This runs PostgreSQL in Docker and applies `services/storage/schema.sql` on first start.
+Runs PostgreSQL in Docker and applies `services/storage/schema.sql` on first start.
 
-## Secrets And Generated Files
+## Stopping
 
-Do not commit Fabric certificates, private keys, generated channel artifacts, wallets, database volumes or dependency directories.
+```bash
+cd ~/fabric-samples/test-network && ./network.sh down   # blockchain (wipes ledger data)
+pnpm db:stop                                             # database
+```
+
+## Deploying the project chaincode
+
+Not wired up yet. The `stakeholder` and `supplychain` chaincodes are still being built.
+Deployment uses `test-network`'s `./network.sh deployCC`; the exact command will be added
+here once the first chaincode is ready to deploy.
+
+## Secrets and generated files
+
+Do not commit Fabric certificates, private keys, generated channel artifacts, wallets,
+database volumes or dependency directories.
