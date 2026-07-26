@@ -9,12 +9,24 @@ export interface TemperatureStatistics {
 
 export type ComplianceOutcome = "COMPLIANT" | "UNSAFE";
 
-export function calculateStatistics(_readings: readonly CanonicalTemperatureReading[]): TemperatureStatistics {
-  // TODO: Calculate deterministic min, max, average and count values.
-  throw new Error("calculateStatistics is not implemented yet.");
+export function calculateStatistics(
+  readings: readonly CanonicalTemperatureReading[]
+): TemperatureStatistics {
+  if (readings.length === 0) {
+    throw new Error("Cannot calculate statistics for an empty reading set.");
+  }
+
+  const values = readings.map((reading) => reading.celsius);
+  const sum = values.reduce((total, value) => total + value, 0);
+
+  return {
+    minCelsius: Number(Math.min(...values).toFixed(3)),
+    maxCelsius: Number(Math.max(...values).toFixed(3)),
+    averageCelsius: Number((sum / values.length).toFixed(3)),
+    readingCount: values.length
+  };
 }
 
-export function assessCompliance(_statistics: TemperatureStatistics): ComplianceOutcome {
-  // TODO: Apply the chosen cold-chain threshold rules.
-  throw new Error("assessCompliance is not implemented yet.");
+export function assessCompliance(statistics: TemperatureStatistics): ComplianceOutcome {
+  return statistics.maxCelsius <= 4 ? "COMPLIANT" : "UNSAFE";
 }
