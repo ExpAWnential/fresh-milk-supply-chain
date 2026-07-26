@@ -1,16 +1,72 @@
 export interface RawTemperatureReading {
+  readonly batchId: string;
   readonly sensorId: string;
   readonly recordedAt: string;
   readonly celsius: number;
 }
 
 export interface CanonicalTemperatureReading {
+  readonly batchId: string;
   readonly sensorId: string;
   readonly recordedAt: string;
   readonly celsius: number;
 }
 
-export function canonicaliseReadings(_readings: readonly RawTemperatureReading[]): readonly CanonicalTemperatureReading[] {
-  // TODO: Sort readings deterministically and normalise timestamp and temperature precision.
-  throw new Error("canonicaliseReadings is not implemented yet.");
+export function canonicaliseReadings(
+  readings: readonly RawTemperatureReading[]
+): readonly CanonicalTemperatureReading[] {
+  return readings
+    .map((reading) => ({
+      batchId: normaliseRequiredText(reading.batchId, "batchId"),
+      sensorId: normaliseRequiredText(reading.sensorId, "sensorId"),
+      recordedAt: normaliseTimestamp(reading.recordedAt),
+      celsius: normaliseTemperature(reading.celsius)
+    }))
+    .sort(compareCanonicalReadings);
+}
+
+export function serialiseCanonicalReadings(
+  readings: readonly CanonicalTemperatureReading[]
+): string {
+  return JSON.stringify(readings);
+}
+
+function normaliseRequiredText(value: string, fieldName: string): string {
+  const normalised = value.trim();
+
+  if (!normalised) {
+    throw new Error(`Missing required CSV field: ${fieldName}`);
+  }
+
+  return normalised;
+}
+
+function normaliseTimestamp(value: string): string {
+  const parsed = new Date(value.trim());
+
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`Invalid recordedAt timestamp: ${value}`);
+  }
+
+  return parsed.toISOString();
+}
+
+function normaliseTemperature(value: number): number {
+  if (!Number.isFinite(value)) {
+    throw new Error(`Invalid celsius value: ${value}`);
+  }
+
+  return Number(value.toFixed(3));
+}
+
+function compareCanonicalReadings(
+  left: CanonicalTemperatureReading,
+  right: CanonicalTemperatureReading
+): number {
+  return (
+    left.batchId.localeCompare(right.batchId) ||
+    left.recordedAt.localeCompare(right.recordedAt) ||
+    left.sensorId.localeCompare(right.sensorId) ||
+    left.celsius - right.celsius
+  );
 }

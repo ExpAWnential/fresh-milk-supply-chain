@@ -1,4 +1,4 @@
-import { Pool } from "pg";
+import { Pool, PoolClient, QueryResult } from "pg";
 
 export type ComplianceOutcome = "COMPLIANT" | "UNSAFE";
 export type SubmissionStatus = "PENDING" | "ANCHORED" | "FAILED";
@@ -34,7 +34,206 @@ export interface TemperatureRepository {
   getReadings(evidenceId: string): Promise<readonly StoredTemperatureReading[]>;
 }
 
-export function createTemperatureRepository(_pool: Pool): TemperatureRepository {
-  // TODO: Persist evidence and its readings in one transaction, and expose them for hash verification.
-  throw new Error("createTemperatureRepository is not implemented yet.");
+interface EvidenceRow {
+  readonly evidence_id: string;
+  readonly batch_id: string;
+  readonly sensor_id: string;
+  readonly evidence_hash: string;
+  readonly min_celsius: string | number;
+  readonly max_celsius: string | number;
+  readonly average_celsius: string | number;
+  readonly reading_count: number;
+  readonly compliance_outcome: ComplianceOutcome;
+  readonly submission_status: SubmissionStatus;
+  readonly fabric_transaction_id: string | null;
+}
+
+interface ReadingRow {
+  readonly sensor_id: string;
+  readonly recorded_at: Date | string;
+  readonly celsius: string | number;
+}
+
+export function createTemperatureRepository(pool: Pool): TemperatureRepository {
+  return {
+    async saveEvidence(
+      evidence: StoredTemperatureEvidence,
+      readings: readonly StoredTemperatureReading[]
+    ): Promise<void> {
+      validateEvidenceForReadings(evidence, readings);
+
+      const client = await pool.connect();
+
+      try {
+        await client.query("BEGIN");
+        await insertEvidence(client, evidence);
+        await insertReadings(client, evidence.evidenceId, readings);
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+
+    async markAnchored(evidenceId: string, fabricTransactionId: string): Promise<void> {
+      await pool.query(
+        `
+          UPDATE temperature_evidence
+          SET submission_status = 'ANCHORED',
+              fabric_transaction_id = $2
+          WHERE evidence_id = $1
+        `,
+        [evidenceId, fabricTransactionId]
+      );
+    },
+
+    async markFailed(evidenceId: string): Promise<void> {
+      await pool.query(
+        `
+          UPDATE temperature_evidence
+          SET submission_status = 'FAILED'
+          WHERE evidence_id = $1
+        `,
+        [evidenceId]
+      );
+    },
+
+    async getEvidence(evidenceId: string): Promise<StoredTemperatureEvidence | undefined> {
+      const result = await pool.query<EvidenceRow>(
+        `
+          SELECT evidence_id,
+                 batch_id,
+                 sensor_id,
+                 evidence_hash,
+                 min_celsius,
+                 max_celsius,
+                 average_celsius,
+                 reading_count,
+                 compliance_outcome,
+                 submission_status,
+                 fabric_transaction_id
+          FROM temperature_evidence
+          WHERE evidence_id = $1
+        `,
+        [evidenceId]
+      );
+
+      return result.rows[0] ? mapEvidenceRow(result.rows[0]) : undefined;
+    },
+
+    async getReadings(evidenceId: string): Promise<readonly StoredTemperatureReading[]> {
+      const result = await pool.query<ReadingRow>(
+        `
+          SELECT sensor_id,
+                 recorded_at,
+                 celsius
+          FROM temperature_readings
+          WHERE evidence_id = $1
+          ORDER BY recorded_at ASC, sensor_id ASC, reading_id ASC
+        `,
+        [evidenceId]
+      );
+
+      return result.rows.map(mapReadingRow);
+    }
+  };
+}
+
+function validateEvidenceForReadings(
+  evidence: StoredTemperatureEvidence,
+  readings: readonly StoredTemperatureReading[]
+): void {
+  if (readings.length === 0) {
+    throw new Error("Cannot save temperature evidence without readings.");
+  }
+
+  if (evidence.readingCount !== readings.length) {
+    throw new Error(
+      `Evidence readingCount ${evidence.readingCount} does not match ${readings.length} readings.`
+    );
+  }
+}
+
+async function insertEvidence(
+  client: PoolClient,
+  evidence: StoredTemperatureEvidence
+): Promise<QueryResult> {
+  return client.query(
+    `
+      INSERT INTO temperature_evidence (
+        evidence_id,
+        batch_id,
+        sensor_id,
+        evidence_hash,
+        min_celsius,
+        max_celsius,
+        average_celsius,
+        reading_count,
+        compliance_outcome,
+        submission_status,
+        fabric_transaction_id
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `,
+    [
+      evidence.evidenceId,
+      evidence.batchId,
+      evidence.sensorId,
+      evidence.evidenceHash,
+      evidence.minCelsius,
+      evidence.maxCelsius,
+      evidence.averageCelsius,
+      evidence.readingCount,
+      evidence.complianceOutcome,
+      evidence.submissionStatus,
+      evidence.fabricTransactionId
+    ]
+  );
+}
+
+async function insertReadings(
+  client: PoolClient,
+  evidenceId: string,
+  readings: readonly StoredTemperatureReading[]
+): Promise<void> {
+  for (const reading of readings) {
+    await client.query(
+      `
+        INSERT INTO temperature_readings (
+          evidence_id,
+          sensor_id,
+          recorded_at,
+          celsius
+        )
+        VALUES ($1, $2, $3, $4)
+      `,
+      [evidenceId, reading.sensorId, reading.recordedAt, reading.celsius]
+    );
+  }
+}
+
+function mapEvidenceRow(row: EvidenceRow): StoredTemperatureEvidence {
+  return {
+    evidenceId: row.evidence_id,
+    batchId: row.batch_id,
+    sensorId: row.sensor_id,
+    evidenceHash: row.evidence_hash,
+    minCelsius: Number(row.min_celsius),
+    maxCelsius: Number(row.max_celsius),
+    averageCelsius: Number(row.average_celsius),
+    readingCount: row.reading_count,
+    complianceOutcome: row.compliance_outcome,
+    submissionStatus: row.submission_status,
+    fabricTransactionId: row.fabric_transaction_id
+  };
+}
+
+function mapReadingRow(row: ReadingRow): StoredTemperatureReading {
+  return {
+    sensorId: row.sensor_id,
+    recordedAt: row.recorded_at instanceof Date ? row.recorded_at.toISOString() : row.recorded_at,
+    celsius: Number(row.celsius)
+  };
 }
