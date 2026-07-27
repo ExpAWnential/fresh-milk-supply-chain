@@ -2,9 +2,14 @@ import express from "express";
 import { batchRouter } from "./routes/batches.js";
 import { publicRouter } from "./routes/public.js";
 import { stakeholderRouter } from "./routes/stakeholders.js";
-import { temperatureRouter } from "./routes/temperature.js";
+import {
+  createTemperatureRouter,
+  type TemperatureRouterDependencies
+} from "./routes/temperature.js";
 
-export function createApp() {
+export type AppDependencies = TemperatureRouterDependencies;
+
+export function createApp(dependencies: AppDependencies = {}) {
   const app = express();
 
   app.use(express.json());
@@ -14,7 +19,7 @@ export function createApp() {
 
   app.use("/stakeholders", stakeholderRouter);
   app.use("/batches", batchRouter);
-  app.use("/temperature", temperatureRouter);
+  app.use("/temperature", createTemperatureRouter(dependencies));
   app.use("/public", publicRouter);
 
   return app;

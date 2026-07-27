@@ -44,6 +44,37 @@ pnpm db:start
 ```
 
 Runs PostgreSQL in Docker and applies `services/storage/schema.sql` on first start.
+The backend uses this connection by default:
+
+```text
+postgres://freshmilk:freshmilk@localhost:5432/freshmilk
+```
+
+Set `DATABASE_URL` to use a different database.
+
+## Evidence verification and tampering demo
+
+Once the oracle has saved evidence and its Fabric transaction has been confirmed, verify that
+the off-chain readings still match the anchored hash:
+
+```bash
+curl http://localhost:3000/temperature/evidence/TEMP-TRIP-001/verify
+```
+
+The response reports `match: true` for unchanged readings and `match: false` after tampering.
+Until the Fabric Gateway implementation is connected, the endpoint uses the hash from the
+database record only when that record is marked `ANCHORED` and has a Fabric transaction ID.
+It also accepts a Fabric-backed hash reader, which takes precedence when integration is ready.
+
+The demonstration command intentionally changes the first stored reading for one evidence
+record. The confirmation flag prevents accidental use:
+
+```bash
+pnpm demo:tamper -- --evidence TEMP-TRIP-001 --delta 1 --confirm-tamper
+```
+
+It prints the anchored hash and the recomputed values before and after the change, ending with
+`HASH_MISMATCH`.
 
 ## Stopping
 
