@@ -1,19 +1,15 @@
 import express, { type Express } from "express";
-import type { TemperatureRepository } from "@fresh-milk/storage";
 import { createBatchRouter } from "./routes/batches.js";
 import { createPublicRouter, type PublicReader } from "./routes/public.js";
 import { createStakeholderRouter } from "./routes/stakeholders.js";
-import { createTemperatureRouter } from "./routes/temperature.js";
-import type { GatewayConnector } from "./fabric/request.js";
-import type { AnchoredEvidenceReader } from "./services/evidenceVerification.js";
-import type { Request as ExpressRequest } from "express";
+import {
+  createTemperatureRouter,
+  type TemperatureRouterDependencies
+} from "./routes/temperature.js";
 
-export interface AppDependencies {
-  // How a request reaches the ledger. Injected so the routes can be exercised without a network.
-  readonly connect: GatewayConnector;
+export interface AppDependencies extends TemperatureRouterDependencies {
+  // Consumers hold no network identity, so the public view reads the ledger on their behalf.
   readonly readAsRegulator: PublicReader;
-  readonly temperatureRepository?: TemperatureRepository;
-  readonly readerForRequest?: (request: ExpressRequest) => AnchoredEvidenceReader;
 }
 
 export function createApp(dependencies: AppDependencies): Express {

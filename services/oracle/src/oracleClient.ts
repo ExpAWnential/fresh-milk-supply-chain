@@ -1,14 +1,11 @@
+import type { TemperatureStatistics } from "./compliance.js";
+
 export interface TemperatureEvidenceSubmission {
   readonly evidenceId: string;
   readonly batchId: string;
   readonly evidenceHash: string;
   readonly offChainReference: string;
-  readonly statistics: {
-    readonly minCelsius: number;
-    readonly maxCelsius: number;
-    readonly averageCelsius: number;
-    readonly readingCount: number;
-  };
+  readonly statistics: TemperatureStatistics;
 }
 
 export interface AnchoredEvidence {

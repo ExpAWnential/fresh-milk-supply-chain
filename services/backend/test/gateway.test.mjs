@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
+import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import { createFabricGatewayClient } from "../dist/fabric/gateway.js";
 import { getDemoIdentity } from "../dist/demoIdentity.js";
@@ -43,5 +46,26 @@ test("a gateway for an identity with no wallet material fails clearly", async ()
       peerTlsCaPath: "/nonexistent/tlsca.pem"
     }),
     /ENOENT|no such file/
+  );
+});
+
+test("wallet material is located without relying on Fabric's generated file names", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wallet-"));
+  await mkdir(join(root, "signcerts"));
+  await mkdir(join(root, "keystore"));
+  await writeFile(join(root, "signcerts", "some-generated-name.pem"), "not a certificate");
+  await writeFile(join(root, "keystore", "another-generated-name"), "not a key");
+
+  // Both directories hold exactly one file, so the lookup succeeds and the failure comes later,
+  // when the contents turn out not to be a usable key.
+  await assert.rejects(
+    createFabricGatewayClient({ ...regulator, userPath: root }),
+    (error) => !/Expected exactly one file/.test(error.message)
+  );
+
+  await writeFile(join(root, "keystore", "a-second-key"), "not a key either");
+  await assert.rejects(
+    createFabricGatewayClient({ ...regulator, userPath: root }),
+    /Expected exactly one file/
   );
 });

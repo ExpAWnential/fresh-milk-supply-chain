@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
 import test from "node:test";
 import { sha256TemperatureReadings } from "@fresh-milk/storage";
-import { createApp } from "../dist/app.js";
 import {
   EvidenceVerificationError,
   verifyTemperatureEvidence
 } from "../dist/services/evidenceVerification.js";
+import { repositoryStub, storedEvidence } from "./harness.mjs";
 
 const originalReadings = [
   { sensorId: "SENSOR-01", recordedAt: "2026-07-20T09:00:00Z", celsius: 3.2 },
@@ -15,111 +14,77 @@ const originalReadings = [
 const anchoredHash = sha256TemperatureReadings("MILK-001", originalReadings);
 
 function repository(readings = originalReadings, overrides = {}) {
-  return {
-    saveEvidence: async () => {},
-    markAnchored: async () => {},
-    markFailed: async () => {},
-    getEvidence: async () => ({
-      evidenceId: "TEMP-001",
-      batchId: "MILK-001",
-      sensorId: "SENSOR-01",
-      evidenceHash: anchoredHash,
-      minCelsius: 3.2,
-      maxCelsius: 3.5,
-      averageCelsius: 3.35,
-      readingCount: 2,
-      complianceOutcome: "COMPLIANT",
-      submissionStatus: "ANCHORED",
-      fabricTransactionId: "tx-001",
-      ...overrides
-    }),
+  return repositoryStub({
+    getEvidence: async () =>
+      storedEvidence({ batchId: "MILK-001", evidenceHash: anchoredHash, ...overrides }),
     getReadings: async () => readings
-  };
+  });
 }
 
-test("verification reports a match for unchanged off-chain readings", async () => {
-  const result = await verifyTemperatureEvidence("TEMP-001", {
-    temperatureRepository: repository()
+function ledgerHolding(evidenceHash, fabricTransactionId = "tx-on-ledger") {
+  return { getAnchoredEvidence: async () => ({ evidenceHash, fabricTransactionId }) };
+}
+
+test("unchanged readings still hash to what the ledger anchored", async () => {
+  const result = await verifyTemperatureEvidence("EV-1", {
+    temperatureRepository: repository(),
+    anchoredEvidenceReader: ledgerHolding(anchoredHash)
   });
 
   assert.equal(result.match, true);
   assert.equal(result.databaseHashMatchesAnchor, true);
-  assert.equal(result.anchorSource, "CONFIRMED_DATABASE_RECORD");
   assert.equal(result.recomputedHash, anchoredHash);
+  // The transaction reported is the one the ledger holds, not the database's copy of it.
+  assert.equal(result.fabricTransactionId, "tx-on-ledger");
 });
 
-test("verification detects a modified off-chain reading", async () => {
-  const changedReadings = [
-    { ...originalReadings[0], celsius: originalReadings[0].celsius + 1 },
-    originalReadings[1]
-  ];
-  const result = await verifyTemperatureEvidence("TEMP-001", {
-    temperatureRepository: repository(changedReadings)
+test("a modified reading no longer matches the anchor", async () => {
+  const changed = [{ ...originalReadings[0], celsius: 4.2 }, originalReadings[1]];
+  const result = await verifyTemperatureEvidence("EV-1", {
+    temperatureRepository: repository(changed),
+    anchoredEvidenceReader: ledgerHolding(anchoredHash)
   });
 
   assert.equal(result.match, false);
   assert.notEqual(result.recomputedHash, result.anchoredHash);
+  // The stored hash was not touched, only the readings, so it still agrees with the ledger.
+  assert.equal(result.databaseHashMatchesAnchor, true);
 });
 
-test("a Fabric reader takes precedence and detects a database anchor mismatch", async () => {
-  const fabricHash = "f".repeat(64);
-  const result = await verifyTemperatureEvidence("TEMP-001", {
-    temperatureRepository: repository(),
-    anchoredEvidenceReader: {
-      getAnchoredEvidence: async () => ({
-        evidenceHash: fabricHash,
-        fabricTransactionId: "fabric-tx-002"
-      })
-    }
+test("a rewritten stored hash is distinguished from rewritten readings", async () => {
+  const result = await verifyTemperatureEvidence("EV-1", {
+    temperatureRepository: repository(originalReadings, { evidenceHash: "f".repeat(64) }),
+    anchoredEvidenceReader: ledgerHolding(anchoredHash)
   });
 
-  assert.equal(result.anchorSource, "FABRIC");
-  assert.equal(result.fabricTransactionId, "fabric-tx-002");
+  // The readings are intact, so they still match the ledger.
+  assert.equal(result.match, true);
+  // But the database's own copy of the hash does not, which is the tell.
   assert.equal(result.databaseHashMatchesAnchor, false);
-  assert.equal(result.match, false);
 });
 
-test("unanchored evidence is rejected", async () => {
+test("the ledger's anchor wins over the database's record of it", async () => {
+  const ledgerHash = "e".repeat(64);
+  const result = await verifyTemperatureEvidence("EV-1", {
+    temperatureRepository: repository(),
+    anchoredEvidenceReader: ledgerHolding(ledgerHash)
+  });
+
+  assert.equal(result.anchoredHash, ledgerHash);
+  assert.equal(result.match, false);
+  assert.equal(result.databaseHashMatchesAnchor, false);
+});
+
+test("evidence that was never anchored is refused rather than checked", async () => {
   await assert.rejects(
-    verifyTemperatureEvidence("TEMP-001", {
+    verifyTemperatureEvidence("EV-1", {
       temperatureRepository: repository(originalReadings, {
         submissionStatus: "PENDING",
         fabricTransactionId: null
-      })
+      }),
+      anchoredEvidenceReader: ledgerHolding(anchoredHash)
     }),
     (error) =>
-      error instanceof EvidenceVerificationError &&
-      error.code === "EVIDENCE_NOT_ANCHORED"
+      error instanceof EvidenceVerificationError && error.code === "EVIDENCE_NOT_ANCHORED"
   );
-});
-
-test("HTTP verification endpoint returns the verification result", async () => {
-  const unusedLedger = async () => {
-    throw new Error("verification must not open a ledger connection when a reader is supplied");
-  };
-  const app = createApp({
-    connect: unusedLedger,
-    readAsRegulator: unusedLedger,
-    temperatureRepository: repository()
-  });
-  const server = app.listen(0);
-  await once(server, "listening");
-
-  try {
-    const address = server.address();
-    assert.notEqual(address, null);
-    assert.equal(typeof address, "object");
-    const response = await fetch(
-      `http://127.0.0.1:${address.port}/temperature/evidence/TEMP-001/verify`
-    );
-    const body = await response.json();
-
-    assert.equal(response.status, 200);
-    assert.equal(body.match, true);
-    assert.equal(body.evidenceId, "TEMP-001");
-  } finally {
-    await new Promise((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    });
-  }
 });

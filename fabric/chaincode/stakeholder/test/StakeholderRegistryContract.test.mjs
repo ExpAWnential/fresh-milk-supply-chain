@@ -4,53 +4,7 @@ import {
   REGULATOR_MSP_ID,
   StakeholderRegistryContract
 } from "../dist/contracts/StakeholderRegistryContract.js";
-
-// fake fabric ledger
-class MemoryStub {
-  state = new Map();
-
-  events = [];
-  txNumber = 1;
-
-  createCompositeKey(objectType, attributes) {
-    return `${objectType}\u0000${attributes.join("\u0000")}\u0000`;
-  }
-
-  async getState(key) {
-    return this.state.get(key) ?? Buffer.alloc(0);
-  }
-
-  async putState(key, value) {
-    this.state.set(key, Buffer.from(value));
-  }
-
-  getTxID() {
-    return `tx-${this.txNumber}`;
-  }
-
-  getTxTimestamp() {
-    return {
-      seconds: 1_750_000_000 + this.txNumber,
-      nanos: 123_000_000
-    };
-  }
-
-  setEvent(name, payload) {
-    this.events.push({ name, payload: Buffer.from(payload) });
-  }
-}
-
-// Build the part of a Fabric transaction context that the contract needs
-// Different certificate/MSP values let each test pretend to be a different caller
-function context(stub, certificateId, mspId = "SupplyChainMSP") {
-  return {
-    stub,
-    clientIdentity: {
-      getID: () => certificateId,
-      getMSPID: () => mspId
-    }
-  };
-}
+import { MemoryStub, context } from "./fabricStub.mjs";
 
 async function expectReject(promise, pattern) {
   await assert.rejects(promise, pattern);

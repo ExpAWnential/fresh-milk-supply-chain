@@ -2,33 +2,31 @@ import { Router } from "express";
 import type { Request as ExpressRequest } from "express";
 import type { TemperatureRepository } from "@fresh-milk/storage";
 import { config } from "../config.js";
-import { sendGatewayError, withGateway, type GatewayConnector } from "../fabric/request.js";
+import { bindLedger, requireString } from "../fabric/ledger.js";
+import { sendGatewayError, type GatewayConnector } from "../fabric/request.js";
 import {
   EvidenceVerificationError,
   type AnchoredEvidenceReader,
   verifyTemperatureEvidence
 } from "../services/evidenceVerification.js";
 
-const CONTRACT = "TemperatureComplianceContract";
+export const TEMPERATURE_CONTRACT = "TemperatureComplianceContract";
 
 export interface TemperatureRouterDependencies {
   readonly connect: GatewayConnector;
   readonly temperatureRepository?: TemperatureRepository;
-  readonly anchoredEvidenceReader?: AnchoredEvidenceReader;
   // Builds a reader that queries the ledger as whoever made the request, so the contract's own
-  // role check applies. Tests supply a fixed reader instead.
-  readonly readerForRequest?: (request: ExpressRequest) => AnchoredEvidenceReader;
+  // role check applies. Required: a verification that cannot consult the anchor would be
+  // comparing the database against itself, which proves nothing.
+  readonly readerForRequest: (request: ExpressRequest) => AnchoredEvidenceReader;
 }
 
-function requireString(value: unknown, field: string): string {
-  if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`'${field}' must be a non-empty string.`);
-  }
-  return value.trim();
-}
-
-export function createTemperatureRouter(dependencies: TemperatureRouterDependencies): Router {
-  const { connect } = dependencies;
+export function createTemperatureRouter({
+  connect,
+  temperatureRepository,
+  readerForRequest
+}: TemperatureRouterDependencies): Router {
+  const temperature = bindLedger(connect, config.supplychainChaincodeName, TEMPERATURE_CONTRACT);
   const router = Router();
 
   router.post("/batches/:batchId/evidence", async (req, res) => {
@@ -43,17 +41,14 @@ export function createTemperatureRouter(dependencies: TemperatureRouterDependenc
 
       // The compliance outcome is deliberately not accepted from the caller. The contract
       // derives it from these statistics itself.
-      await withGateway(connect, req, (client) =>
-        client.submitTransaction(
-          config.supplychainChaincodeName,
-          CONTRACT,
-          "submitTemperatureEvidence",
-          evidenceId,
-          req.params.batchId,
-          evidenceHash,
-          offChainReference,
-          JSON.stringify(statistics)
-        )
+      await temperature.submit(
+        req,
+        "submitTemperatureEvidence",
+        evidenceId,
+        req.params.batchId,
+        evidenceHash,
+        offChainReference,
+        JSON.stringify(statistics)
       );
       res.status(201).json({ evidenceId, batchId: req.params.batchId });
     } catch (error) {
@@ -64,15 +59,7 @@ export function createTemperatureRouter(dependencies: TemperatureRouterDependenc
   router.post("/batches/:batchId/resolve-breach", async (req, res) => {
     try {
       const reason = requireString(req.body?.reason, "reason");
-      await withGateway(connect, req, (client) =>
-        client.submitTransaction(
-          config.supplychainChaincodeName,
-          CONTRACT,
-          "resolveTemperatureBreach",
-          req.params.batchId,
-          reason
-        )
-      );
+      await temperature.submit(req, "resolveTemperatureBreach", req.params.batchId, reason);
       res.json({ batchId: req.params.batchId, reason });
     } catch (error) {
       sendGatewayError(res, error);
@@ -81,22 +68,16 @@ export function createTemperatureRouter(dependencies: TemperatureRouterDependenc
 
   router.get("/evidence/:evidenceId", async (req, res) => {
     try {
-      const bytes = await withGateway(connect, req, (client) =>
-        client.evaluateTransaction(
-          config.supplychainChaincodeName,
-          CONTRACT,
-          "getTemperatureEvidence",
-          req.params.evidenceId
-        )
+      res.json(
+        await temperature.evaluateJson(req, "getTemperatureEvidence", req.params.evidenceId)
       );
-      res.json(JSON.parse(Buffer.from(bytes).toString()));
     } catch (error) {
       sendGatewayError(res, error);
     }
   });
 
   router.get("/evidence/:evidenceId/verify", async (req, res) => {
-    if (!dependencies.temperatureRepository) {
+    if (!temperatureRepository) {
       res.status(503).json({ error: "temperature storage is not configured" });
       return;
     }
@@ -105,8 +86,8 @@ export function createTemperatureRouter(dependencies: TemperatureRouterDependenc
       // Verification reads the anchored hash as the caller, so the contract decides whether they
       // are allowed to see it rather than this route trusting an unauthenticated request.
       const result = await verifyTemperatureEvidence(req.params.evidenceId, {
-        temperatureRepository: dependencies.temperatureRepository,
-        anchoredEvidenceReader: dependencies.readerForRequest?.(req) ?? dependencies.anchoredEvidenceReader
+        temperatureRepository,
+        anchoredEvidenceReader: readerForRequest(req)
       });
       res.json(result);
     } catch (error) {

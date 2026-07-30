@@ -1,83 +1,6 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
 import test from "node:test";
-import { createApp } from "../dist/app.js";
-
-// The routes are exercised against a stub ledger. What matters is which transaction each endpoint
-// asks for, with which arguments, and how it reports a refusal, none of which needs a network.
-function stubLedger({ submit, evaluate } = {}) {
-  const calls = [];
-  let openConnections = 0;
-  let closedConnections = 0;
-
-  const client = {
-    async submitTransaction(...args) {
-      calls.push({ kind: "submit", args });
-      if (submit) {
-        return submit(...args);
-      }
-      return Buffer.alloc(0);
-    },
-    async evaluateTransaction(...args) {
-      calls.push({ kind: "evaluate", args });
-      if (evaluate) {
-        return evaluate(...args);
-      }
-      return Buffer.from("{}");
-    },
-    close() {
-      closedConnections += 1;
-    }
-  };
-
-  return {
-    calls,
-    connect: async () => {
-      openConnections += 1;
-      return client;
-    },
-    get leaked() {
-      return openConnections !== closedConnections;
-    }
-  };
-}
-
-// Fabric wraps the contract's message the way the real gateway does.
-function chaincodeRejection(message) {
-  const error = new Error("failed to endorse transaction");
-  error.details = [{ message: `chaincode response 500, ${message}` }];
-  return error;
-}
-
-async function withServer(dependencies, run) {
-  const ledger = dependencies.ledger ?? stubLedger();
-  const app = createApp({
-    connect: ledger.connect,
-    readAsRegulator: () => ledger.connect(),
-    ...dependencies
-  });
-  const server = app.listen(0);
-  await once(server, "listening");
-  const base = `http://127.0.0.1:${server.address().port}`;
-
-  const call = async (method, path, body) => {
-    const response = await fetch(base + path, {
-      method,
-      headers: { "content-type": "application/json", "x-demo-identity": "regulator" },
-      body: body === undefined ? undefined : JSON.stringify(body)
-    });
-    const text = await response.text();
-    return { status: response.status, body: text ? JSON.parse(text) : undefined };
-  };
-
-  try {
-    await run({ call, ledger });
-  } finally {
-    await new Promise((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    });
-  }
-}
+import { chaincodeRejection, stubLedger, withServer } from "./harness.mjs";
 
 test("health check does not touch the ledger", async () => {
   await withServer({}, async ({ call, ledger }) => {
@@ -301,24 +224,6 @@ test("a refused transaction reports the contract's own wording", async () => {
     );
   });
   assert.equal(ledger.leaked, false);
-});
-
-test("a network failure is reported as a backend fault, not a client error", async () => {
-  const ledger = {
-    calls: [],
-    leaked: false,
-    connect: async () => {
-      const failure = new Error("");
-      failure.details = [];
-      throw failure;
-    }
-  };
-
-  await withServer({ ledger }, async ({ call }) => {
-    const result = await call("GET", "/batches/MILK-1");
-    assert.equal(result.status, 502);
-    assert.match(result.body.error, /could not be reached/);
-  });
 });
 
 test("the consumer view exposes the journey but never who recorded it", async () => {

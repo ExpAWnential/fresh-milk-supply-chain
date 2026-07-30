@@ -1,106 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { TemperatureComplianceContract } from "../dist/contracts/TemperatureComplianceContract.js";
+import { MemoryStub, context } from "./fabricStub.mjs";
 
 const VALID_HASH_A = "a".repeat(64);
 const VALID_HASH_B = "b".repeat(64);
-
-class MemoryStub {
-  state = new Map();
-  events = [];
-  txNumber = 1;
-  currentCertificateId = "";
-
-  stakeholders = new Map([
-    ["cert-oracle", { stakeholderId: "oracle-001", role: "ORACLE", active: true }],
-    ["cert-regulator", { stakeholderId: "regulator-001", role: "REGULATOR", active: true }],
-    ["cert-retailer", { stakeholderId: "retailer-001", role: "RETAILER", active: true }],
-    ["cert-suspended-oracle", { stakeholderId: "oracle-002", role: "ORACLE", active: false }]
-  ]);
-
-  createCompositeKey(objectType, attributes) {
-    return `${objectType}\u0000${attributes.join("\u0000")}\u0000`;
-  }
-
-  async getState(key) {
-    return this.state.get(key) ?? Buffer.alloc(0);
-  }
-
-  async putState(key, value) {
-    this.state.set(key, Buffer.from(value));
-  }
-
-  getTxID() {
-    return `tx-${this.txNumber}`;
-  }
-
-  getTxTimestamp() {
-    return {
-      seconds: 1_750_000_000 + this.txNumber,
-      nanos: 123_000_000
-    };
-  }
-
-  setEvent(name, payload) {
-    this.events.push({ name, payload: Buffer.from(payload) });
-  }
-
-  async invokeChaincode(chaincodeName, args) {
-    if (chaincodeName !== "stakeholder") {
-      return { status: 500, message: "Unexpected chaincode", payload: Buffer.alloc(0) };
-    }
-    if (args[0] !== "StakeholderRegistryContract:assertActiveRole") {
-      return { status: 500, message: "Unexpected transaction", payload: Buffer.alloc(0) };
-    }
-    if (args[1] !== this.currentCertificateId) {
-      return { status: 500, message: "Certificate mismatch", payload: Buffer.alloc(0) };
-    }
-
-    const stakeholder = this.stakeholders.get(this.currentCertificateId);
-    if (!stakeholder) {
-      return {
-        status: 500,
-        message: "The invoking certificate is not registered to a stakeholder.",
-        payload: Buffer.alloc(0)
-      };
-    }
-    if (!stakeholder.active) {
-      return {
-        status: 500,
-        message: `Stakeholder '${stakeholder.stakeholderId}' is suspended.`,
-        payload: Buffer.alloc(0)
-      };
-    }
-
-    const allowedRoles = JSON.parse(args[2]);
-    if (!allowedRoles.includes(stakeholder.role)) {
-      return {
-        status: 500,
-        message:
-          `Stakeholder '${stakeholder.stakeholderId}' has role '${stakeholder.role}', ` +
-          `but this operation requires one of: ${allowedRoles.join(", ")}.`,
-        payload: Buffer.alloc(0)
-      };
-    }
-
-    return {
-      status: 200,
-      message: "OK",
-      payload: Buffer.from(JSON.stringify(stakeholder))
-    };
-  }
-}
-
-function context(stub, certificateId) {
-  stub.currentCertificateId = certificateId;
-  return {
-    stub,
-    clientIdentity: {
-      getID: () => certificateId,
-      getMSPID: () => "SupplyChainMSP"
-    }
-  };
-}
 
 function batchRecord(batchId, status = "IN_TRANSIT") {
   return {

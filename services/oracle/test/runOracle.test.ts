@@ -125,7 +125,7 @@ describe("oracle run", () => {
     const { repository } = recordingRepository();
     await assert.rejects(
       runOracle([], { repository, anchor: anchorSucceeds }),
-      /empty reading set|must all belong to one batch/
+      /must all belong to one batch/
     );
   });
 });

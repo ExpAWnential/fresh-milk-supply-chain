@@ -25,7 +25,6 @@ export function canonicaliseReadings(
     .sort(compareCanonicalReadings);
 }
 
-
 function normaliseRequiredText(value: string, fieldName: string): string {
   const normalised = value.trim();
 

@@ -1,4 +1,3 @@
-import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Request } from "express";
 import { config } from "./config.js";
@@ -45,16 +44,12 @@ const DEMO_IDENTITIES: Record<string, { org: "org1" | "org2"; user: string }> = 
   logistics: { org: "org2", user: "User1" }
 };
 
-function listDemoIdentities(): readonly string[] {
-  return Object.keys(DEMO_IDENTITIES);
-}
-
 export function getDemoIdentity(name: string): DemoIdentity {
   const normalised = name.trim().toLowerCase();
   const mapping = DEMO_IDENTITIES[normalised];
   if (!mapping) {
     throw new Error(
-      `Unknown demo identity '${name}'. Expected one of: ${listDemoIdentities().join(", ")}.`
+      `Unknown demo identity '${name}'. Expected one of: ${Object.keys(DEMO_IDENTITIES).join(", ")}.`
     );
   }
 
@@ -78,20 +73,10 @@ export function resolveDemoIdentity(request: Request): DemoIdentity {
   const header = request.header(DEMO_IDENTITY_HEADER);
   if (!header) {
     throw new Error(
-      `Missing ${DEMO_IDENTITY_HEADER} header. Expected one of: ${listDemoIdentities().join(", ")}.`
+      `Missing ${DEMO_IDENTITY_HEADER} header. Expected one of: ${Object.keys(DEMO_IDENTITIES).join(", ")}.`
     );
   }
 
   return getDemoIdentity(header);
 }
 
-// Fabric names the certificate and key files unpredictably, so the single file in each directory
-// is used rather than a hardcoded filename.
-export async function readSingleFile(directory: string): Promise<string> {
-  const entries = (await readdir(directory)).filter((entry) => !entry.startsWith("."));
-  if (entries.length !== 1) {
-    throw new Error(`Expected exactly one file in ${directory}, found ${entries.length}.`);
-  }
-
-  return join(directory, entries[0]);
-}

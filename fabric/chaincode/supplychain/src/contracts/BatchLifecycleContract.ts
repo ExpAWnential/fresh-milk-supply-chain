@@ -2,13 +2,15 @@
 // emitted runtime type against Context, so an erased type import makes Fabric expect an extra
 // argument on every transaction.
 import { Context, Contract, Info, Returns, Transaction } from "fabric-contract-api";
-import {
-  BATCH_STATUSES,
-  type Batch,
-  type BatchHistoryEntry,
-  type BatchStatus
-} from "../models/Batch.js";
+import { BATCH_STATUSES, type Batch, type BatchHistoryEntry, type BatchStatus } from "../models/Batch.js";
 import { batchKey } from "../utils/ledgerKeys.js";
+import {
+  getBatchRecord,
+  isBatchStatus,
+  parseBatch,
+  putBatch,
+  requireValue
+} from "../utils/batchStore.js";
 import {
   assertActiveRole,
   getInvokingStakeholder,
@@ -18,8 +20,31 @@ import {
 import { getTransactionMetadata } from "../utils/txContext.js";
 
 interface HistoryTimestamp {
-  readonly seconds: number | string | { toString(): string };
+  readonly seconds: { toString(): string };
   readonly nanos: number;
+}
+
+// Both queries walk a Fabric iterator to exhaustion and must close it either way.
+async function drain<TEntry, TResult>(
+  iterator: { next(): Promise<{ done?: boolean; value?: TEntry }>; close(): Promise<void> },
+  take: (entry: TEntry) => TResult | undefined
+): Promise<TResult[]> {
+  const collected: TResult[] = [];
+  try {
+    for (;;) {
+      const result = await iterator.next();
+      if (result.done) {
+        break;
+      }
+      const mapped = result.value === undefined ? undefined : take(result.value);
+      if (mapped !== undefined) {
+        collected.push(mapped);
+      }
+    }
+  } finally {
+    await iterator.close();
+  }
+  return collected;
 }
 
 // One transaction per lifecycle step rather than a single generic advance, so each step
@@ -150,31 +175,20 @@ export class BatchLifecycleContract extends Contract {
     const normalisedBatchId = requireValue(batchId, "Batch ID");
     await getBatchRecord(ctx, normalisedBatchId);
 
-    const iterator = await ctx.stub.getHistoryForKey(batchKey(ctx, normalisedBatchId));
-    const history: BatchHistoryEntry[] = [];
-    try {
-      while (true) {
-        const result = await iterator.next();
-        if (result.done) {
-          break;
-        }
-        if (!result.value) {
-          continue;
-        }
-
-        const isDelete = result.value.isDelete;
-        const batch = isDelete ? null : parseBatch(result.value.value, normalisedBatchId);
-        history.push({
-          txId: result.value.txId,
-          timestamp: fabricTimestampToIso(result.value.timestamp as HistoryTimestamp),
+    const history = await drain(
+      await ctx.stub.getHistoryForKey(batchKey(ctx, normalisedBatchId)),
+      (entry) => {
+        const isDelete = entry.isDelete;
+        const batch = isDelete ? null : parseBatch(entry.value, normalisedBatchId);
+        return {
+          txId: entry.txId,
+          timestamp: fabricTimestampToIso(entry.timestamp as HistoryTimestamp),
           isDelete,
           submittedByStakeholderId: batch?.lastUpdatedByStakeholderId ?? null,
           batch
-        });
+        };
       }
-    } finally {
-      await iterator.close();
-    }
+    );
 
     return JSON.stringify(history);
   }
@@ -190,27 +204,10 @@ export class BatchLifecycleContract extends Contract {
       );
     }
 
-    const iterator = await ctx.stub.getQueryResult(
-      JSON.stringify({
-        selector: {
-          status: normalisedStatus
-        }
-      })
+    const batches = await drain(
+      await ctx.stub.getQueryResult(JSON.stringify({ selector: { status: normalisedStatus } })),
+      (entry) => (entry.value ? parseBatch(entry.value) : undefined)
     );
-    const batches: Batch[] = [];
-    try {
-      while (true) {
-        const result = await iterator.next();
-        if (result.done) {
-          break;
-        }
-        if (result.value?.value) {
-          batches.push(parseBatch(result.value.value));
-        }
-      }
-    } finally {
-      await iterator.close();
-    }
 
     batches.sort((left, right) => left.batchId.localeCompare(right.batchId));
     return JSON.stringify(batches);
@@ -253,70 +250,11 @@ export class BatchLifecycleContract extends Contract {
   }
 }
 
-function requireValue(value: string, fieldName: string): string {
-  const normalised = value.trim();
-  if (!normalised) {
-    throw new Error(`${fieldName} must not be empty.`);
-  }
-  return normalised;
-}
 
-function isBatchStatus(value: string): value is BatchStatus {
-  return BATCH_STATUSES.includes(value as BatchStatus);
-}
 
-async function getBatchRecord(ctx: Context, batchId: string): Promise<Batch> {
-  const value = await ctx.stub.getState(batchKey(ctx, batchId));
-  if (value.length === 0) {
-    throw new Error(`Batch '${batchId}' does not exist.`);
-  }
-  return parseBatch(value, batchId);
-}
 
-function parseBatch(value: Uint8Array, expectedBatchId?: string): Batch {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(Buffer.from(value).toString());
-  } catch {
-    throw new Error(
-      expectedBatchId
-        ? `Batch '${expectedBatchId}' contains invalid ledger data.`
-        : "A batch query returned invalid ledger data."
-    );
-  }
 
-  if (!isBatch(parsed) || (expectedBatchId && parsed.batchId !== expectedBatchId)) {
-    throw new Error(
-      expectedBatchId
-        ? `Batch '${expectedBatchId}' contains invalid ledger data.`
-        : "A batch query returned invalid ledger data."
-    );
-  }
-  return parsed;
-}
 
-function isBatch(value: unknown): value is Batch {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const candidate = value as Partial<Batch>;
-  return (
-    typeof candidate.batchId === "string" &&
-    candidate.batchId.length > 0 &&
-    typeof candidate.status === "string" &&
-    isBatchStatus(candidate.status) &&
-    typeof candidate.createdByStakeholderId === "string" &&
-    typeof candidate.createdTxId === "string" &&
-    typeof candidate.createdAt === "string" &&
-    typeof candidate.lastUpdatedByStakeholderId === "string" &&
-    typeof candidate.lastUpdatedTxId === "string" &&
-    typeof candidate.lastUpdatedAt === "string"
-  );
-}
-
-async function putBatch(ctx: Context, batch: Batch): Promise<void> {
-  await ctx.stub.putState(batchKey(ctx, batch.batchId), Buffer.from(JSON.stringify(batch)));
-}
 
 function emitLifecycleEvent(
   ctx: Context,

@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { config } from "../config.js";
-import { sendGatewayError, withGateway, type GatewayConnector } from "../fabric/request.js";
+import { bindLedger, requireString } from "../fabric/ledger.js";
+import { sendGatewayError, type GatewayConnector } from "../fabric/request.js";
 
-const CONTRACT = "BatchLifecycleContract";
+export const BATCH_CONTRACT = "BatchLifecycleContract";
 
 // The lifecycle steps are separate transactions on the contract, so the request names the event
 // and the backend maps it rather than accepting a transaction name from the caller.
@@ -12,14 +13,8 @@ const EVENT_TRANSACTIONS: Record<string, string> = {
   DELIVERY: "recordDelivery"
 };
 
-function requireString(value: unknown, field: string): string {
-  if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`'${field}' must be a non-empty string.`);
-  }
-  return value.trim();
-}
-
 export function createBatchRouter(connect: GatewayConnector): Router {
+  const batches = bindLedger(connect, config.supplychainChaincodeName, BATCH_CONTRACT);
   const router = Router();
 
   router.post("/", async (req, res) => {
@@ -28,16 +23,7 @@ export function createBatchRouter(connect: GatewayConnector): Router {
       const origin = requireString(req.body?.origin, "origin");
       const location = requireString(req.body?.location, "location");
 
-      await withGateway(connect, req, (client) =>
-        client.submitTransaction(
-          config.supplychainChaincodeName,
-          CONTRACT,
-          "createBatch",
-          batchId,
-          origin,
-          location
-        )
-      );
+      await batches.submit(req, "createBatch", batchId, origin, location);
       res.status(201).json({ batchId, origin, location, status: "CREATED" });
     } catch (error) {
       sendGatewayError(res, error);
@@ -56,15 +42,7 @@ export function createBatchRouter(connect: GatewayConnector): Router {
       }
 
       const location = requireString(req.body?.location, "location");
-      await withGateway(connect, req, (client) =>
-        client.submitTransaction(
-          config.supplychainChaincodeName,
-          CONTRACT,
-          transactionName,
-          req.params.batchId,
-          location
-        )
-      );
+      await batches.submit(req, transactionName, req.params.batchId, location);
       res.json({ batchId: req.params.batchId, eventType, location });
     } catch (error) {
       sendGatewayError(res, error);
@@ -74,15 +52,7 @@ export function createBatchRouter(connect: GatewayConnector): Router {
   router.post("/:batchId/recall", async (req, res) => {
     try {
       const reason = requireString(req.body?.reason, "reason");
-      await withGateway(connect, req, (client) =>
-        client.submitTransaction(
-          config.supplychainChaincodeName,
-          CONTRACT,
-          "recallBatch",
-          req.params.batchId,
-          reason
-        )
-      );
+      await batches.submit(req, "recallBatch", req.params.batchId, reason);
       res.json({ batchId: req.params.batchId, status: "RECALLED", reason });
     } catch (error) {
       sendGatewayError(res, error);
@@ -91,15 +61,7 @@ export function createBatchRouter(connect: GatewayConnector): Router {
 
   router.get("/:batchId", async (req, res) => {
     try {
-      const bytes = await withGateway(connect, req, (client) =>
-        client.evaluateTransaction(
-          config.supplychainChaincodeName,
-          CONTRACT,
-          "getBatch",
-          req.params.batchId
-        )
-      );
-      res.json(JSON.parse(Buffer.from(bytes).toString()));
+      res.json(await batches.evaluateJson(req, "getBatch", req.params.batchId));
     } catch (error) {
       sendGatewayError(res, error);
     }
@@ -107,15 +69,7 @@ export function createBatchRouter(connect: GatewayConnector): Router {
 
   router.get("/:batchId/history", async (req, res) => {
     try {
-      const bytes = await withGateway(connect, req, (client) =>
-        client.evaluateTransaction(
-          config.supplychainChaincodeName,
-          CONTRACT,
-          "getBatchHistory",
-          req.params.batchId
-        )
-      );
-      res.json(JSON.parse(Buffer.from(bytes).toString()));
+      res.json(await batches.evaluateJson(req, "getBatchHistory", req.params.batchId));
     } catch (error) {
       sendGatewayError(res, error);
     }

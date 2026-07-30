@@ -7,7 +7,8 @@ import type {
   TemperatureEvidence,
   TemperatureStatistics
 } from "../models/TemperatureEvidence.js";
-import { batchKey, temperatureEvidenceKey } from "../utils/ledgerKeys.js";
+import { temperatureEvidenceKey } from "../utils/ledgerKeys.js";
+import { getBatchRecord, putBatch, requireValue } from "../utils/batchStore.js";
 import { assertActiveRole, getInvokingStakeholder } from "../utils/stakeholderClient.js";
 import { getTransactionMetadata } from "../utils/txContext.js";
 
@@ -74,10 +75,7 @@ export class TemperatureComplianceContract extends Contract {
         lastUpdatedTxId: metadata.txId,
         lastUpdatedAt: metadata.timestamp
       };
-      await ctx.stub.putState(
-        batchKey(ctx, normalisedBatchId),
-        Buffer.from(JSON.stringify(breachedBatch))
-      );
+      await putBatch(ctx, breachedBatch);
 
       ctx.stub.setEvent(
         "ColdChainBreach",
@@ -142,10 +140,7 @@ export class TemperatureComplianceContract extends Contract {
       lastUpdatedAt: metadata.timestamp
     };
 
-    await ctx.stub.putState(
-      batchKey(ctx, normalisedBatchId),
-      Buffer.from(JSON.stringify(resolvedBatch))
-    );
+    await putBatch(ctx, resolvedBatch);
     ctx.stub.setEvent(
       "ColdChainBreachResolved",
       Buffer.from(
@@ -173,14 +168,6 @@ export class TemperatureComplianceContract extends Contract {
     return value.toString();
   }
 
-}
-
-function requireValue(value: string, fieldName: string): string {
-  const normalised = value.trim();
-  if (!normalised) {
-    throw new Error(`${fieldName} must not be empty.`);
-  }
-  return normalised;
 }
 
 function parseSha256Hash(value: string): string {
@@ -249,47 +236,3 @@ function deriveComplianceOutcome(
     : "UNSAFE";
 }
 
-async function getBatchRecord(ctx: Context, batchId: string): Promise<Batch> {
-  const value = await ctx.stub.getState(batchKey(ctx, batchId));
-  if (value.length === 0) {
-    throw new Error(`Batch '${batchId}' does not exist.`);
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value.toString());
-  } catch {
-    throw new Error(`Batch '${batchId}' contains invalid ledger data.`);
-  }
-
-  if (!isBatch(parsed) || parsed.batchId !== batchId) {
-    throw new Error(`Batch '${batchId}' contains invalid ledger data.`);
-  }
-  return parsed;
-}
-
-function isBatch(value: unknown): value is Batch {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Partial<Batch>;
-  const validStatuses = new Set([
-    "CREATED",
-    "PROCESSED",
-    "IN_TRANSIT",
-    "DELIVERED",
-    "RECALLED",
-    "COLD_CHAIN_BREACH"
-  ]);
-
-  return (
-    typeof candidate.batchId === "string" &&
-    candidate.batchId.length > 0 &&
-    typeof candidate.status === "string" &&
-    validStatuses.has(candidate.status) &&
-    typeof candidate.createdByStakeholderId === "string" &&
-    typeof candidate.createdTxId === "string" &&
-    typeof candidate.createdAt === "string"
-  );
-}

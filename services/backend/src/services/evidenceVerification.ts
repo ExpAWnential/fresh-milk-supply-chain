@@ -1,7 +1,4 @@
-import {
-  sha256TemperatureReadings,
-  type TemperatureRepository
-} from "@fresh-milk/storage";
+import { sha256TemperatureReadings, type TemperatureRepository } from "@fresh-milk/storage";
 
 export interface AnchoredEvidence {
   readonly evidenceHash: string;
@@ -14,20 +11,24 @@ export interface AnchoredEvidenceReader {
 
 export interface EvidenceVerificationDependencies {
   readonly temperatureRepository: TemperatureRepository;
-  readonly anchoredEvidenceReader?: AnchoredEvidenceReader;
+  // Required. Comparing the stored hash against readings from that same database proves nothing,
+  // because both move together when a row is altered. The anchor has to come off the ledger.
+  readonly anchoredEvidenceReader: AnchoredEvidenceReader;
 }
 
 export interface EvidenceVerificationResult {
   readonly evidenceId: string;
   readonly batchId: string;
+  // Whether the stored readings still hash to what the ledger anchored.
   readonly match: boolean;
+  // Whether the database's own record of the hash also matches the ledger. A false here with a
+  // true above would mean the stored hash was altered rather than the readings.
   readonly databaseHashMatchesAnchor: boolean;
   readonly anchoredHash: string;
   readonly databaseHash: string;
   readonly recomputedHash: string;
   readonly readingCount: number;
   readonly fabricTransactionId: string;
-  readonly anchorSource: "FABRIC" | "CONFIRMED_DATABASE_RECORD";
 }
 
 export type EvidenceVerificationErrorCode =
@@ -65,25 +66,26 @@ export async function verifyTemperatureEvidence(
     );
   }
 
-  const readings = await dependencies.temperatureRepository.getReadings(normalisedEvidenceId);
+  // The database read and the ledger read are independent, so neither waits on the other.
+  const [readings, fabricEvidence] = await Promise.all([
+    dependencies.temperatureRepository.getReadings(normalisedEvidenceId),
+    dependencies.anchoredEvidenceReader.getAnchoredEvidence(normalisedEvidenceId)
+  ]);
+
   if (readings.length === 0) {
     throw new EvidenceVerificationError(
       "READINGS_NOT_FOUND",
       `Evidence '${normalisedEvidenceId}' has no off-chain readings.`
     );
   }
-
-  const fabricEvidence = dependencies.anchoredEvidenceReader
-    ? await dependencies.anchoredEvidenceReader.getAnchoredEvidence(normalisedEvidenceId)
-    : undefined;
-  if (dependencies.anchoredEvidenceReader && !fabricEvidence) {
+  if (!fabricEvidence) {
     throw new EvidenceVerificationError(
       "ANCHORED_EVIDENCE_NOT_FOUND",
       `Evidence '${normalisedEvidenceId}' does not exist on Fabric.`
     );
   }
 
-  const anchoredHash = (fabricEvidence?.evidenceHash ?? evidence.evidenceHash).toLowerCase();
+  const anchoredHash = fabricEvidence.evidenceHash.toLowerCase();
   const databaseHash = evidence.evidenceHash.toLowerCase();
   const recomputedHash = sha256TemperatureReadings(evidence.batchId, readings);
 
@@ -96,8 +98,6 @@ export async function verifyTemperatureEvidence(
     databaseHash,
     recomputedHash,
     readingCount: readings.length,
-    fabricTransactionId:
-      fabricEvidence?.fabricTransactionId ?? evidence.fabricTransactionId,
-    anchorSource: fabricEvidence ? "FABRIC" : "CONFIRMED_DATABASE_RECORD"
+    fabricTransactionId: fabricEvidence.fabricTransactionId ?? evidence.fabricTransactionId
   };
 }

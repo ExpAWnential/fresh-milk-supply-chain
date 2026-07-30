@@ -1,8 +1,8 @@
 import type { Request as ExpressRequest } from "express";
 import { config } from "../config.js";
 import { resolveDemoIdentity } from "../demoIdentity.js";
-import type { DemoIdentity } from "../demoIdentity.js";
 import { createFabricGatewayClient } from "./gateway.js";
+import { TEMPERATURE_CONTRACT } from "../routes/temperature.js";
 import type {
   AnchoredEvidence,
   AnchoredEvidenceReader
@@ -15,17 +15,15 @@ import type {
 // It runs as the caller, so the contract decides who may read the anchored evidence rather than
 // the backend granting it to anyone who asks.
 export function createReaderForRequest(request: ExpressRequest): AnchoredEvidenceReader {
-  return readerForIdentity(resolveDemoIdentity(request));
-}
+  const identity = resolveDemoIdentity(request);
 
-function readerForIdentity(identity: DemoIdentity): AnchoredEvidenceReader {
   return {
     async getAnchoredEvidence(evidenceId: string): Promise<AnchoredEvidence | undefined> {
       const client = await createFabricGatewayClient(identity);
       try {
         const bytes = await client.evaluateTransaction(
           config.supplychainChaincodeName,
-          "TemperatureComplianceContract",
+          TEMPERATURE_CONTRACT,
           "getTemperatureEvidence",
           evidenceId
         );
@@ -38,13 +36,27 @@ function readerForIdentity(identity: DemoIdentity): AnchoredEvidenceReader {
           evidenceHash: anchored.evidenceHash,
           fabricTransactionId: anchored.submittedTxId
         };
-      } catch {
-        // The contract rejects an unknown evidence ID. Reporting it as absent lets the caller
-        // distinguish "never anchored" from "anchored but altered".
-        return undefined;
+      } catch (error) {
+        // Only the contract saying the evidence is unknown means "never anchored". A peer being
+        // unreachable, or the caller's role being refused, must surface as a failure rather than
+        // be reported as absent evidence, which would read as a clean verification result.
+        if (describesMissingEvidence(error)) {
+          return undefined;
+        }
+        throw error;
       } finally {
         client.close();
       }
     }
   };
+}
+
+function describesMissingEvidence(error: unknown): boolean {
+  const details = (error as { details?: readonly { message?: string }[] })?.details;
+  const messages = [
+    ...(Array.isArray(details) ? details.map((detail) => detail?.message ?? "") : []),
+    error instanceof Error ? error.message : ""
+  ];
+
+  return messages.some((message) => /does not exist/i.test(message));
 }

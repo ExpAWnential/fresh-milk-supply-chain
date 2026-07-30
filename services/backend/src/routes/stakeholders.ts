@@ -1,17 +1,12 @@
 import { Router } from "express";
 import { config } from "../config.js";
-import { sendGatewayError, withGateway, type GatewayConnector } from "../fabric/request.js";
+import { bindLedger, requireString } from "../fabric/ledger.js";
+import { sendGatewayError, type GatewayConnector } from "../fabric/request.js";
 
-const CONTRACT = "StakeholderRegistryContract";
-
-function requireString(value: unknown, field: string): string {
-  if (typeof value !== "string" || !value.trim()) {
-    throw new Error(`'${field}' must be a non-empty string.`);
-  }
-  return value.trim();
-}
+export const STAKEHOLDER_CONTRACT = "StakeholderRegistryContract";
 
 export function createStakeholderRouter(connect: GatewayConnector): Router {
+  const registry = bindLedger(connect, config.stakeholderChaincodeName, STAKEHOLDER_CONTRACT);
   const router = Router();
 
   // Creates the first regulator on an empty registry. Every other registration needs an existing
@@ -20,14 +15,7 @@ export function createStakeholderRouter(connect: GatewayConnector): Router {
   router.post("/bootstrap", async (req, res) => {
     try {
       const stakeholderId = requireString(req.body?.stakeholderId, "stakeholderId");
-      await withGateway(connect, req, (client) =>
-        client.submitTransaction(
-          config.stakeholderChaincodeName,
-          CONTRACT,
-          "bootstrapRegulator",
-          stakeholderId
-        )
-      );
+      await registry.submit(req, "bootstrapRegulator", stakeholderId);
       res.status(201).json({ stakeholderId, role: "REGULATOR" });
     } catch (error) {
       sendGatewayError(res, error);
@@ -40,16 +28,7 @@ export function createStakeholderRouter(connect: GatewayConnector): Router {
       const role = requireString(req.body?.role, "role");
       const certificateId = requireString(req.body?.certificateId, "certificateId");
 
-      await withGateway(connect, req, (client) =>
-        client.submitTransaction(
-          config.stakeholderChaincodeName,
-          CONTRACT,
-          "registerStakeholder",
-          stakeholderId,
-          role,
-          certificateId
-        )
-      );
+      await registry.submit(req, "registerStakeholder", stakeholderId, role, certificateId);
       res.status(201).json({ stakeholderId, role });
     } catch (error) {
       sendGatewayError(res, error);
@@ -59,15 +38,7 @@ export function createStakeholderRouter(connect: GatewayConnector): Router {
   router.patch("/:stakeholderId/role", async (req, res) => {
     try {
       const role = requireString(req.body?.role, "role");
-      await withGateway(connect, req, (client) =>
-        client.submitTransaction(
-          config.stakeholderChaincodeName,
-          CONTRACT,
-          "updateStakeholderRole",
-          req.params.stakeholderId,
-          role
-        )
-      );
+      await registry.submit(req, "updateStakeholderRole", req.params.stakeholderId, role);
       res.json({ stakeholderId: req.params.stakeholderId, role });
     } catch (error) {
       sendGatewayError(res, error);
@@ -76,14 +47,7 @@ export function createStakeholderRouter(connect: GatewayConnector): Router {
 
   router.post("/:stakeholderId/suspend", async (req, res) => {
     try {
-      await withGateway(connect, req, (client) =>
-        client.submitTransaction(
-          config.stakeholderChaincodeName,
-          CONTRACT,
-          "suspendStakeholder",
-          req.params.stakeholderId
-        )
-      );
+      await registry.submit(req, "suspendStakeholder", req.params.stakeholderId);
       res.json({ stakeholderId: req.params.stakeholderId, active: false });
     } catch (error) {
       sendGatewayError(res, error);
@@ -92,14 +56,7 @@ export function createStakeholderRouter(connect: GatewayConnector): Router {
 
   router.post("/:stakeholderId/reactivate", async (req, res) => {
     try {
-      await withGateway(connect, req, (client) =>
-        client.submitTransaction(
-          config.stakeholderChaincodeName,
-          CONTRACT,
-          "reactivateStakeholder",
-          req.params.stakeholderId
-        )
-      );
+      await registry.submit(req, "reactivateStakeholder", req.params.stakeholderId);
       res.json({ stakeholderId: req.params.stakeholderId, active: true });
     } catch (error) {
       sendGatewayError(res, error);
@@ -108,15 +65,7 @@ export function createStakeholderRouter(connect: GatewayConnector): Router {
 
   router.get("/:stakeholderId", async (req, res) => {
     try {
-      const bytes = await withGateway(connect, req, (client) =>
-        client.evaluateTransaction(
-          config.stakeholderChaincodeName,
-          CONTRACT,
-          "getStakeholder",
-          req.params.stakeholderId
-        )
-      );
-      res.json(JSON.parse(Buffer.from(bytes).toString()));
+      res.json(await registry.evaluateJson(req, "getStakeholder", req.params.stakeholderId));
     } catch (error) {
       sendGatewayError(res, error);
     }
