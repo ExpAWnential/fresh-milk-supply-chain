@@ -76,7 +76,10 @@ export class BatchLifecycleContract extends Contract {
     origin: string,
     location: string
   ): Promise<void> {
-    const stakeholder = await assertActiveRole(ctx, ["FARM", "PROCESSOR"]);
+    // Only a farm. Milk enters the chain at its source, and `origin` is written once here and
+    // never changed, so letting a later party create the batch would let it state its own
+    // provenance. The processor's step is recordProcessingEvent.
+    const stakeholder = await assertActiveRole(ctx, ["FARM"]);
     const normalisedBatchId = requireValue(batchId, "Batch ID");
     const normalisedOrigin = requireValue(origin, "Origin");
     const normalisedLocation = requireValue(location, "Location");

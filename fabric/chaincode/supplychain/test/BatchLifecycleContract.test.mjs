@@ -57,7 +57,13 @@ test("duplicate IDs, incorrect roles and invalid lifecycle steps are rejected", 
 
   await assert.rejects(
     contract.createBatch(context(stub, "cert-retailer"), "BATCH-002", "Green Pastures Dairy", "Bega NSW"),
-    /requires one of: FARM, PROCESSOR/
+    /requires one of: FARM/
+  );
+  // A processor has its own lifecycle step and must not be able to open a batch, which would let
+  // it state an origin no farm ever vouched for.
+  await assert.rejects(
+    contract.createBatch(context(stub, "cert-processor"), "BATCH-002", "Green Pastures Dairy", "Bega NSW"),
+    /requires one of: FARM/
   );
   await assert.rejects(
     contract.createBatch(context(stub, "cert-suspended"), "BATCH-002", "Green Pastures Dairy", "Bega NSW"),

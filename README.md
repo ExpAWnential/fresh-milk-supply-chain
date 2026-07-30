@@ -74,7 +74,8 @@ pnpm demo:tamper  # alter a stored reading, then verify it to see the mismatch
 - Only a regulator may register, update or suspend stakeholders.
 - Stakeholders are linked to their authenticated Fabric certificate IDs.
 - Supported roles are `REGULATOR`, `FARM`, `PROCESSOR`, `LOGISTICS`, `RETAILER` and `ORACLE`.
-- Only `FARM` or `PROCESSOR` may create a milk batch.
+- Only a `FARM` may create a milk batch, because that is where milk enters the chain and the
+  origin recorded at creation is never changed afterwards.
 - Batch lifecycle transitions must be validated on-chain.
 - Invalid or out-of-order events must be rejected.
 - Only `ORACLE` may submit temperature evidence.

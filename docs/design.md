@@ -83,8 +83,8 @@ none of them can secretly change.
 **Smart contract 2: Batch lifecycle.** Runs the milk's journey.
 
 - A batch moves in order: created, then processed, then in transit, then delivered.
-- Each step can only be done by the right company: a farm or processor creates it, a processor
-  processes it, logistics transports it, a retailer takes delivery.
+- Each step can only be done by the right company: a farm creates it, a processor processes it,
+  logistics transports it, a retailer takes delivery.
 - Steps cannot be skipped or done out of order.
 - A batch that has been recalled, or flagged for a temperature problem, cannot be delivered.
 - Anyone authorised can pull up the full history of a batch.
