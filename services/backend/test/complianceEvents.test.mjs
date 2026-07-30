@@ -43,10 +43,33 @@ test("the contract's verdict from the event is written to the evidence row", asy
   assert.deepEqual(calls, [["EV-1", "UNSAFE", "tx-9"]]);
 });
 
+// The contract announces an unsafe verdict under its own event name. Ignoring it would leave the
+// database holding the oracle's opinion of the very reading that matters most, and would also
+// strand a row the oracle could not confirm, since this is what marks one anchored.
+test("a cold-chain breach verdict is applied like any other", async () => {
+  const { calls, repository } = recordingRepository();
+
+  const applied = await applyComplianceEvent(
+    event("ColdChainBreach", {
+      evidenceId: "EV-2",
+      batchId: "B-1",
+      complianceOutcome: "UNSAFE",
+      statistics: { minCelsius: 1, maxCelsius: 9, averageCelsius: 5, readingCount: 3 },
+      txId: "tx-10"
+    }),
+    repository
+  );
+
+  assert.equal(applied, true);
+  assert.deepEqual(calls, [["EV-2", "UNSAFE", "tx-10"]]);
+});
+
 test("events the listener has no business with are left alone", async () => {
   const { calls, repository } = recordingRepository();
 
-  for (const name of ["ColdChainBreach", "BatchCreated", "BatchDelivered"]) {
+  // Resolving a breach does not revise the evidence: the reading was still unsafe when it was
+  // taken, and that stays on the record.
+  for (const name of ["ColdChainBreachResolved", "BatchCreated", "BatchDelivered"]) {
     const applied = await applyComplianceEvent(event(name, { batchId: "B-1" }), repository);
     assert.equal(applied, false, name);
   }

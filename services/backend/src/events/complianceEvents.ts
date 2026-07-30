@@ -21,9 +21,15 @@ export interface ComplianceEventDependencies<TEvent extends LedgerEvent = Ledger
   readonly checkpoint?: (event: TEvent) => Promise<void>;
 }
 
-const EVIDENCE_SUBMITTED = "TemperatureEvidenceSubmitted";
+// The contract announces its verdict under a different name depending on which way it went, and
+// both have to be applied. Listening only to the safe one would leave the off-chain copy of a
+// breach holding whatever the oracle guessed, which is the reading that matters most.
+const VERDICT_EVENTS: ReadonlySet<string> = new Set([
+  "TemperatureEvidenceSubmitted",
+  "ColdChainBreach"
+]);
 
-interface EvidenceSubmittedPayload {
+interface VerdictPayload {
   readonly evidenceId: string;
   readonly complianceOutcome: ComplianceOutcome;
   readonly txId: string;
@@ -37,14 +43,14 @@ export async function applyComplianceEvent(
   event: LedgerEvent,
   temperatureRepository: TemperatureRepository
 ): Promise<boolean> {
-  if (event.eventName !== EVIDENCE_SUBMITTED) {
+  if (!VERDICT_EVENTS.has(event.eventName)) {
     return false;
   }
 
   const payload = parsePayload(event.payload);
   if (!payload) {
     // A malformed event is not worth stopping the stream for, and there is nothing to apply.
-    console.error(`Ignored a ${EVIDENCE_SUBMITTED} event that could not be read.`);
+    console.error(`Ignored a ${event.eventName} event that could not be read.`);
     return false;
   }
 
@@ -74,7 +80,7 @@ export async function consumeComplianceEvents<TEvent extends LedgerEvent>(
   }
 }
 
-function parsePayload(payload: Uint8Array): EvidenceSubmittedPayload | undefined {
+function parsePayload(payload: Uint8Array): VerdictPayload | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(Buffer.from(payload).toString());
@@ -82,7 +88,7 @@ function parsePayload(payload: Uint8Array): EvidenceSubmittedPayload | undefined
     return undefined;
   }
 
-  const candidate = parsed as Partial<EvidenceSubmittedPayload>;
+  const candidate = parsed as Partial<VerdictPayload>;
   const outcomeIsKnown =
     candidate.complianceOutcome === "COMPLIANT" || candidate.complianceOutcome === "UNSAFE";
 
@@ -91,6 +97,6 @@ function parsePayload(payload: Uint8Array): EvidenceSubmittedPayload | undefined
     typeof candidate.txId === "string" &&
     candidate.txId.length > 0 &&
     outcomeIsKnown
-    ? (candidate as EvidenceSubmittedPayload)
+    ? (candidate as VerdictPayload)
     : undefined;
 }
