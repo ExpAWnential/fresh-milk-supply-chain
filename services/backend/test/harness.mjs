@@ -37,18 +37,7 @@ export function stubLedger({ submit, evaluate } = {}) {
 
 // A ledger whose every call is refused by the contract, wrapped the way the real gateway wraps it.
 export function refusingLedger(message) {
-  const refuse = async () => {
-    throw chaincodeRejection(message);
-  };
-  return {
-    calls: [],
-    leaked: false,
-    connect: async () => ({
-      submitTransaction: refuse,
-      evaluateTransaction: refuse,
-      close() {}
-    })
-  };
+  return failingLedger(chaincodeRejection(message));
 }
 
 // A ledger that fails every call with the given error, whatever kind of failure it represents.
