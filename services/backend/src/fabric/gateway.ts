@@ -90,6 +90,16 @@ function createGrpcClient(identity: DemoIdentity, tlsRootCert: Buffer): Client {
   );
 }
 
+// fabric-gateway applies no deadline of its own, so a peer or orderer that stalls holds the
+// request open forever and the gRPC channel behind it is never released. Waiting for a block to
+// be cut is the slowest step, which is why it gets the longest of these.
+const callDeadlines = {
+  evaluateOptions: () => ({ deadline: Date.now() + 30_000 }),
+  endorseOptions: () => ({ deadline: Date.now() + 30_000 }),
+  submitOptions: () => ({ deadline: Date.now() + 30_000 }),
+  commitStatusOptions: () => ({ deadline: Date.now() + 60_000 })
+};
+
 export async function createFabricGatewayClient(
   identity: DemoIdentity
 ): Promise<FabricGatewayClient> {
@@ -102,7 +112,8 @@ export async function createFabricGatewayClient(
       client,
       identity: { mspId: identity.mspId, credentials: wallet.certificate },
       signer: wallet.signer,
-      hash: hash.sha256
+      hash: hash.sha256,
+      ...callDeadlines
     });
   } catch (error) {
     // The channel is already open at this point, and nothing else would ever close it.
