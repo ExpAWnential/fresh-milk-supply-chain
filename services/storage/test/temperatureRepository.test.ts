@@ -15,9 +15,17 @@ interface RecordedQuery {
 class FakeClient {
   readonly queries: RecordedQuery[] = [];
   released = false;
+  // The upsert reports no row written when the existing evidence is already ANCHORED, which is
+  // how the repository knows to leave the anchored readings alone.
+  evidenceUpsertWrites = true;
 
   async query(text: string, values?: readonly unknown[]): Promise<QueryResult> {
     this.queries.push({ text, values });
+
+    if (text.includes("INSERT INTO temperature_evidence")) {
+      return { rows: [], rowCount: this.evidenceUpsertWrites ? 1 : 0 } as QueryResult;
+    }
+
     return { rows: [], rowCount: 0 } as QueryResult;
   }
 
@@ -62,10 +70,40 @@ describe("temperature repository", () => {
 
     assert.equal(pool.client.queries[0].text, "BEGIN");
     assert.match(pool.client.queries[1].text, /INSERT INTO temperature_evidence/);
-    assert.match(pool.client.queries[2].text, /INSERT INTO temperature_readings/);
+    assert.match(pool.client.queries[2].text, /DELETE FROM temperature_readings/);
     assert.match(pool.client.queries[3].text, /INSERT INTO temperature_readings/);
-    assert.equal(pool.client.queries[4].text, "COMMIT");
+    assert.match(pool.client.queries[4].text, /INSERT INTO temperature_readings/);
+    assert.equal(pool.client.queries[5].text, "COMMIT");
     assert.equal(pool.client.released, true);
+  });
+
+  // The evidence ID is derived from the readings, so repeating a run that failed part way through
+  // produces the same ID. Without the upsert the retry dies on the primary key and those readings
+  // can never be anchored.
+  it("replaces an earlier attempt rather than failing on the primary key", async () => {
+    const pool = new FakePool();
+    const repository = createTemperatureRepository(pool as unknown as Pool);
+
+    await repository.saveEvidence(sampleEvidence(), sampleReadings());
+
+    const upsert = pool.client.queries[1].text;
+    assert.match(upsert, /ON CONFLICT \(evidence_id\) DO UPDATE/);
+    // Anchored evidence is never rewritten: its readings are what the ledger hash covers.
+    assert.match(upsert, /WHERE temperature_evidence\.submission_status <> 'ANCHORED'/);
+  });
+
+  it("leaves the readings untouched when the evidence is already anchored", async () => {
+    const pool = new FakePool();
+    pool.client.evidenceUpsertWrites = false;
+    const repository = createTemperatureRepository(pool as unknown as Pool);
+
+    await repository.saveEvidence(sampleEvidence(), sampleReadings());
+
+    assert.equal(
+      pool.client.queries.some((query) => /temperature_readings/.test(query.text)),
+      false
+    );
+    assert.equal(pool.client.queries.at(-1)?.text, "COMMIT");
   });
 
   it("rejects evidence when readingCount does not match supplied readings", async () => {

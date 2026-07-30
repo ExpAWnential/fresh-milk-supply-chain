@@ -66,8 +66,16 @@ export function createTemperatureRepository(pool: Pool): TemperatureRepository {
 
       try {
         await client.query("BEGIN");
-        await insertEvidence(client, evidence);
-        await insertReadings(client, evidence.evidenceId, readings);
+        const written = await upsertEvidence(client, evidence);
+        // An anchored row is left exactly as it stands. Its readings are what the hash on the
+        // ledger covers, so rewriting them would destroy the baseline tamper detection compares
+        // against. Any other row is replaced, which is what makes a failed run repeatable.
+        if (written) {
+          await client.query("DELETE FROM temperature_readings WHERE evidence_id = $1", [
+            evidence.evidenceId
+          ]);
+          await insertReadings(client, evidence.evidenceId, readings);
+        }
         await client.query("COMMIT");
       } catch (error) {
         await client.query("ROLLBACK");
@@ -156,11 +164,14 @@ function validateEvidenceForReadings(
   }
 }
 
-async function insertEvidence(
+// Reports whether the row was written. The evidence ID is derived from the readings, so a run that
+// failed part way through produces the same ID when it is repeated: without the upsert the retry
+// would die on the primary key and those readings could never be anchored.
+async function upsertEvidence(
   client: PoolClient,
   evidence: StoredTemperatureEvidence
-): Promise<QueryResult> {
-  return client.query(
+): Promise<boolean> {
+  const result: QueryResult = await client.query(
     `
       INSERT INTO temperature_evidence (
         evidence_id,
@@ -176,6 +187,18 @@ async function insertEvidence(
         fabric_transaction_id
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      ON CONFLICT (evidence_id) DO UPDATE SET
+        batch_id = EXCLUDED.batch_id,
+        sensor_id = EXCLUDED.sensor_id,
+        evidence_hash = EXCLUDED.evidence_hash,
+        min_celsius = EXCLUDED.min_celsius,
+        max_celsius = EXCLUDED.max_celsius,
+        average_celsius = EXCLUDED.average_celsius,
+        reading_count = EXCLUDED.reading_count,
+        compliance_outcome = EXCLUDED.compliance_outcome,
+        submission_status = EXCLUDED.submission_status,
+        fabric_transaction_id = EXCLUDED.fabric_transaction_id
+      WHERE temperature_evidence.submission_status <> 'ANCHORED'
     `,
     [
       evidence.evidenceId,
@@ -191,6 +214,8 @@ async function insertEvidence(
       evidence.fabricTransactionId
     ]
   );
+
+  return (result.rowCount ?? 0) > 0;
 }
 
 async function insertReadings(

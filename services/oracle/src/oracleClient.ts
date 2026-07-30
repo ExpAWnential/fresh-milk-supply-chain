@@ -56,25 +56,47 @@ export async function submitTemperatureEvidence(
 
   // Read the anchored record back so the off-chain row can be linked to the real transaction,
   // which also confirms the evidence is genuinely on the ledger.
-  const readResponse = await fetch(
-    `${backendUrl}/temperature/evidence/${encodeURIComponent(submission.evidenceId)}`,
-    { headers: { "x-demo-identity": "oracle" } }
-  );
-
   // From here on the transaction is committed, so every failure reports anchored: true.
-  if (!readResponse.ok) {
+  let anchored: AnchoredEvidence | undefined;
+  try {
+    anchored = await readAnchoredEvidence(submission.evidenceId);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new AnchorError(`The evidence was submitted but could not be read back: ${reason}`, true);
+  }
+
+  if (!anchored) {
     throw new AnchorError(
-      `The evidence was submitted but could not be read back: ${await describeFailure(readResponse)}`,
+      "The evidence was submitted but no anchored record could be found for it.",
       true
     );
   }
 
-  const anchored = (await readResponse.json()) as AnchoredEvidence;
+  return anchored;
+}
+
+// Undefined means the ledger positively has no such evidence. Every other failure throws, because
+// being unable to tell must never be read as "never anchored": that is the difference between a
+// run that can be repaired and one recorded as failed forever.
+export async function readAnchoredEvidence(
+  evidenceId: string
+): Promise<AnchoredEvidence | undefined> {
+  const response = await fetch(
+    `${backendUrl}/temperature/evidence/${encodeURIComponent(evidenceId)}`,
+    { headers: { "x-demo-identity": "oracle" } }
+  );
+
+  if (!response.ok) {
+    const failure = await describeFailure(response);
+    if (/Temperature evidence '[^']*' does not exist/i.test(failure)) {
+      return undefined;
+    }
+    throw new Error(failure);
+  }
+
+  const anchored = (await response.json()) as AnchoredEvidence;
   if (!anchored.submittedTxId) {
-    throw new AnchorError(
-      "The evidence was submitted but the anchored record carried no transaction ID.",
-      true
-    );
+    throw new Error("The anchored record carried no transaction ID.");
   }
 
   return anchored;

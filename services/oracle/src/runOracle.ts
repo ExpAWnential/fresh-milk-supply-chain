@@ -11,6 +11,10 @@ import type { AnchoredEvidence, TemperatureEvidenceSubmission } from "./oracleCl
 export interface OracleDependencies {
   readonly repository: TemperatureRepository;
   readonly anchor: (submission: TemperatureEvidenceSubmission) => Promise<AnchoredEvidence>;
+  // Reads what is already on the ledger for an evidence ID. The ID is derived from the readings,
+  // so the contract refuses a second submission of the same run: when anchoring fails after the
+  // transaction landed, adopting the existing record is the only way the run can finish.
+  readonly readAnchored: (evidenceId: string) => Promise<AnchoredEvidence | undefined>;
 }
 
 export interface OracleResult {
@@ -77,31 +81,57 @@ export async function runOracle(
     readings
   );
 
-  try {
-    const anchored = await dependencies.anchor({
-      evidenceId,
-      batchId,
-      evidenceHash,
-      offChainReference: `postgres://temperature_evidence/${evidenceId}`,
-      statistics
-    });
-    await dependencies.repository.markAnchored(evidenceId, anchored.submittedTxId);
+  const anchored = await anchorEvidence(dependencies, {
+    evidenceId,
+    batchId,
+    evidenceHash,
+    offChainReference: `postgres://temperature_evidence/${evidenceId}`,
+    statistics
+  });
 
-    return {
-      evidenceId,
-      batchId,
-      readingCount: statistics.readingCount,
-      statistics,
-      evidenceHash,
-      complianceOutcome: anchored.complianceOutcome,
-      fabricTransactionId: anchored.submittedTxId
-    };
+  // Deliberately outside the failure handling above. If this write fails the anchor is not lost,
+  // and the row stays PENDING for the next run to repair from the ledger, rather than committed
+  // evidence being recorded as a failure.
+  await dependencies.repository.markAnchored(evidenceId, anchored.submittedTxId);
+
+  return {
+    evidenceId,
+    batchId,
+    readingCount: statistics.readingCount,
+    statistics,
+    evidenceHash,
+    complianceOutcome: anchored.complianceOutcome,
+    fabricTransactionId: anchored.submittedTxId
+  };
+}
+
+async function anchorEvidence(
+  dependencies: OracleDependencies,
+  submission: TemperatureEvidenceSubmission
+): Promise<AnchoredEvidence> {
+  try {
+    return await dependencies.anchor(submission);
   } catch (error) {
-    // Only mark the row failed when the transaction definitely never landed. If it was committed
-    // and something later went wrong, the row stays PENDING: the evidence is on the ledger, and
-    // recording it as failed would make verification report it as never anchored, permanently.
-    if (!(error instanceof AnchorError) || !error.anchored) {
-      await dependencies.repository.markFailed(evidenceId);
+    // Anchoring reports failure for reasons that do not tell us whether the transaction reached
+    // the ledger, so the ledger itself is asked before anything is written off as a failure.
+    let onLedger: AnchoredEvidence | undefined;
+    let ledgerAnswered = false;
+    try {
+      onLedger = await dependencies.readAnchored(submission.evidenceId);
+      ledgerAnswered = true;
+    } catch {
+      // Being unable to check is not evidence of anything, so the row is left alone below.
+    }
+
+    if (onLedger) {
+      return onLedger;
+    }
+
+    // Marked failed only on positive proof: the anchor step reported the transaction never landed
+    // and the ledger confirms nothing is there. Anything less leaves the row PENDING, which the
+    // next run can still repair.
+    if (ledgerAnswered && (!(error instanceof AnchorError) || !error.anchored)) {
+      await dependencies.repository.markFailed(submission.evidenceId);
     }
     throw error;
   }

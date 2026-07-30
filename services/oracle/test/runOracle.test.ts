@@ -48,11 +48,18 @@ const anchorSucceeds = async () => ({
   complianceOutcome: "COMPLIANT" as const
 });
 
+// The ledger positively reports nothing anchored under this evidence ID.
+const nothingAnchored = async () => undefined;
+
 describe("oracle run", () => {
   it("stores the readings before anchoring, then links the confirmed transaction", async () => {
     const { calls, repository } = recordingRepository();
 
-    const result = await runOracle(READINGS, { repository, anchor: anchorSucceeds });
+    const result = await runOracle(READINGS, {
+      repository,
+      anchor: anchorSucceeds,
+      readAnchored: nothingAnchored
+    });
 
     assert.deepEqual(
       calls.map((call) => call.name),
@@ -68,7 +75,11 @@ describe("oracle run", () => {
 
   it("fingerprints with the same function verification uses", async () => {
     const { repository } = recordingRepository();
-    const result = await runOracle(READINGS, { repository, anchor: anchorSucceeds });
+    const result = await runOracle(READINGS, {
+      repository,
+      anchor: anchorSucceeds,
+      readAnchored: nothingAnchored
+    });
 
     const expected = sha256TemperatureReadings("BATCH-001", [
       { sensorId: "SENSOR-001", recordedAt: "2026-07-14T08:00:00.000Z", celsius: 3.2 },
@@ -84,6 +95,7 @@ describe("oracle run", () => {
     // These readings are within range, yet the contract is the one that decides.
     const result = await runOracle(READINGS, {
       repository,
+      readAnchored: nothingAnchored,
       anchor: async () => ({ submittedTxId: "tx-1", complianceOutcome: "UNSAFE" as const })
     });
     assert.equal(result.complianceOutcome, "UNSAFE");
@@ -95,6 +107,7 @@ describe("oracle run", () => {
     await assert.rejects(
       runOracle(READINGS, {
         repository,
+        readAnchored: nothingAnchored,
         anchor: async () => {
           throw new Error("batch must be IN_TRANSIT");
         }
@@ -116,6 +129,7 @@ describe("oracle run", () => {
     await assert.rejects(
       runOracle(READINGS, {
         repository,
+        readAnchored: nothingAnchored,
         anchor: async () => {
           throw new AnchorError("submitted but could not be read back", true);
         }
@@ -135,6 +149,7 @@ describe("oracle run", () => {
     await assert.rejects(
       runOracle(READINGS, {
         repository,
+        readAnchored: nothingAnchored,
         anchor: async () => {
           throw new AnchorError("batch must be IN_TRANSIT", false);
         }
@@ -148,12 +163,58 @@ describe("oracle run", () => {
     );
   });
 
+  // The evidence ID is derived from the readings, so the contract refuses a second submission.
+  // Adopting what is already there is the only way a half-finished run can ever complete.
+  it("adopts the record already on the ledger when anchoring reports a failure", async () => {
+    const { calls, repository } = recordingRepository();
+
+    const result = await runOracle(READINGS, {
+      repository,
+      readAnchored: async () => ({ submittedTxId: "tx-earlier", complianceOutcome: "UNSAFE" }),
+      anchor: async () => {
+        throw new AnchorError("evidence 'EV-1' has already been anchored", false);
+      }
+    });
+
+    assert.equal(result.fabricTransactionId, "tx-earlier");
+    // Reported by the contract, so the recovered run says what the ledger says.
+    assert.equal(result.complianceOutcome, "UNSAFE");
+    assert.deepEqual(
+      calls.map((call) => call.name),
+      ["saveEvidence", "markAnchored"]
+    );
+  });
+
+  it("leaves the row pending when the ledger cannot be consulted", async () => {
+    const { calls, repository } = recordingRepository();
+
+    await assert.rejects(
+      runOracle(READINGS, {
+        repository,
+        readAnchored: async () => {
+          throw new Error("peer unavailable");
+        },
+        anchor: async () => {
+          throw new AnchorError("batch must be IN_TRANSIT", false);
+        }
+      }),
+      /must be IN_TRANSIT/
+    );
+
+    // Not knowing whether the transaction landed is not proof that it did not.
+    assert.deepEqual(
+      calls.map((call) => call.name),
+      ["saveEvidence"]
+    );
+  });
+
   it("refuses readings that span more than one batch", async () => {
     const { calls, repository } = recordingRepository();
 
     await assert.rejects(
       runOracle([...READINGS, { ...READINGS[0], batchId: "BATCH-002" }], {
         repository,
+        readAnchored: nothingAnchored,
         anchor: anchorSucceeds
       }),
       /must all belong to one batch/
@@ -165,7 +226,7 @@ describe("oracle run", () => {
   it("refuses an empty reading set", async () => {
     const { repository } = recordingRepository();
     await assert.rejects(
-      runOracle([], { repository, anchor: anchorSucceeds }),
+      runOracle([], { repository, anchor: anchorSucceeds, readAnchored: nothingAnchored }),
       /must all belong to one batch/
     );
   });

@@ -1,6 +1,6 @@
 import { createPool, createTemperatureRepository } from "@fresh-milk/storage";
 import { readTemperatureReadingsCsv } from "./csvReader.js";
-import { submitTemperatureEvidence } from "./oracleClient.js";
+import { readAnchoredEvidence, submitTemperatureEvidence } from "./oracleClient.js";
 import { runOracle } from "./runOracle.js";
 
 const inputPath = process.argv[2] ?? "data/compliant-readings.csv";
@@ -12,7 +12,8 @@ const pool = createPool({ connectionString: databaseUrl });
 try {
   const result = await runOracle(await readTemperatureReadingsCsv(inputPath), {
     repository: createTemperatureRepository(pool),
-    anchor: submitTemperatureEvidence
+    anchor: submitTemperatureEvidence,
+    readAnchored: readAnchoredEvidence
   });
   console.log(JSON.stringify(result, null, 2));
 } catch (error) {
