@@ -160,12 +160,12 @@ test("a batch follows the complete CREATED to DELIVERED lifecycle with full hist
   const contract = new BatchLifecycleContract();
   const stub = new MemoryStub();
 
-  await transact(stub, "cert-farm", (ctx) => contract.createBatch(ctx, " BATCH-001 ", " Green Pastures Dairy "));
+  await transact(stub, "cert-farm", (ctx) => contract.createBatch(ctx, " BATCH-001 ", " Green Pastures Dairy ", "Bega NSW"));
   await transact(stub, "cert-processor", (ctx) =>
-    contract.recordProcessingEvent(ctx, "BATCH-001")
+    contract.recordProcessingEvent(ctx, "BATCH-001", "Bega Processing Plant")
   );
-  await transact(stub, "cert-logistics", (ctx) => contract.startTransport(ctx, "BATCH-001"));
-  await transact(stub, "cert-retailer", (ctx) => contract.recordDelivery(ctx, "BATCH-001"));
+  await transact(stub, "cert-logistics", (ctx) => contract.startTransport(ctx, "BATCH-001", "Hume Highway"));
+  await transact(stub, "cert-retailer", (ctx) => contract.recordDelivery(ctx, "BATCH-001", "Sydney Retail Depot"));
 
   const batch = JSON.parse(await contract.getBatch(context(stub, "cert-farm"), "BATCH-001"));
   assert.equal(batch.status, "DELIVERED");
@@ -192,6 +192,11 @@ test("a batch follows the complete CREATED to DELIVERED lifecycle with full hist
     history.map((entry) => entry.txId),
     ["tx-1", "tx-2", "tx-3", "tx-4"]
   );
+  // The history carries the whole record at each step, so it shows where the batch was.
+  assert.deepEqual(
+    history.map((entry) => entry.batch.lastKnownLocation),
+    ["Bega NSW", "Bega Processing Plant", "Hume Highway", "Sydney Retail Depot"]
+  );
 
   const delivered = JSON.parse(
     await contract.queryBatchesByStatus(context(stub, "cert-farm"), "delivered")
@@ -204,29 +209,29 @@ test("duplicate IDs, incorrect roles and invalid lifecycle steps are rejected", 
   const stub = new MemoryStub();
 
   await assert.rejects(
-    contract.createBatch(context(stub, "cert-retailer"), "BATCH-002", "Green Pastures Dairy"),
+    contract.createBatch(context(stub, "cert-retailer"), "BATCH-002", "Green Pastures Dairy", "Bega NSW"),
     /requires one of: FARM, PROCESSOR/
   );
   await assert.rejects(
-    contract.createBatch(context(stub, "cert-suspended"), "BATCH-002", "Green Pastures Dairy"),
+    contract.createBatch(context(stub, "cert-suspended"), "BATCH-002", "Green Pastures Dairy", "Bega NSW"),
     /is suspended/
   );
   await assert.rejects(
-    contract.createBatch(context(stub, "cert-farm"), "BATCH-002", "   "),
+    contract.createBatch(context(stub, "cert-farm"), "BATCH-002", "   ", "Bega NSW"),
     /Origin must not be empty/
   );
 
-  await transact(stub, "cert-farm", (ctx) => contract.createBatch(ctx, "BATCH-002", "Green Pastures Dairy"));
+  await transact(stub, "cert-farm", (ctx) => contract.createBatch(ctx, "BATCH-002", "Green Pastures Dairy", "Bega NSW"));
   await assert.rejects(
-    contract.createBatch(context(stub, "cert-farm"), "BATCH-002", "Green Pastures Dairy"),
+    contract.createBatch(context(stub, "cert-farm"), "BATCH-002", "Green Pastures Dairy", "Bega NSW"),
     /already exists/
   );
   await assert.rejects(
-    contract.startTransport(context(stub, "cert-logistics"), "BATCH-002"),
+    contract.startTransport(context(stub, "cert-logistics"), "BATCH-002", "Hume Highway"),
     /cannot move from 'CREATED' to 'IN_TRANSIT'/
   );
   await assert.rejects(
-    contract.recordProcessingEvent(context(stub, "cert-farm"), "BATCH-002"),
+    contract.recordProcessingEvent(context(stub, "cert-farm"), "BATCH-002", "Bega Processing Plant"),
     /requires one of: PROCESSOR/
   );
   await assert.rejects(
@@ -235,13 +240,38 @@ test("duplicate IDs, incorrect roles and invalid lifecycle steps are rejected", 
   );
 });
 
+// Reading is a permission too, not just writing. A network member who is not a registered
+// stakeholder, or one that has been suspended, must not be able to read batch records.
+test("reads are refused to unregistered and suspended callers", async () => {
+  const contract = new BatchLifecycleContract();
+  const stub = new MemoryStub();
+  await transact(stub, "cert-farm", (ctx) =>
+    contract.createBatch(ctx, "BATCH-005", "Green Pastures Dairy", "Bega NSW")
+  );
+
+  for (const [certificateId, expected] of [
+    ["cert-unknown", /not registered to a stakeholder/],
+    ["cert-suspended", /is suspended/]
+  ]) {
+    await assert.rejects(contract.getBatch(context(stub, certificateId), "BATCH-005"), expected);
+    await assert.rejects(
+      contract.getBatchHistory(context(stub, certificateId), "BATCH-005"),
+      expected
+    );
+    await assert.rejects(
+      contract.queryBatchesByStatus(context(stub, certificateId), "CREATED"),
+      expected
+    );
+  }
+});
+
 test("a regulator can recall a batch and recalled batches cannot continue", async () => {
   const contract = new BatchLifecycleContract();
   const stub = new MemoryStub();
 
-  await transact(stub, "cert-farm", (ctx) => contract.createBatch(ctx, "BATCH-003", "Green Pastures Dairy"));
+  await transact(stub, "cert-farm", (ctx) => contract.createBatch(ctx, "BATCH-003", "Green Pastures Dairy", "Bega NSW"));
   await transact(stub, "cert-processor", (ctx) =>
-    contract.recordProcessingEvent(ctx, "BATCH-003")
+    contract.recordProcessingEvent(ctx, "BATCH-003", "Bega Processing Plant")
   );
 
   await assert.rejects(
@@ -261,7 +291,7 @@ test("a regulator can recall a batch and recalled batches cannot continue", asyn
   assert.equal(stub.events.at(-1).name, "BatchRecalled");
 
   await assert.rejects(
-    contract.startTransport(context(stub, "cert-logistics"), "BATCH-003"),
+    contract.startTransport(context(stub, "cert-logistics"), "BATCH-003", "Hume Highway"),
     /cannot move from 'RECALLED'/
   );
   await assert.rejects(
@@ -276,6 +306,8 @@ test("delivery is blocked while a cold-chain breach is unresolved", async () => 
   const breachedBatch = {
     batchId: "BATCH-004",
     status: "COLD_CHAIN_BREACH",
+    origin: "Green Pastures Dairy",
+    lastKnownLocation: "Hume Highway",
     createdByStakeholderId: "farm-001",
     createdTxId: "tx-create",
     createdAt: "2026-07-29T00:00:00.000Z",
@@ -289,7 +321,7 @@ test("delivery is blocked while a cold-chain breach is unresolved", async () => 
   );
 
   await assert.rejects(
-    contract.recordDelivery(context(stub, "cert-retailer"), "BATCH-004"),
+    contract.recordDelivery(context(stub, "cert-retailer"), "BATCH-004", "Sydney Retail Depot"),
     /cannot move from 'COLD_CHAIN_BREACH' to 'DELIVERED'/
   );
   await assert.rejects(

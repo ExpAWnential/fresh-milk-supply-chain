@@ -25,16 +25,18 @@ batchRouter.post("/", async (req, res) => {
   try {
     const batchId = requireString(req.body?.batchId, "batchId");
     const origin = requireString(req.body?.origin, "origin");
+    const location = requireString(req.body?.location, "location");
     await withGateway(req, (client) =>
       client.submitTransaction(
         config.supplychainChaincodeName,
         CONTRACT,
         "createBatch",
         batchId,
-        origin
+        origin,
+        location
       )
     );
-    res.status(201).json({ batchId, origin, status: "CREATED" });
+    res.status(201).json({ batchId, origin, location, status: "CREATED" });
   } catch (error) {
     sendGatewayError(res, error);
   }
@@ -51,15 +53,17 @@ batchRouter.post("/:batchId/events", async (req, res) => {
       return;
     }
 
+    const location = requireString(req.body?.location, "location");
     await withGateway(req, (client) =>
       client.submitTransaction(
         config.supplychainChaincodeName,
         CONTRACT,
         transactionName,
-        req.params.batchId
+        req.params.batchId,
+        location
       )
     );
-    res.json({ batchId: req.params.batchId, eventType });
+    res.json({ batchId: req.params.batchId, eventType, location });
   } catch (error) {
     sendGatewayError(res, error);
   }

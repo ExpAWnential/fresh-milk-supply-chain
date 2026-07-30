@@ -18,6 +18,9 @@ export interface Batch {
   // Where the milk came from. Set once at creation and never changed, so the consumer-facing
   // view can name the source without exposing who recorded each step.
   readonly origin: string;
+  // Where the batch was when its most recent step was recorded. Each history entry holds the
+  // whole record, so the sequence of entries shows the batch moving.
+  readonly lastKnownLocation: string;
   readonly createdByStakeholderId: string;
   readonly createdTxId: string;
   readonly createdAt: string;

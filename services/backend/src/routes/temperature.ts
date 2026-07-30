@@ -1,4 +1,5 @@
 import { Router } from "express";
+import type { Request as ExpressRequest } from "express";
 import type { TemperatureRepository } from "@fresh-milk/storage";
 import { config } from "../config.js";
 import { sendGatewayError, withGateway } from "../fabric/request.js";
@@ -13,6 +14,9 @@ const CONTRACT = "TemperatureComplianceContract";
 export interface TemperatureRouterDependencies {
   readonly temperatureRepository?: TemperatureRepository;
   readonly anchoredEvidenceReader?: AnchoredEvidenceReader;
+  // Builds a reader that queries the ledger as whoever made the request, so the contract's own
+  // role check applies. Tests supply a fixed reader instead.
+  readonly readerForRequest?: (request: ExpressRequest) => AnchoredEvidenceReader;
 }
 
 function requireString(value: unknown, field: string): string {
@@ -98,9 +102,11 @@ export function createTemperatureRouter(
     }
 
     try {
+      // Verification reads the anchored hash as the caller, so the contract decides whether they
+      // are allowed to see it rather than this route trusting an unauthenticated request.
       const result = await verifyTemperatureEvidence(req.params.evidenceId, {
         temperatureRepository: dependencies.temperatureRepository,
-        anchoredEvidenceReader: dependencies.anchoredEvidenceReader
+        anchoredEvidenceReader: dependencies.readerForRequest?.(req) ?? dependencies.anchoredEvidenceReader
       });
       res.json(result);
     } catch (error) {

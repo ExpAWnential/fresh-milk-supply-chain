@@ -11,6 +11,7 @@ import {
 import { batchKey } from "../utils/ledgerKeys.js";
 import {
   assertActiveRole,
+  getInvokingStakeholder,
   type StakeholderRole,
   type StakeholderSummary
 } from "../utils/stakeholderClient.js";
@@ -29,10 +30,16 @@ interface HistoryTimestamp {
 })
 export class BatchLifecycleContract extends Contract {
   @Transaction()
-  public async createBatch(ctx: Context, batchId: string, origin: string): Promise<void> {
+  public async createBatch(
+    ctx: Context,
+    batchId: string,
+    origin: string,
+    location: string
+  ): Promise<void> {
     const stakeholder = await assertActiveRole(ctx, ["FARM", "PROCESSOR"]);
     const normalisedBatchId = requireValue(batchId, "Batch ID");
     const normalisedOrigin = requireValue(origin, "Origin");
+    const normalisedLocation = requireValue(location, "Location");
     const key = batchKey(ctx, normalisedBatchId);
     if ((await ctx.stub.getState(key)).length > 0) {
       throw new Error(`Batch '${normalisedBatchId}' already exists.`);
@@ -43,6 +50,7 @@ export class BatchLifecycleContract extends Contract {
       batchId: normalisedBatchId,
       status: "CREATED",
       origin: normalisedOrigin,
+      lastKnownLocation: normalisedLocation,
       createdByStakeholderId: stakeholder.stakeholderId,
       createdTxId: metadata.txId,
       createdAt: metadata.timestamp,
@@ -56,15 +64,28 @@ export class BatchLifecycleContract extends Contract {
   }
 
   @Transaction()
-  public async recordProcessingEvent(ctx: Context, batchId: string): Promise<void> {
-    await this.transitionBatch(ctx, batchId, ["PROCESSOR"], "CREATED", "PROCESSED", "BatchProcessed");
-  }
-
-  @Transaction()
-  public async startTransport(ctx: Context, batchId: string): Promise<void> {
+  public async recordProcessingEvent(
+    ctx: Context,
+    batchId: string,
+    location: string
+  ): Promise<void> {
     await this.transitionBatch(
       ctx,
       batchId,
+      location,
+      ["PROCESSOR"],
+      "CREATED",
+      "PROCESSED",
+      "BatchProcessed"
+    );
+  }
+
+  @Transaction()
+  public async startTransport(ctx: Context, batchId: string, location: string): Promise<void> {
+    await this.transitionBatch(
+      ctx,
+      batchId,
+      location,
       ["LOGISTICS"],
       "PROCESSED",
       "IN_TRANSIT",
@@ -73,10 +94,11 @@ export class BatchLifecycleContract extends Contract {
   }
 
   @Transaction()
-  public async recordDelivery(ctx: Context, batchId: string): Promise<void> {
+  public async recordDelivery(ctx: Context, batchId: string, location: string): Promise<void> {
     await this.transitionBatch(
       ctx,
       batchId,
+      location,
       ["RETAILER"],
       "IN_TRANSIT",
       "DELIVERED",
@@ -117,12 +139,14 @@ export class BatchLifecycleContract extends Contract {
   @Transaction(false)
   @Returns("string")
   public async getBatch(ctx: Context, batchId: string): Promise<string> {
+    await getInvokingStakeholder(ctx);
     return JSON.stringify(await getBatchRecord(ctx, requireValue(batchId, "Batch ID")));
   }
 
   @Transaction(false)
   @Returns("string")
   public async getBatchHistory(ctx: Context, batchId: string): Promise<string> {
+    await getInvokingStakeholder(ctx);
     const normalisedBatchId = requireValue(batchId, "Batch ID");
     await getBatchRecord(ctx, normalisedBatchId);
 
@@ -158,6 +182,7 @@ export class BatchLifecycleContract extends Contract {
   @Transaction(false)
   @Returns("string")
   public async queryBatchesByStatus(ctx: Context, status: string): Promise<string> {
+    await getInvokingStakeholder(ctx);
     const normalisedStatus = requireValue(status, "Batch status").toUpperCase();
     if (!isBatchStatus(normalisedStatus)) {
       throw new Error(
@@ -194,6 +219,7 @@ export class BatchLifecycleContract extends Contract {
   private async transitionBatch(
     ctx: Context,
     batchId: string,
+    location: string,
     allowedRoles: readonly StakeholderRole[],
     expectedStatus: BatchStatus,
     nextStatus: BatchStatus,
@@ -201,6 +227,7 @@ export class BatchLifecycleContract extends Contract {
   ): Promise<void> {
     const stakeholder = await assertActiveRole(ctx, allowedRoles);
     const normalisedBatchId = requireValue(batchId, "Batch ID");
+    const normalisedLocation = requireValue(location, "Location");
     const batch = await getBatchRecord(ctx, normalisedBatchId);
     if (batch.status !== expectedStatus) {
       throw new Error(
@@ -213,6 +240,7 @@ export class BatchLifecycleContract extends Contract {
     const updatedBatch: Batch = {
       ...batch,
       status: nextStatus,
+      lastKnownLocation: normalisedLocation,
       lastUpdatedByStakeholderId: stakeholder.stakeholderId,
       lastUpdatedTxId: metadata.txId,
       lastUpdatedAt: metadata.timestamp

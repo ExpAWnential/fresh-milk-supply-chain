@@ -106,6 +106,8 @@ function batchRecord(batchId, status = "IN_TRANSIT") {
   return {
     batchId,
     status,
+    origin: "Green Pastures Dairy",
+    lastKnownLocation: "Hume Highway",
     createdByStakeholderId: "farm-001",
     createdTxId: "tx-create",
     createdAt: "2026-07-27T00:00:00.000Z",

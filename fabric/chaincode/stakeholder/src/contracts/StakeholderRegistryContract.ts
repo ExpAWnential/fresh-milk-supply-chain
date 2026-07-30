@@ -226,10 +226,12 @@ export class StakeholderRegistryContract extends Contract {
     this.emitEvent(ctx, "StakeholderReactivated", updated);
   }
 
-  // Read only lookup
+  // Read only lookup. Restricted to registered, active stakeholders so that role assignments
+  // and certificate mappings are not readable by every member of the network.
   @Transaction(false)
   @Returns("string")
   public async getStakeholder(ctx: Context, stakeholderId: string): Promise<string> {
+    await this.requireActiveStakeholder(ctx);
     return JSON.stringify(await this.getStakeholderRecord(ctx, stakeholderId));
   }
 
@@ -369,6 +371,16 @@ export class StakeholderRegistryContract extends Contract {
       throw new Error("The invoking certificate is not registered to a stakeholder.");
     }
     return this.getStakeholderRecord(ctx, value.toString());
+  }
+
+  // Any registered stakeholder that has not been suspended, whatever its role.
+  private async requireActiveStakeholder(ctx: Context): Promise<Stakeholder> {
+    const identity = getInvokingIdentity(ctx);
+    const stakeholder = await this.getStakeholderByCertificate(ctx, identity.certificateId);
+    if (!stakeholder.active) {
+      throw new Error(`Stakeholder '${stakeholder.stakeholderId}' is suspended.`);
+    }
+    return stakeholder;
   }
 
   // Check that the caller is an active regulator before allowing the operation

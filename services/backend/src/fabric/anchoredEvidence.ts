@@ -1,5 +1,7 @@
+import type { Request as ExpressRequest } from "express";
 import { config } from "../config.js";
-import { getDemoIdentity } from "../demoIdentity.js";
+import { resolveDemoIdentity } from "../demoIdentity.js";
+import type { DemoIdentity } from "../demoIdentity.js";
 import { createFabricGatewayClient } from "./gateway.js";
 import type {
   AnchoredEvidence,
@@ -9,9 +11,14 @@ import type {
 // Without this reader, verification compares the database's stored hash against the database's own
 // readings, which proves nothing. Reading the hash back off the ledger is what makes tampering
 // detectable, so the comparison is against a record no single party can rewrite.
-export function createFabricAnchoredEvidenceReader(identityName: string): AnchoredEvidenceReader {
-  const identity = getDemoIdentity(identityName);
+//
+// It runs as the caller, so the contract decides who may read the anchored evidence rather than
+// the backend granting it to anyone who asks.
+export function createReaderForRequest(request: ExpressRequest): AnchoredEvidenceReader {
+  return readerForIdentity(resolveDemoIdentity(request));
+}
 
+function readerForIdentity(identity: DemoIdentity): AnchoredEvidenceReader {
   return {
     async getAnchoredEvidence(evidenceId: string): Promise<AnchoredEvidence | undefined> {
       const client = await createFabricGatewayClient(identity);

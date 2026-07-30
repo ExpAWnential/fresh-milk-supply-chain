@@ -15,6 +15,7 @@ interface LedgerBatch {
   readonly batchId: string;
   readonly status: string;
   readonly origin?: string;
+  readonly lastKnownLocation?: string;
   readonly createdAt: string;
   readonly recallReason?: string;
 }
@@ -70,6 +71,7 @@ publicRouter.get("/batches/:batchId", async (req, res) => {
     res.json({
       batchId: batch.batchId,
       origin: batch.origin ?? "not recorded",
+      lastKnownLocation: batch.lastKnownLocation ?? "not recorded",
       status: batch.status,
       coldChain: coldChainStatus(batch.status, history),
       createdAt: batch.createdAt,

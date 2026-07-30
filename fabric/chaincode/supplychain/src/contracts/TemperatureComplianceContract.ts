@@ -8,7 +8,7 @@ import type {
   TemperatureStatistics
 } from "../models/TemperatureEvidence.js";
 import { batchKey, temperatureEvidenceKey } from "../utils/ledgerKeys.js";
-import { assertActiveRole } from "../utils/stakeholderClient.js";
+import { assertActiveRole, getInvokingStakeholder } from "../utils/stakeholderClient.js";
 import { getTransactionMetadata } from "../utils/txContext.js";
 
 const MIN_SAFE_CELSIUS = 0;
@@ -163,6 +163,7 @@ export class TemperatureComplianceContract extends Contract {
   @Transaction(false)
   @Returns("string")
   public async getTemperatureEvidence(ctx: Context, evidenceId: string): Promise<string> {
+    await getInvokingStakeholder(ctx);
     const normalisedEvidenceId = requireValue(evidenceId, "Evidence ID");
     const value = await ctx.stub.getState(temperatureEvidenceKey(ctx, normalisedEvidenceId));
     if (value.length === 0) {

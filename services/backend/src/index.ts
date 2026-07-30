@@ -1,13 +1,12 @@
 import { createPool, createTemperatureRepository } from "@fresh-milk/storage";
 import { createApp } from "./app.js";
 import { config } from "./config.js";
-import { createFabricAnchoredEvidenceReader } from "./fabric/anchoredEvidence.js";
+import { createReaderForRequest } from "./fabric/anchoredEvidence.js";
 
 const pool = createPool({ connectionString: config.databaseUrl });
 const app = createApp({
   temperatureRepository: createTemperatureRepository(pool),
-  // Reads are made as the regulator, the one role permitted to inspect any batch's evidence.
-  anchoredEvidenceReader: createFabricAnchoredEvidenceReader("regulator")
+  readerForRequest: createReaderForRequest
 });
 
 const server = app.listen(config.port, () => {
