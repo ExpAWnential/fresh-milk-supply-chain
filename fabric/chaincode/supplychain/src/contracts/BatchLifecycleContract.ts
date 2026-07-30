@@ -1,4 +1,7 @@
-import { Contract, Context, Info, Returns, Transaction } from "fabric-contract-api";
+// Value import, not "import type": @Transaction identifies the ctx parameter by comparing its
+// emitted runtime type against Context, so an erased type import makes Fabric expect an extra
+// argument on every transaction.
+import { Context, Contract, Info, Returns, Transaction } from "fabric-contract-api";
 
 // One transaction per lifecycle step rather than a single generic advance, so each step
 // carries its own role rule and can be tested in isolation.

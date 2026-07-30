@@ -1,5 +1,7 @@
-import fabricContractApi from "fabric-contract-api";
-import type { Context } from "fabric-contract-api";
+// Value import, not "import type": @Transaction identifies the ctx parameter by comparing its
+// emitted runtime type against Context, so an erased type import makes Fabric expect an extra
+// argument on every transaction.
+import { Context, Contract, Info, Returns, Transaction } from "fabric-contract-api";
 import type { Batch } from "../models/Batch.js";
 import type {
   TemperatureEvidence,
@@ -8,8 +10,6 @@ import type {
 import { batchKey, temperatureEvidenceKey } from "../utils/ledgerKeys.js";
 import { assertActiveRole } from "../utils/stakeholderClient.js";
 import { getTransactionMetadata } from "../utils/txContext.js";
-
-const { Contract, Info, Returns, Transaction } = fabricContractApi;
 
 const MIN_SAFE_CELSIUS = 0;
 const MAX_SAFE_CELSIUS = 5;
