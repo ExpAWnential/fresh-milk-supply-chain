@@ -34,17 +34,7 @@ CREATE TABLE IF NOT EXISTS temperature_readings (
     celsius     NUMERIC(6, 3) NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS documents (
-    document_id   TEXT PRIMARY KEY,
-    batch_id      TEXT        NOT NULL,
-    document_type TEXT        NOT NULL,
-    file_location TEXT        NOT NULL,
-    document_hash TEXT        NOT NULL CHECK (document_hash ~ '^[0-9a-f]{64}$'),
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
 CREATE INDEX IF NOT EXISTS idx_temperature_evidence_batch_id ON temperature_evidence (batch_id);
 CREATE INDEX IF NOT EXISTS idx_temperature_readings_evidence_id ON temperature_readings (evidence_id);
 CREATE INDEX IF NOT EXISTS idx_temperature_readings_order
     ON temperature_readings (evidence_id, recorded_at, sensor_id, reading_id);
-CREATE INDEX IF NOT EXISTS idx_documents_batch_id ON documents (batch_id);

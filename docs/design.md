@@ -45,8 +45,8 @@ down what is stored on-chain, was already addressed in the Task 2 design.
                            ▼                ▼
         ┌──────────────────────────┐  ┌─────────────────────┐
         │   Blockchain (Fabric)    │  │  Database (Postgres) │
-        │  the shared record book  │  │  full readings and   │
-        │  + the smart contracts   │  │  documents           │
+        │  the shared record book  │  │  the full temperature│
+        │  + the smart contracts   │  │  readings            │
         └───────────▲──────────────┘  └──────────▲──────────┘
                     │                            │
                     │ summary + fingerprint      │ full readings
@@ -111,8 +111,7 @@ on a truck.
 **The database (PostgreSQL).** Holds the bulky and sensitive data that does not belong on a
 shared ledger.
 
-- Stores the full temperature readings and supporting documents.
-- Access is controlled through the backend.
+- Stores the full temperature readings.
 - Only the short summary and the fingerprint live on the blockchain.
 
 **The backend (front desk).** Ties the three parts together.

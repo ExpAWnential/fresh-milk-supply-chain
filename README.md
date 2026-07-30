@@ -11,7 +11,7 @@ The planned architecture includes:
 - Two Fabric chaincodes: `stakeholder` (registry) and `supplychain` (batch lifecycle and temperature compliance). The supply-chain contracts delegate role checks to the stakeholder registry through a cross-chaincode invocation.
 - An Express backend that will use Fabric Gateway.
 - A separate temperature oracle service.
-- PostgreSQL off-chain storage for raw temperature readings and supporting documents.
+- PostgreSQL off-chain storage for raw temperature readings.
 - REST endpoints, scripts and terminal output for demonstration instead of a GUI.
 
 ## Current Scope

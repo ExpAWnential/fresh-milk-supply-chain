@@ -13,5 +13,3 @@ export type {
   SubmissionStatus,
   TemperatureRepository
 } from "./repositories/temperatureRepository.js";
-export { createDocumentRepository } from "./repositories/documentRepository.js";
-export type { DocumentRepository, StoredDocument } from "./repositories/documentRepository.js";
