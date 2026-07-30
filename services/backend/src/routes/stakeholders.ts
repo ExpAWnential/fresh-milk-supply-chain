@@ -13,6 +13,26 @@ function requireString(value: unknown, field: string): string {
   return value.trim();
 }
 
+// Creates the first regulator on an empty registry. Every other registration needs an existing
+// regulator to authorise it, so without this the ledger can never be set up. The contract limits
+// it to the regulator MSP and to one successful call.
+stakeholderRouter.post("/bootstrap", async (req, res) => {
+  try {
+    const stakeholderId = requireString(req.body?.stakeholderId, "stakeholderId");
+    await withGateway(req, (client) =>
+      client.submitTransaction(
+        config.stakeholderChaincodeName,
+        CONTRACT,
+        "bootstrapRegulator",
+        stakeholderId
+      )
+    );
+    res.status(201).json({ stakeholderId, role: "REGULATOR" });
+  } catch (error) {
+    sendGatewayError(res, error);
+  }
+});
+
 stakeholderRouter.post("/", async (req, res) => {
   try {
     const stakeholderId = requireString(req.body?.stakeholderId, "stakeholderId");
