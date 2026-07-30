@@ -108,7 +108,10 @@ function batchRecord(batchId, status = "IN_TRANSIT") {
     status,
     createdByStakeholderId: "farm-001",
     createdTxId: "tx-create",
-    createdAt: "2026-07-27T00:00:00.000Z"
+    createdAt: "2026-07-27T00:00:00.000Z",
+    lastUpdatedByStakeholderId: "logistics-001",
+    lastUpdatedTxId: "tx-transport",
+    lastUpdatedAt: "2026-07-27T01:00:00.000Z"
   };
 }
 
@@ -183,6 +186,8 @@ test("unsafe evidence flags the batch and emits ColdChainBreach", async () => {
     (await stub.getState(stub.createCompositeKey("batch", ["BATCH-002"]))).toString()
   );
   assert.equal(batch.status, "COLD_CHAIN_BREACH");
+  assert.equal(batch.lastUpdatedByStakeholderId, "oracle-001");
+  assert.equal(batch.lastUpdatedTxId, "tx-1");
   assert.equal(stub.events.at(-1).name, "ColdChainBreach");
   const event = JSON.parse(stub.events.at(-1).payload.toString());
   assert.equal(event.batchId, "BATCH-002");
@@ -330,6 +335,7 @@ test("only a REGULATOR can resolve a breach and the batch returns to IN_TRANSIT"
     (await stub.getState(stub.createCompositeKey("batch", ["BATCH-006"]))).toString()
   );
   assert.equal(batch.status, "IN_TRANSIT");
+  assert.equal(batch.lastUpdatedByStakeholderId, "regulator-001");
   assert.equal(stub.events.at(-1).name, "ColdChainBreachResolved");
 
   const evidence = JSON.parse(

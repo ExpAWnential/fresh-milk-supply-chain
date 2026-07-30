@@ -61,7 +61,7 @@ export async function assertActiveRole(
   if (!response.payload || response.payload.length === 0) {
     throw new Error("The stakeholder registry returned an empty authorisation response.");
   }
-  
+
   let parsed: unknown;
   try {
     parsed = JSON.parse(response.payload.toString());

@@ -69,7 +69,10 @@ export class TemperatureComplianceContract extends Contract {
     if (complianceOutcome === "UNSAFE") {
       const breachedBatch: Batch = {
         ...batch,
-        status: "COLD_CHAIN_BREACH"
+        status: "COLD_CHAIN_BREACH",
+        lastUpdatedByStakeholderId: oracle.stakeholderId,
+        lastUpdatedTxId: metadata.txId,
+        lastUpdatedAt: metadata.timestamp
       };
       await ctx.stub.putState(
         batchKey(ctx, normalisedBatchId),
@@ -130,11 +133,14 @@ export class TemperatureComplianceContract extends Contract {
 
     // A breach occurs during transport, so clearing the hold returns the batch to IN_TRANSIT.
     // The original unsafe evidence remains immutable on the ledger.
+    const metadata = getTransactionMetadata(ctx);
     const resolvedBatch: Batch = {
       ...batch,
-      status: "IN_TRANSIT"
+      status: "IN_TRANSIT",
+      lastUpdatedByStakeholderId: regulator.stakeholderId,
+      lastUpdatedTxId: metadata.txId,
+      lastUpdatedAt: metadata.timestamp
     };
-    const metadata = getTransactionMetadata(ctx);
 
     await ctx.stub.putState(
       batchKey(ctx, normalisedBatchId),
