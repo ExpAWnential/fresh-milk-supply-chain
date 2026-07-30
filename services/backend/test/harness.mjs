@@ -80,6 +80,7 @@ export function repositoryStub(overrides = {}) {
     markFailed: async () => {},
     getEvidence: async () => storedEvidence(),
     listEvidenceForBatch: async () => [storedEvidence()],
+    recordLedgerOutcome: async () => true,
     getReadings: async () => [
       { sensorId: "S-1", recordedAt: "2026-07-30T00:00:00.000Z", celsius: 2 }
     ],

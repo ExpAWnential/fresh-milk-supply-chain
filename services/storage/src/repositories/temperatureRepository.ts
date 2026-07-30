@@ -30,6 +30,13 @@ export interface TemperatureRepository {
   ): Promise<void>;
   markAnchored(evidenceId: string, fabricTransactionId: string): Promise<void>;
   markFailed(evidenceId: string): Promise<void>;
+  // Applies what the ledger itself reported for this evidence. Reports whether a row was updated,
+  // so a caller can tell an evidence record it does not hold from one it has just corrected.
+  recordLedgerOutcome(
+    evidenceId: string,
+    complianceOutcome: ComplianceOutcome,
+    fabricTransactionId: string
+  ): Promise<boolean>;
   getEvidence(evidenceId: string): Promise<StoredTemperatureEvidence | undefined>;
   listEvidenceForBatch(batchId: string): Promise<readonly StoredTemperatureEvidence[]>;
   getReadings(evidenceId: string): Promise<readonly StoredTemperatureReading[]>;
@@ -107,6 +114,29 @@ export function createTemperatureRepository(pool: Pool): TemperatureRepository {
         `,
         [evidenceId]
       );
+    },
+
+    async recordLedgerOutcome(
+      evidenceId: string,
+      complianceOutcome: ComplianceOutcome,
+      fabricTransactionId: string
+    ): Promise<boolean> {
+      // The event is proof the transaction committed, so the row is confirmed anchored at the same
+      // time. That also rescues a row the oracle left pending because it could not read the
+      // submission back. Writing the same event twice lands on the same values, so a replayed
+      // event changes nothing.
+      const result = await pool.query(
+        `
+          UPDATE temperature_evidence
+          SET compliance_outcome = $2,
+              submission_status = 'ANCHORED',
+              fabric_transaction_id = $3
+          WHERE evidence_id = $1
+        `,
+        [evidenceId, complianceOutcome, fabricTransactionId]
+      );
+
+      return (result.rowCount ?? 0) > 0;
     },
 
     async getEvidence(evidenceId: string): Promise<StoredTemperatureEvidence | undefined> {

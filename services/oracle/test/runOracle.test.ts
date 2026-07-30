@@ -39,6 +39,9 @@ function recordingRepository() {
       async listEvidenceForBatch() {
         return [];
       },
+      async recordLedgerOutcome() {
+        return true;
+      },
       async getReadings() {
         return [];
       }

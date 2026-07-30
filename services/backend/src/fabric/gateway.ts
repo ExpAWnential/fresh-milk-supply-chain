@@ -1,5 +1,13 @@
 import { credentials, Client } from "@grpc/grpc-js";
-import { connect, hash, signers, type Gateway, type Signer } from "@hyperledger/fabric-gateway";
+import {
+  checkpointers,
+  connect,
+  hash,
+  signers,
+  type ChaincodeEvent,
+  type Gateway,
+  type Signer
+} from "@hyperledger/fabric-gateway";
 import { createPrivateKey } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -99,6 +107,60 @@ const callDeadlines = {
   submitOptions: () => ({ deadline: Date.now() + 30_000 }),
   commitStatusOptions: () => ({ deadline: Date.now() + 60_000 })
 };
+
+export interface LedgerEventStream {
+  readonly events: AsyncIterable<ChaincodeEvent>;
+  checkpoint(event: ChaincodeEvent): Promise<void>;
+  close(): void;
+}
+
+// A long-lived subscription, unlike every other connection here, so it deliberately skips the
+// call deadlines above: those exist to stop a request hanging, and this one is meant to stay open.
+// The checkpoint file is what makes a restart resume rather than replay the whole chain.
+export async function createLedgerEventStream(
+  identity: DemoIdentity,
+  chaincodeName: string,
+  checkpointFile: string
+): Promise<LedgerEventStream> {
+  const wallet = await loadWallet(identity);
+  const client = createGrpcClient(identity, wallet.tlsRootCert);
+
+  let gateway: Gateway;
+  try {
+    gateway = connect({
+      client,
+      identity: { mspId: identity.mspId, credentials: wallet.certificate },
+      signer: wallet.signer,
+      hash: hash.sha256
+    });
+  } catch (error) {
+    client.close();
+    throw error;
+  }
+
+  const checkpointer = await checkpointers.file(checkpointFile);
+  const events = await gateway
+    .getNetwork(config.fabricChannelName)
+    // startBlock applies only while the checkpoint is empty, so a first run reads the chain from
+    // the beginning and every later run resumes. Without it a fresh listener starts at the next
+    // block and silently never sees anything already recorded.
+    .getChaincodeEvents(chaincodeName, {
+      checkpoint: checkpointer,
+      startBlock: BigInt(0)
+    });
+
+  return {
+    events,
+    async checkpoint(event: ChaincodeEvent): Promise<void> {
+      await checkpointer.checkpointChaincodeEvent(event);
+    },
+    close(): void {
+      events.close();
+      gateway.close();
+      client.close();
+    }
+  };
+}
 
 export async function createFabricGatewayClient(
   identity: DemoIdentity
