@@ -19,10 +19,11 @@ export interface LedgerHistoryEntry {
 }
 
 // A breach that a regulator has since cleared still matters to a shopper, so the history is
-// checked rather than only the current status. A breach only counts as cleared when the batch
-// returned to IN_TRANSIT afterwards, which is the one status resolveTemperatureBreach produces.
-// Leaving a breach behind any other way, such as recalling the batch while the hold is open,
-// leaves it unresolved, and saying otherwise would tell a shopper the problem was dealt with.
+// checked rather than only the current status. While a hold is open no lifecycle step will run,
+// so the only ways out are a regulator clearing it, which restores whichever status the breach
+// interrupted, or a recall. Anything after the breach that is neither of those two statuses is
+// therefore a resolution. Treating a recall as one would tell a shopper the problem was dealt
+// with when the batch was in fact withdrawn.
 function coldChainStatus(status: string, history: readonly LedgerHistoryEntry[]): string {
   if (status === "COLD_CHAIN_BREACH") {
     return "UNDER_INVESTIGATION";
@@ -37,7 +38,12 @@ function coldChainStatus(status: string, history: readonly LedgerHistoryEntry[])
 
   const clearedAfterBreach = history
     .slice(0, latestBreach)
-    .some((entry) => entry.batch?.status === "IN_TRANSIT");
+    .some(
+      (entry) =>
+        entry.batch?.status !== undefined &&
+        entry.batch.status !== "COLD_CHAIN_BREACH" &&
+        entry.batch.status !== "RECALLED"
+    );
   return clearedAfterBreach ? "BREACH_RESOLVED" : "UNRESOLVED_BREACH";
 }
 

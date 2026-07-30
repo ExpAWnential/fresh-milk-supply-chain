@@ -96,7 +96,7 @@ test("submission rejects the wrong role, suspended oracle, duplicates and invali
   const contract = new TemperatureComplianceContract();
   const stub = new MemoryStub();
   await seedBatch(stub, "BATCH-003");
-  await seedBatch(stub, "BATCH-004", "PROCESSED");
+  await seedBatch(stub, "BATCH-004", "RECALLED");
 
   await assert.rejects(
     contract.submitTemperatureEvidence(
@@ -153,8 +153,66 @@ test("submission rejects the wrong role, suspended oracle, duplicates and invali
       "ref-004",
       statistics(1, 4, 2.5)
     ),
-    /must be IN_TRANSIT/
+    /has been recalled/
   );
+});
+
+// The cold chain runs from the farm's tank to the retailer's fridge, so a breach has to be
+// recordable wherever the milk actually is, not only while it is on a truck.
+test("evidence is accepted at every stage and a breach returns the batch to where it happened", async () => {
+  for (const status of ["CREATED", "PROCESSED", "IN_TRANSIT", "DELIVERED"]) {
+    const contract = new TemperatureComplianceContract();
+    const stub = new MemoryStub();
+    await seedBatch(stub, "BATCH-STAGE", status);
+
+    await contract.submitTemperatureEvidence(
+      context(stub, "cert-oracle"),
+      "EVIDENCE-STAGE",
+      "BATCH-STAGE",
+      VALID_HASH_A,
+      "ref-stage",
+      // Unsafe, so the batch goes on hold from whichever stage it was at.
+      statistics(1, 9, 5.5)
+    );
+
+    const key = stub.createCompositeKey("batch", ["BATCH-STAGE"]);
+    const breached = JSON.parse((await stub.getState(key)).toString());
+    assert.equal(breached.status, "COLD_CHAIN_BREACH", `breach not recorded from ${status}`);
+    assert.equal(breached.statusBeforeBreach, status);
+
+    await contract.resolveTemperatureBreach(
+      context(stub, "cert-regulator"),
+      "BATCH-STAGE",
+      "Inspection completed."
+    );
+
+    const resolved = JSON.parse((await stub.getState(key)).toString());
+    // Not IN_TRANSIT unless that is genuinely where it was, otherwise clearing a breach at the
+    // farm would push the batch forward past processing.
+    assert.equal(resolved.status, status, `resolve did not restore ${status}`);
+    assert.equal(resolved.statusBeforeBreach, undefined);
+  }
+});
+
+test("a second unsafe reading during an open hold keeps the original stage", async () => {
+  const contract = new TemperatureComplianceContract();
+  const stub = new MemoryStub();
+  await seedBatch(stub, "BATCH-007", "PROCESSED");
+  const oracleContext = context(stub, "cert-oracle");
+
+  const unsafe = statistics(1, 9, 5.5);
+  await contract.submitTemperatureEvidence(
+    oracleContext, "EVIDENCE-007A", "BATCH-007", VALID_HASH_A, "ref-007a", unsafe
+  );
+  await contract.submitTemperatureEvidence(
+    oracleContext, "EVIDENCE-007B", "BATCH-007", VALID_HASH_B, "ref-007b", unsafe
+  );
+
+  const batch = JSON.parse(
+    (await stub.getState(stub.createCompositeKey("batch", ["BATCH-007"]))).toString()
+  );
+  assert.equal(batch.status, "COLD_CHAIN_BREACH");
+  assert.equal(batch.statusBeforeBreach, "PROCESSED");
 });
 
 test("statistics and hash validation reject malformed evidence", async () => {

@@ -150,7 +150,8 @@ Say a retailer marks a batch delivered:
 3. `gateway.ts` opens a signed gRPC connection to a Fabric peer using that certificate.
 4. `recordDelivery` runs inside the chaincode.
 5. It calls across to the stakeholder chaincode: "is this certificate an active RETAILER?"
-6. It checks the batch is currently `IN_TRANSIT`.
+6. It checks the batch is currently `IN_TRANSIT`, because delivery is the step that follows
+   transport.
 7. If both pass, it writes the new state and emits an event. If either fails, the whole
    transaction is rejected and nothing is written.
 

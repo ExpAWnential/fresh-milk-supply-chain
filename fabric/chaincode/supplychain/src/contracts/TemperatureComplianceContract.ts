@@ -51,11 +51,13 @@ export class TemperatureComplianceContract extends Contract {
       throw new Error(`Temperature evidence '${normalisedEvidenceId}' already exists.`);
     }
 
+    // Milk has to stay cold from the farm's bulk tank to the retailer's fridge, not only in the
+    // truck, so evidence is accepted at every stage. A recalled batch is the exception: it has
+    // been withdrawn, and there is nothing left for a cold-chain verdict to protect.
     const batch = await getBatchRecord(ctx, normalisedBatchId);
-    if (batch.status !== "IN_TRANSIT") {
+    if (batch.status === "RECALLED") {
       throw new Error(
-        `Batch '${normalisedBatchId}' must be IN_TRANSIT before temperature evidence can be submitted; ` +
-          `current status is '${batch.status}'.`
+        `Batch '${normalisedBatchId}' has been recalled, so temperature evidence can no longer be submitted.`
       );
     }
 
@@ -79,6 +81,10 @@ export class TemperatureComplianceContract extends Contract {
       const breachedBatch: Batch = {
         ...batch,
         status: "COLD_CHAIN_BREACH",
+        // Only the first breach records where the batch came from. A second unsafe reading while
+        // the hold is already open must not overwrite it with COLD_CHAIN_BREACH itself.
+        statusBeforeBreach:
+          batch.status === "COLD_CHAIN_BREACH" ? batch.statusBeforeBreach : batch.status,
         lastUpdatedByStakeholderId: oracle.stakeholderId,
         lastUpdatedTxId: metadata.txId,
         lastUpdatedAt: metadata.timestamp
@@ -137,12 +143,16 @@ export class TemperatureComplianceContract extends Contract {
       );
     }
 
-    // A breach occurs during transport, so clearing the hold returns the batch to IN_TRANSIT.
-    // The original unsafe evidence remains immutable on the ledger.
+    // Clearing the hold puts the batch back where the breach found it, so a breach in the farm's
+    // tank does not send the batch forward past processing. The IN_TRANSIT fallback covers records
+    // written before the batch carried this field. The original unsafe evidence stays on the
+    // ledger either way.
     const metadata = getTransactionMetadata(ctx);
     const resolvedBatch: Batch = {
       ...batch,
-      status: "IN_TRANSIT",
+      status: batch.statusBeforeBreach ?? "IN_TRANSIT",
+      // The hold is closed, so what it interrupted is no longer pending. JSON.stringify drops it.
+      statusBeforeBreach: undefined,
       lastUpdatedByStakeholderId: regulator.stakeholderId,
       lastUpdatedTxId: metadata.txId,
       lastUpdatedAt: metadata.timestamp

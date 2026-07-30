@@ -84,7 +84,11 @@ pnpm demo:tamper  # alter a stored reading, then verify it to see the mismatch
 - Only the hash, off-chain reference, statistics and compliance outcome are stored on-chain.
 - The contract decides the compliance outcome, not the oracle, and the off-chain record takes that
   verdict from the ledger's own events.
+- Temperature evidence may be submitted at any stage of a batch's life, because milk has to stay
+  cold from the farm's tank to the retailer's fridge, not only in the truck. A recalled batch is
+  the exception, since it has been withdrawn.
 - Unsafe evidence must mark the batch as `COLD_CHAIN_BREACH`.
+- Clearing a breach returns the batch to the stage it was at when the breach was recorded.
 - A breached or recalled batch cannot be delivered.
 - The regulator can recall a batch.
 - Every event must include the Fabric transaction ID, transaction timestamp and invoking

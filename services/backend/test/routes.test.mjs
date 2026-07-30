@@ -305,6 +305,25 @@ test("the consumer view reports a cleared breach apart from one that was never c
       status: "DELIVERED",
       history: [entry("DELIVERED", 2), entry("IN_TRANSIT", 1)],
       expected: "MAINTAINED"
+    },
+    // A breach in the processor's cold store clears back to PROCESSED, not IN_TRANSIT, so a
+    // resolution must not be judged by that one status.
+    {
+      status: "DELIVERED",
+      history: [
+        entry("DELIVERED", 5),
+        entry("IN_TRANSIT", 4),
+        entry("PROCESSED", 3),
+        entry("COLD_CHAIN_BREACH", 2),
+        entry("PROCESSED", 1)
+      ],
+      expected: "BREACH_RESOLVED"
+    },
+    // The same shape at the farm, where nothing after the breach has ever been IN_TRANSIT.
+    {
+      status: "CREATED",
+      history: [entry("CREATED", 3), entry("COLD_CHAIN_BREACH", 2), entry("CREATED", 1)],
+      expected: "BREACH_RESOLVED"
     }
   ];
 

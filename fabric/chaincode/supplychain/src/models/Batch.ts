@@ -34,6 +34,10 @@ export interface Batch {
   readonly lastUpdatedByStakeholderId: string;
   readonly lastUpdatedTxId: string;
   readonly lastUpdatedAt: string;
+  // Where the batch was when a cold-chain breach put it on hold. A breach can happen at any stage,
+  // so clearing the hold has to return the batch to where it actually was rather than assuming it
+  // was in transit. Absent unless a breach is currently open.
+  readonly statusBeforeBreach?: BatchStatus;
   readonly recallReason?: string;
   readonly recalledByStakeholderId?: string;
   readonly recalledTxId?: string;
