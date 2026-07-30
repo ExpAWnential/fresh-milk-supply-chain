@@ -1,6 +1,5 @@
-// One in-memory stand-in for the Fabric ledger, shared by every supply-chain contract test.
-// Three near-identical copies existed before and had drifted over composite-key separators and
-// over whether the registry call was checked at all.
+// One in-memory stand-in for the Fabric ledger, shared by every supply-chain contract test, so
+// they all agree on how composite keys are formed and on what the registry is asked.
 
 // Fabric separates composite key parts with NUL. Written as an escape so the test files stay
 // ordinary text that git can diff.

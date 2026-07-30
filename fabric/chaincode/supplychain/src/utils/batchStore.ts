@@ -1,9 +1,10 @@
+// Both contracts change a batch's status, so reading, validating and writing the record lives
+// here. Keeping it single-sourced is what stops the two from disagreeing about which statuses are
+// valid.
 import type { Context } from "fabric-contract-api";
 import { BATCH_STATUSES, type Batch, type BatchStatus } from "../models/Batch.js";
 import { batchKey } from "./ledgerKeys.js";
 
-// Both contracts change a batch's status, so reading, validating and writing the record lives in
-// one place. Two copies of this had already drifted over which statuses they accepted.
 export function requireValue(value: string, fieldName: string): string {
   const normalised = value.trim();
   if (!normalised) {

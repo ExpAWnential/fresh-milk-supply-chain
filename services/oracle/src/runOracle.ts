@@ -5,6 +5,7 @@ import {
 } from "@fresh-milk/storage";
 import { canonicaliseReadings, type RawTemperatureReading } from "./canonicalise.js";
 import { assessCompliance, calculateStatistics, type TemperatureStatistics } from "./compliance.js";
+import { AnchorError } from "./oracleClient.js";
 import type { AnchoredEvidence, TemperatureEvidenceSubmission } from "./oracleClient.js";
 
 export interface OracleDependencies {
@@ -96,7 +97,12 @@ export async function runOracle(
       fabricTransactionId: anchored.submittedTxId
     };
   } catch (error) {
-    await dependencies.repository.markFailed(evidenceId);
+    // Only mark the row failed when the transaction definitely never landed. If it was committed
+    // and something later went wrong, the row stays PENDING: the evidence is on the ledger, and
+    // recording it as failed would make verification report it as never anchored, permanently.
+    if (!(error instanceof AnchorError) || !error.anchored) {
+      await dependencies.repository.markFailed(evidenceId);
+    }
     throw error;
   }
 }

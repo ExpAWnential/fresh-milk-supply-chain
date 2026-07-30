@@ -24,6 +24,13 @@ interface HistoryTimestamp {
   readonly nanos: number;
 }
 
+interface HistoryEntry {
+  readonly txId: string;
+  readonly timestamp: HistoryTimestamp;
+  readonly isDelete: boolean;
+  readonly value: Uint8Array;
+}
+
 // Both queries walk a Fabric iterator to exhaustion and must close it either way.
 async function drain<TEntry, TResult>(
   iterator: { next(): Promise<{ done?: boolean; value?: TEntry }>; close(): Promise<void> },
@@ -175,14 +182,14 @@ export class BatchLifecycleContract extends Contract {
     const normalisedBatchId = requireValue(batchId, "Batch ID");
     await getBatchRecord(ctx, normalisedBatchId);
 
-    const history = await drain(
+    const history = await drain<HistoryEntry, BatchHistoryEntry>(
       await ctx.stub.getHistoryForKey(batchKey(ctx, normalisedBatchId)),
       (entry) => {
         const isDelete = entry.isDelete;
         const batch = isDelete ? null : parseBatch(entry.value, normalisedBatchId);
         return {
           txId: entry.txId,
-          timestamp: fabricTimestampToIso(entry.timestamp as HistoryTimestamp),
+          timestamp: fabricTimestampToIso(entry.timestamp),
           isDelete,
           submittedByStakeholderId: batch?.lastUpdatedByStakeholderId ?? null,
           batch

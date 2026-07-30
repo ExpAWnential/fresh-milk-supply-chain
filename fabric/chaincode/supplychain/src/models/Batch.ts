@@ -1,6 +1,7 @@
-// Every status is reachable by exactly one transaction on BatchLifecycleContract or
-// TemperatureComplianceContract. Statuses with no transaction that can produce them are
-// not modelled.
+// Every status is produced by a transaction on BatchLifecycleContract or
+// TemperatureComplianceContract. IN_TRANSIT has two sources: starting transport, and a regulator
+// clearing a cold-chain breach, which returns the batch to where it was. Statuses with no
+// transaction that can produce them are not modelled.
 export const BATCH_STATUSES = [
   "CREATED",
   "PROCESSED",

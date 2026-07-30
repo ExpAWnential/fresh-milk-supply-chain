@@ -13,6 +13,19 @@ export interface AnchoredEvidence {
   readonly complianceOutcome: "COMPLIANT" | "UNSAFE";
 }
 
+// Whether the transaction reached the ledger before things went wrong. A submission that was
+// committed but could not be read back afterwards is not a failure to anchor, and must not be
+// recorded as one: the evidence is on the ledger and cannot be submitted again.
+export class AnchorError extends Error {
+  public constructor(
+    message: string,
+    public readonly anchored: boolean
+  ) {
+    super(message);
+    this.name = "AnchorError";
+  }
+}
+
 const backendUrl = process.env.BACKEND_URL ?? "http://localhost:3000";
 
 // The compliance outcome is deliberately absent from the submission. The oracle reports the
@@ -38,7 +51,7 @@ export async function submitTemperatureEvidence(
   );
 
   if (!anchorResponse.ok) {
-    throw new Error(await describeFailure(anchorResponse));
+    throw new AnchorError(await describeFailure(anchorResponse), false);
   }
 
   // Read the anchored record back so the off-chain row can be linked to the real transaction,
@@ -48,13 +61,20 @@ export async function submitTemperatureEvidence(
     { headers: { "x-demo-identity": "oracle" } }
   );
 
+  // From here on the transaction is committed, so every failure reports anchored: true.
   if (!readResponse.ok) {
-    throw new Error(await describeFailure(readResponse));
+    throw new AnchorError(
+      `The evidence was submitted but could not be read back: ${await describeFailure(readResponse)}`,
+      true
+    );
   }
 
   const anchored = (await readResponse.json()) as AnchoredEvidence;
   if (!anchored.submittedTxId) {
-    throw new Error("The anchored evidence did not include a transaction ID.");
+    throw new AnchorError(
+      "The evidence was submitted but the anchored record carried no transaction ID.",
+      true
+    );
   }
 
   return anchored;

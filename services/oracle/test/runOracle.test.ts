@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { sha256TemperatureReadings } from "@fresh-milk/storage";
+import { AnchorError } from "../src/oracleClient.js";
 import { runOracle } from "../src/runOracle.js";
 
 const READINGS = [
@@ -99,6 +100,46 @@ describe("oracle run", () => {
         }
       }),
       /batch must be IN_TRANSIT/
+    );
+
+    assert.deepEqual(
+      calls.map((call) => call.name),
+      ["saveEvidence", "markFailed"]
+    );
+  });
+
+  // Marking a committed transaction as failed would make verification report it as never
+  // anchored, and the deterministic evidence ID means it can never be submitted again.
+  it("leaves the row pending when the transaction landed but the follow-up did not", async () => {
+    const { calls, repository } = recordingRepository();
+
+    await assert.rejects(
+      runOracle(READINGS, {
+        repository,
+        anchor: async () => {
+          throw new AnchorError("submitted but could not be read back", true);
+        }
+      }),
+      /could not be read back/
+    );
+
+    assert.deepEqual(
+      calls.map((call) => call.name),
+      ["saveEvidence"]
+    );
+  });
+
+  it("marks the row failed when the transaction never landed", async () => {
+    const { calls, repository } = recordingRepository();
+
+    await assert.rejects(
+      runOracle(READINGS, {
+        repository,
+        anchor: async () => {
+          throw new AnchorError("batch must be IN_TRANSIT", false);
+        }
+      }),
+      /must be IN_TRANSIT/
     );
 
     assert.deepEqual(

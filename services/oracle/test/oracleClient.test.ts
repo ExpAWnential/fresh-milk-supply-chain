@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { submitTemperatureEvidence } from "../src/oracleClient.js";
+import { AnchorError, submitTemperatureEvidence } from "../src/oracleClient.js";
 
 const SUBMISSION = {
   evidenceId: "EV-1",
@@ -67,19 +67,37 @@ describe("anchoring evidence through the backend", () => {
     assert.match(requests[1].url, /\/temperature\/evidence\/EV-1$/);
   });
 
-  it("surfaces the backend's reason when the submission is refused", async () => {
+  it("surfaces the backend's reason when the submission is refused, and reports it never landed", async () => {
     stubFetch([() => json({ error: "Batch 'BATCH-001' must be IN_TRANSIT" }, 400)]);
 
-    await assert.rejects(submitTemperatureEvidence(SUBMISSION), /must be IN_TRANSIT/);
+    await assert.rejects(submitTemperatureEvidence(SUBMISSION), (error: unknown) => {
+      assert.ok(error instanceof AnchorError);
+      assert.match(error.message, /must be IN_TRANSIT/);
+      assert.equal(error.anchored, false);
+      return true;
+    });
+  });
+
+  it("reports that the transaction did land when only the read-back fails", async () => {
+    stubFetch([() => json({}, 201), () => json({ error: "peer unavailable" }, 503)]);
+
+    await assert.rejects(submitTemperatureEvidence(SUBMISSION), (error: unknown) => {
+      assert.ok(error instanceof AnchorError);
+      // The caller must not record this as a failed anchor: the evidence is on the ledger.
+      assert.equal(error.anchored, true);
+      return true;
+    });
   });
 
   it("fails loudly when the anchored record carries no transaction ID", async () => {
     stubFetch([() => json({}, 201), () => json({ complianceOutcome: "COMPLIANT" })]);
 
-    await assert.rejects(
-      submitTemperatureEvidence(SUBMISSION),
-      /did not include a transaction ID/
-    );
+    await assert.rejects(submitTemperatureEvidence(SUBMISSION), (error: unknown) => {
+      assert.ok(error instanceof AnchorError);
+      assert.match(error.message, /no transaction ID/);
+      assert.equal(error.anchored, true);
+      return true;
+    });
   });
 
   it("reports a non-JSON failure without hiding the status", async () => {

@@ -34,9 +34,12 @@ const ORGANISATIONS: Record<"org1" | "org2", OrganisationProfile> = {
   }
 };
 
-// The demo maps a stakeholder name onto one of the enrolled network identities. The network
-// currently enrols two users per organisation, so a name is reused if more stakeholders are
-// needed than there are identities.
+// Maps a stakeholder name onto one of the enrolled network identities.
+//
+// The network enrols two users per organisation, four in total, and the registry ties each
+// certificate to exactly one stakeholder. There are six roles, so FARM and PROCESSOR have no
+// identity of their own: to drive a batch through creation and processing, a regulator reassigns
+// one of these four. Giving every role its own identity means enrolling more through Fabric CA.
 const DEMO_IDENTITIES: Record<string, { org: "org1" | "org2"; user: string }> = {
   regulator: { org: "org1", user: "Admin" },
   oracle: { org: "org1", user: "User1" },
