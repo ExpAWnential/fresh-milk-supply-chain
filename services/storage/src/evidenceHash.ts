@@ -13,6 +13,22 @@ interface CanonicalTemperatureReading {
   readonly celsius: number;
 }
 
+export type SortableTemperatureReading = CanonicalTemperatureReading;
+
+// The order readings are put in before hashing. Exported because the oracle sorts too, and two
+// copies of this rule could drift into producing different fingerprints for the same readings.
+export function compareTemperatureReadings(
+  left: SortableTemperatureReading,
+  right: SortableTemperatureReading
+): number {
+  return (
+    left.batchId.localeCompare(right.batchId) ||
+    left.recordedAt.localeCompare(right.recordedAt) ||
+    left.sensorId.localeCompare(right.sensorId) ||
+    left.celsius - right.celsius
+  );
+}
+
 function requireText(value: string, label: string): string {
   const normalised = value.trim();
   if (!normalised) {
@@ -53,13 +69,7 @@ export function canonicaliseTemperatureReadings(
 
   const canonicalReadings = readings
     .map((reading) => normaliseReading(normalisedBatchId, reading))
-    .sort(
-      (left, right) =>
-        left.batchId.localeCompare(right.batchId) ||
-        left.recordedAt.localeCompare(right.recordedAt) ||
-        left.sensorId.localeCompare(right.sensorId) ||
-        left.celsius - right.celsius
-    );
+    .sort(compareTemperatureReadings);
 
   return JSON.stringify(canonicalReadings);
 }
