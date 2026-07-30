@@ -15,6 +15,9 @@ export type BatchStatus = (typeof BATCH_STATUSES)[number];
 export interface Batch {
   readonly batchId: string;
   readonly status: BatchStatus;
+  // Where the milk came from. Set once at creation and never changed, so the consumer-facing
+  // view can name the source without exposing who recorded each step.
+  readonly origin: string;
   readonly createdByStakeholderId: string;
   readonly createdTxId: string;
   readonly createdAt: string;

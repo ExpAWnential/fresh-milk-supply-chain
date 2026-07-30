@@ -29,9 +29,10 @@ interface HistoryTimestamp {
 })
 export class BatchLifecycleContract extends Contract {
   @Transaction()
-  public async createBatch(ctx: Context, batchId: string): Promise<void> {
+  public async createBatch(ctx: Context, batchId: string, origin: string): Promise<void> {
     const stakeholder = await assertActiveRole(ctx, ["FARM", "PROCESSOR"]);
     const normalisedBatchId = requireValue(batchId, "Batch ID");
+    const normalisedOrigin = requireValue(origin, "Origin");
     const key = batchKey(ctx, normalisedBatchId);
     if ((await ctx.stub.getState(key)).length > 0) {
       throw new Error(`Batch '${normalisedBatchId}' already exists.`);
@@ -41,6 +42,7 @@ export class BatchLifecycleContract extends Contract {
     const batch: Batch = {
       batchId: normalisedBatchId,
       status: "CREATED",
+      origin: normalisedOrigin,
       createdByStakeholderId: stakeholder.stakeholderId,
       createdTxId: metadata.txId,
       createdAt: metadata.timestamp,

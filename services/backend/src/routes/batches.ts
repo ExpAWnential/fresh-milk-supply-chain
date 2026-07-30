@@ -24,10 +24,17 @@ function requireString(value: unknown, field: string): string {
 batchRouter.post("/", async (req, res) => {
   try {
     const batchId = requireString(req.body?.batchId, "batchId");
+    const origin = requireString(req.body?.origin, "origin");
     await withGateway(req, (client) =>
-      client.submitTransaction(config.supplychainChaincodeName, CONTRACT, "createBatch", batchId)
+      client.submitTransaction(
+        config.supplychainChaincodeName,
+        CONTRACT,
+        "createBatch",
+        batchId,
+        origin
+      )
     );
-    res.status(201).json({ batchId, status: "CREATED" });
+    res.status(201).json({ batchId, origin, status: "CREATED" });
   } catch (error) {
     sendGatewayError(res, error);
   }

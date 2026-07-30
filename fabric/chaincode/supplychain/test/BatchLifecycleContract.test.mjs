@@ -160,7 +160,7 @@ test("a batch follows the complete CREATED to DELIVERED lifecycle with full hist
   const contract = new BatchLifecycleContract();
   const stub = new MemoryStub();
 
-  await transact(stub, "cert-farm", (ctx) => contract.createBatch(ctx, " BATCH-001 "));
+  await transact(stub, "cert-farm", (ctx) => contract.createBatch(ctx, " BATCH-001 ", " Green Pastures Dairy "));
   await transact(stub, "cert-processor", (ctx) =>
     contract.recordProcessingEvent(ctx, "BATCH-001")
   );
@@ -169,6 +169,7 @@ test("a batch follows the complete CREATED to DELIVERED lifecycle with full hist
 
   const batch = JSON.parse(await contract.getBatch(context(stub, "cert-farm"), "BATCH-001"));
   assert.equal(batch.status, "DELIVERED");
+  assert.equal(batch.origin, "Green Pastures Dairy");
   assert.equal(batch.createdByStakeholderId, "farm-001");
   assert.equal(batch.lastUpdatedByStakeholderId, "retailer-001");
   assert.deepEqual(
@@ -203,17 +204,21 @@ test("duplicate IDs, incorrect roles and invalid lifecycle steps are rejected", 
   const stub = new MemoryStub();
 
   await assert.rejects(
-    contract.createBatch(context(stub, "cert-retailer"), "BATCH-002"),
+    contract.createBatch(context(stub, "cert-retailer"), "BATCH-002", "Green Pastures Dairy"),
     /requires one of: FARM, PROCESSOR/
   );
   await assert.rejects(
-    contract.createBatch(context(stub, "cert-suspended"), "BATCH-002"),
+    contract.createBatch(context(stub, "cert-suspended"), "BATCH-002", "Green Pastures Dairy"),
     /is suspended/
   );
-
-  await transact(stub, "cert-farm", (ctx) => contract.createBatch(ctx, "BATCH-002"));
   await assert.rejects(
-    contract.createBatch(context(stub, "cert-farm"), "BATCH-002"),
+    contract.createBatch(context(stub, "cert-farm"), "BATCH-002", "   "),
+    /Origin must not be empty/
+  );
+
+  await transact(stub, "cert-farm", (ctx) => contract.createBatch(ctx, "BATCH-002", "Green Pastures Dairy"));
+  await assert.rejects(
+    contract.createBatch(context(stub, "cert-farm"), "BATCH-002", "Green Pastures Dairy"),
     /already exists/
   );
   await assert.rejects(
@@ -234,7 +239,7 @@ test("a regulator can recall a batch and recalled batches cannot continue", asyn
   const contract = new BatchLifecycleContract();
   const stub = new MemoryStub();
 
-  await transact(stub, "cert-farm", (ctx) => contract.createBatch(ctx, "BATCH-003"));
+  await transact(stub, "cert-farm", (ctx) => contract.createBatch(ctx, "BATCH-003", "Green Pastures Dairy"));
   await transact(stub, "cert-processor", (ctx) =>
     contract.recordProcessingEvent(ctx, "BATCH-003")
   );
