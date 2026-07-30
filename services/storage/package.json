@@ -14,10 +14,11 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --import tsx --test \"test/**/*.test.ts\"",
+    "test": "node --import tsx --test \"test/**/*.test.ts\" \"test/**/*.test.mjs\"",
     "db:start": "docker compose up -d",
     "db:stop": "docker compose down",
-    "demo:tamper": "pnpm build && node dist/tamperEvidence.js"
+    "demo:tamper": "pnpm build && node dist/tamperEvidence.js",
+    "test:integration": "pnpm build && RUN_POSTGRES_INTEGRATION=1 node --test test/postgres.integration.test.mjs"
   },
   "dependencies": {
     "pg": "^8.12.0"

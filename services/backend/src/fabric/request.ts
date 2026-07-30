@@ -2,13 +2,20 @@ import type { Request, Response } from "express";
 import { resolveDemoIdentity } from "../demoIdentity.js";
 import { createFabricGatewayClient, type FabricGatewayClient } from "./gateway.js";
 
-// A connection is opened per request rather than pooled. For a proof of concept an obviously
-// correct identity per call is worth more than saving a TLS handshake.
+// Opening the connection is a separate step so routes can be exercised against a stub instead of
+// a live network. A connection is made per request rather than pooled: for a proof of concept an
+// obviously correct identity per call is worth more than saving a TLS handshake.
+export type GatewayConnector = (request: Request) => Promise<FabricGatewayClient>;
+
+export const connectAsRequestIdentity: GatewayConnector = (request) =>
+  createFabricGatewayClient(resolveDemoIdentity(request));
+
 export async function withGateway<T>(
+  connect: GatewayConnector,
   request: Request,
   work: (client: FabricGatewayClient) => Promise<T>
 ): Promise<T> {
-  const client = await createFabricGatewayClient(resolveDemoIdentity(request));
+  const client = await connect(request);
   try {
     return await work(client);
   } finally {

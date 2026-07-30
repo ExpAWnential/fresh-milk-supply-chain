@@ -94,7 +94,14 @@ test("unanchored evidence is rejected", async () => {
 });
 
 test("HTTP verification endpoint returns the verification result", async () => {
-  const app = createApp({ temperatureRepository: repository() });
+  const unusedLedger = async () => {
+    throw new Error("verification must not open a ledger connection when a reader is supplied");
+  };
+  const app = createApp({
+    connect: unusedLedger,
+    readAsRegulator: unusedLedger,
+    temperatureRepository: repository()
+  });
   const server = app.listen(0);
   await once(server, "listening");
 

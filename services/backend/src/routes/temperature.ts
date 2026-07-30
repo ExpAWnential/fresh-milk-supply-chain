@@ -2,7 +2,7 @@ import { Router } from "express";
 import type { Request as ExpressRequest } from "express";
 import type { TemperatureRepository } from "@fresh-milk/storage";
 import { config } from "../config.js";
-import { sendGatewayError, withGateway } from "../fabric/request.js";
+import { sendGatewayError, withGateway, type GatewayConnector } from "../fabric/request.js";
 import {
   EvidenceVerificationError,
   type AnchoredEvidenceReader,
@@ -12,6 +12,7 @@ import {
 const CONTRACT = "TemperatureComplianceContract";
 
 export interface TemperatureRouterDependencies {
+  readonly connect: GatewayConnector;
   readonly temperatureRepository?: TemperatureRepository;
   readonly anchoredEvidenceReader?: AnchoredEvidenceReader;
   // Builds a reader that queries the ledger as whoever made the request, so the contract's own
@@ -26,9 +27,8 @@ function requireString(value: unknown, field: string): string {
   return value.trim();
 }
 
-export function createTemperatureRouter(
-  dependencies: TemperatureRouterDependencies = {}
-): Router {
+export function createTemperatureRouter(dependencies: TemperatureRouterDependencies): Router {
+  const { connect } = dependencies;
   const router = Router();
 
   router.post("/batches/:batchId/evidence", async (req, res) => {
@@ -43,7 +43,7 @@ export function createTemperatureRouter(
 
       // The compliance outcome is deliberately not accepted from the caller. The contract
       // derives it from these statistics itself.
-      await withGateway(req, (client) =>
+      await withGateway(connect, req, (client) =>
         client.submitTransaction(
           config.supplychainChaincodeName,
           CONTRACT,
@@ -64,7 +64,7 @@ export function createTemperatureRouter(
   router.post("/batches/:batchId/resolve-breach", async (req, res) => {
     try {
       const reason = requireString(req.body?.reason, "reason");
-      await withGateway(req, (client) =>
+      await withGateway(connect, req, (client) =>
         client.submitTransaction(
           config.supplychainChaincodeName,
           CONTRACT,
@@ -81,7 +81,7 @@ export function createTemperatureRouter(
 
   router.get("/evidence/:evidenceId", async (req, res) => {
     try {
-      const bytes = await withGateway(req, (client) =>
+      const bytes = await withGateway(connect, req, (client) =>
         client.evaluateTransaction(
           config.supplychainChaincodeName,
           CONTRACT,

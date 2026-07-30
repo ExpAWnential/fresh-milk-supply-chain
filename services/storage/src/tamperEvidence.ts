@@ -1,8 +1,9 @@
+import { pathToFileURL } from "node:url";
 import { createPool } from "./pool.js";
 import { sha256TemperatureReadings } from "./evidenceHash.js";
 import { createTemperatureRepository } from "./repositories/temperatureRepository.js";
 
-interface TamperArguments {
+export interface TamperArguments {
   readonly evidenceId: string;
   readonly deltaCelsius: number;
   readonly confirmed: boolean;
@@ -13,7 +14,7 @@ function readOption(argumentsList: readonly string[], name: string): string | un
   return index >= 0 ? argumentsList[index + 1] : undefined;
 }
 
-function parseArguments(argumentsList: readonly string[]): TamperArguments {
+export function parseArguments(argumentsList: readonly string[]): TamperArguments {
   const evidenceId = readOption(argumentsList, "--evidence")?.trim();
   if (!evidenceId) {
     throw new Error(
@@ -133,8 +134,12 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(`[tamper-demo] ${message}`);
-  process.exitCode = 1;
-});
+// Only run when invoked as a command. Importing the module, as the tests do, must not connect to
+// a database or start modifying rows.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[tamper-demo] ${message}`);
+    process.exitCode = 1;
+  });
+}
