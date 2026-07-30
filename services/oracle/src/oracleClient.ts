@@ -75,9 +75,9 @@ export async function submitTemperatureEvidence(
   return anchored;
 }
 
-// Undefined means the ledger positively has no such evidence. Every other failure throws, because
-// being unable to tell must never be read as "never anchored": that is the difference between a
-// run that can be repaired and one recorded as failed forever.
+// Undefined means the ledger positively has no such evidence, which the backend reports as a 404.
+// Every other failure throws, because being unable to tell must never be read as "never anchored":
+// that is the difference between a run that can be repaired and one recorded as failed forever.
 export async function readAnchoredEvidence(
   evidenceId: string
 ): Promise<AnchoredEvidence | undefined> {
@@ -86,12 +86,12 @@ export async function readAnchoredEvidence(
     { headers: { "x-demo-identity": "oracle" } }
   );
 
+  if (response.status === 404) {
+    return undefined;
+  }
+
   if (!response.ok) {
-    const failure = await describeFailure(response);
-    if (/Temperature evidence '[^']*' does not exist/i.test(failure)) {
-      return undefined;
-    }
-    throw new Error(failure);
+    throw new Error(await describeFailure(response));
   }
 
   const anchored = (await response.json()) as AnchoredEvidence;

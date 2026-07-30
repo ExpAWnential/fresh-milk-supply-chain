@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { AnchorError, submitTemperatureEvidence } from "../src/oracleClient.js";
+import { AnchorError, readAnchoredEvidence, submitTemperatureEvidence } from "../src/oracleClient.js";
 
 const SUBMISSION = {
   evidenceId: "EV-1",
@@ -98,6 +98,21 @@ describe("anchoring evidence through the backend", () => {
       assert.equal(error.anchored, true);
       return true;
     });
+  });
+
+  it("reads nothing anchored when the backend reports the evidence is not there", async () => {
+    stubFetch([() => json({ error: "Evidence 'EV-1' is not on the ledger." }, 404)]);
+
+    assert.equal(await readAnchoredEvidence("EV-1"), undefined);
+  });
+
+  // Not being able to tell is not the same as nothing being anchored, and treating it that way is
+  // what would let a committed run be written off as failed.
+  it("raises anything other than a plain not found", async () => {
+    for (const status of [400, 500, 503]) {
+      stubFetch([() => json({ error: "peer unavailable" }, status)]);
+      await assert.rejects(readAnchoredEvidence("EV-1"), /peer unavailable/, String(status));
+    }
   });
 
   it("reports a non-JSON failure without hiding the status", async () => {

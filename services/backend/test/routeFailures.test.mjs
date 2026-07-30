@@ -57,6 +57,26 @@ test("the public endpoint never repeats the contract's wording to a consumer", a
   });
 });
 
+// Answering with a status rather than prose is what lets the oracle tell "never anchored" apart
+// from "could not tell", without a second copy of the contract's wording living in that package.
+test("evidence the ledger has never seen is reported as not found", async () => {
+  const ledger = refusingLedger("Temperature evidence 'EV-1' does not exist.");
+  await withServer({ ledger }, async ({ call }) => {
+    const result = await call("GET", "/temperature/evidence/EV-1");
+
+    assert.equal(result.status, 404);
+    assert.match(result.body.error, /is not on the ledger/);
+  });
+});
+
+test("a refusal to read evidence stays a refusal rather than becoming not found", async () => {
+  const ledger = refusingLedger("Stakeholder 'farm-001' does not exist.");
+  await withServer({ ledger }, async ({ call }) => {
+    const result = await call("GET", "/temperature/evidence/EV-1");
+    assert.equal(result.status, 400);
+  });
+});
+
 test("an unknown batch code is reported to a consumer as not found", async () => {
   const ledger = refusingLedger("Batch 'b1' does not exist.");
   await withServer({ ledger }, async ({ call }) => {

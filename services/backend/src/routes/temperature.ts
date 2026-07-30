@@ -4,6 +4,7 @@ import type { TemperatureRepository } from "@fresh-milk/storage";
 import { config } from "../config.js";
 import { bindLedger, requireString } from "../fabric/ledger.js";
 import { sendGatewayError, type GatewayConnector } from "../fabric/request.js";
+import { describesMissingEvidence } from "../fabric/anchoredEvidence.js";
 import { BATCH_CONTRACT } from "./batches.js";
 import {
   EvidenceVerificationError,
@@ -102,6 +103,12 @@ export function createTemperatureRouter({
         await temperature.evaluateJson(req, "getTemperatureEvidence", req.params.evidenceId)
       );
     } catch (error) {
+      // Evidence the ledger has never seen answers 404, so a caller can tell that apart from a
+      // refusal by the status alone rather than matching on the contract's wording.
+      if (describesMissingEvidence(error)) {
+        res.status(404).json({ error: `Evidence '${req.params.evidenceId}' is not on the ledger.` });
+        return;
+      }
       sendGatewayError(res, error);
     }
   });
