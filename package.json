@@ -9,6 +9,7 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter @fresh-milk/storage build && pnpm -r test",
     "fabric:start": "pnpm --filter @fresh-milk/fabric-network start",
+    "fabric:enrol-identities": "pnpm --filter @fresh-milk/fabric-network enrol-identities",
     "fabric:stop": "pnpm --filter @fresh-milk/fabric-network stop",
     "fabric:deploy-chaincode": "pnpm --filter @fresh-milk/fabric-network deploy-chaincode",
     "db:start": "pnpm --filter @fresh-milk/storage db:start",
