@@ -6,20 +6,18 @@ export interface HashableTemperatureReading {
   readonly celsius: number;
 }
 
-interface CanonicalTemperatureReading {
+export interface CanonicalTemperatureReading {
   readonly batchId: string;
   readonly sensorId: string;
   readonly recordedAt: string;
   readonly celsius: number;
 }
 
-export type SortableTemperatureReading = CanonicalTemperatureReading;
-
 // The order readings are put in before hashing. Exported because the oracle sorts too, and two
 // copies of this rule could drift into producing different fingerprints for the same readings.
 export function compareTemperatureReadings(
-  left: SortableTemperatureReading,
-  right: SortableTemperatureReading
+  left: CanonicalTemperatureReading,
+  right: CanonicalTemperatureReading
 ): number {
   return (
     left.batchId.localeCompare(right.batchId) ||
