@@ -329,6 +329,33 @@ test("the consumer view reports a cleared breach apart from one that was never c
   }
 });
 
+// The rich query is the reason the network runs CouchDB rather than LevelDB, so it needs a way in.
+test("batches can be listed by status", async () => {
+  const ledger = stubLedger({
+    evaluate: async () => Buffer.from(JSON.stringify([{ batchId: "MILK-1", status: "RECALLED" }]))
+  });
+
+  await withServer({ ledger }, async ({ call }) => {
+    const result = await call("GET", "/batches?status=RECALLED");
+
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body, [{ batchId: "MILK-1", status: "RECALLED" }]);
+    assert.deepEqual(ledger.calls[0].args.slice(2), ["queryBatchesByStatus", "RECALLED"]);
+  });
+  assert.equal(ledger.leaked, false);
+});
+
+test("listing batches without a status is refused before the ledger is reached", async () => {
+  const ledger = stubLedger();
+
+  await withServer({ ledger }, async ({ call }) => {
+    const result = await call("GET", "/batches");
+    assert.equal(result.status, 400);
+    assert.match(result.body.error, /status/);
+  });
+  assert.equal(ledger.calls.length, 0);
+});
+
 test("a recalled batch tells the consumer why", async () => {
   const ledger = stubLedger({
     evaluate: async (_chaincode, _contract, transaction) =>

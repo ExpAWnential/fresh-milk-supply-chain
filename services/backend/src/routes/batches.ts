@@ -30,6 +30,18 @@ export function createBatchRouter(connect: GatewayConnector): Router {
     }
   });
 
+  // Declared before the single-batch route so a status query is not read as a batch called
+  // "status". This is the lookup CouchDB was chosen for: without it the rich query the contract
+  // runs has no way of being reached.
+  router.get("/", async (req, res) => {
+    try {
+      const status = requireString(req.query?.status, "status");
+      res.json(await batches.evaluateJson(req, "queryBatchesByStatus", status));
+    } catch (error) {
+      sendGatewayError(res, error);
+    }
+  });
+
   router.post("/:batchId/events", async (req, res) => {
     try {
       const eventType = requireString(req.body?.eventType, "eventType").toUpperCase();
