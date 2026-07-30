@@ -6,7 +6,6 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "tsc -p tsconfig.json --noEmit",
     "start": "tsx src/startNetwork.ts",
     "stop": "tsx src/stopNetwork.ts",
     "deploy-chaincode": "tsx src/deployChaincode.ts"

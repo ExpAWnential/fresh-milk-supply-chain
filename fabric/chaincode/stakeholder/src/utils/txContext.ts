@@ -30,8 +30,13 @@ export function getTransactionMetadata(ctx: Context): TransactionMetadata {
     throw new Error("Fabric returned an invalid transaction timestamp.");
   }
 
+  const txId = ctx.stub.getTxID()?.trim();
+  if (!txId) {
+    throw new Error("Fabric returned an empty transaction ID.");
+  }
+
   return {
-    txId: ctx.stub.getTxID(),
+    txId,
     timestamp: timestampDate.toISOString(),
     invokingCertificateId: getInvokingIdentity(ctx).certificateId
   };

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 
-export interface CommandOptions {
+interface CommandOptions {
   readonly cwd: string;
 }
 

@@ -10,7 +10,7 @@ export type StakeholderRole =
   | "ORACLE";
 
 export const STAKEHOLDER_CHAINCODE_NAME = "stakeholder";
-export const STAKEHOLDER_ROLE_ASSERTION_TRANSACTION =
+const STAKEHOLDER_ROLE_ASSERTION_TRANSACTION =
   "StakeholderRegistryContract:assertActiveRole";
 
 const ALL_ROLES: readonly StakeholderRole[] = [
