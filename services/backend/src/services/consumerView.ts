@@ -13,13 +13,26 @@ export interface LedgerHistoryEntry {
 }
 
 // A breach that a regulator has since cleared still matters to a shopper, so the history is
-// checked rather than only the current status.
+// checked rather than only the current status. A breach only counts as cleared when the batch
+// returned to IN_TRANSIT afterwards, which is the one status resolveTemperatureBreach produces.
+// Leaving a breach behind any other way, such as recalling the batch while the hold is open,
+// leaves it unresolved, and saying otherwise would tell a shopper the problem was dealt with.
 function coldChainStatus(status: string, history: readonly LedgerHistoryEntry[]): string {
   if (status === "COLD_CHAIN_BREACH") {
     return "UNDER_INVESTIGATION";
   }
-  const everBreached = history.some((entry) => entry.batch?.status === "COLD_CHAIN_BREACH");
-  return everBreached ? "BREACH_RESOLVED" : "MAINTAINED";
+
+  // History arrives newest first, so the most recent breach is the earliest match and anything
+  // that happened after it sits in front of it.
+  const latestBreach = history.findIndex((entry) => entry.batch?.status === "COLD_CHAIN_BREACH");
+  if (latestBreach === -1) {
+    return "MAINTAINED";
+  }
+
+  const clearedAfterBreach = history
+    .slice(0, latestBreach)
+    .some((entry) => entry.batch?.status === "IN_TRANSIT");
+  return clearedAfterBreach ? "BREACH_RESOLVED" : "UNRESOLVED_BREACH";
 }
 
 // Only the first time the batch reached each status, so a consumer sees the journey without the

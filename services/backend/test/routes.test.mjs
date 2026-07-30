@@ -271,17 +271,44 @@ test("the consumer view exposes the journey but never who recorded it", async ()
   assert.equal(ledger.leaked, false);
 });
 
-test("the consumer view still reports a breach that was later cleared", async () => {
+// History arrives newest first. A breach only counts as cleared when the batch went back to
+// IN_TRANSIT afterwards, which is the one status resolveTemperatureBreach produces.
+test("the consumer view reports a cleared breach apart from one that was never cleared", async () => {
+  const entry = (status, hour) => ({
+    timestamp: `2026-07-30T0${hour}:00:00.000Z`,
+    batch: { status }
+  });
   const cases = [
-    { status: "COLD_CHAIN_BREACH", everBreached: true, expected: "UNDER_INVESTIGATION" },
-    { status: "IN_TRANSIT", everBreached: true, expected: "BREACH_RESOLVED" },
-    { status: "DELIVERED", everBreached: false, expected: "MAINTAINED" }
+    {
+      status: "COLD_CHAIN_BREACH",
+      history: [entry("COLD_CHAIN_BREACH", 2), entry("IN_TRANSIT", 1)],
+      expected: "UNDER_INVESTIGATION"
+    },
+    {
+      status: "DELIVERED",
+      history: [
+        entry("DELIVERED", 4),
+        entry("IN_TRANSIT", 3),
+        entry("COLD_CHAIN_BREACH", 2),
+        entry("IN_TRANSIT", 1)
+      ],
+      expected: "BREACH_RESOLVED"
+    },
+    // Recalling a breached batch leaves the hold open, so telling a shopper it was resolved would
+    // claim someone dealt with a problem nobody dealt with.
+    {
+      status: "RECALLED",
+      history: [entry("RECALLED", 3), entry("COLD_CHAIN_BREACH", 2), entry("IN_TRANSIT", 1)],
+      expected: "UNRESOLVED_BREACH"
+    },
+    {
+      status: "DELIVERED",
+      history: [entry("DELIVERED", 2), entry("IN_TRANSIT", 1)],
+      expected: "MAINTAINED"
+    }
   ];
 
-  for (const { status, everBreached, expected } of cases) {
-    const history = everBreached
-      ? [{ timestamp: "2026-07-30T01:00:00.000Z", batch: { status: "COLD_CHAIN_BREACH" } }]
-      : [{ timestamp: "2026-07-30T01:00:00.000Z", batch: { status } }];
+  for (const { status, history, expected } of cases) {
     const ledger = stubLedger({
       evaluate: async (_chaincode, _contract, transaction) =>
         Buffer.from(
