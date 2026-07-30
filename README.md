@@ -28,17 +28,15 @@ Not included:
 
 ### Identities
 
-Fabric's test network enrols two users per organisation, four in total, while the registry models
-six roles. FARM and PROCESSOR therefore have no certificate of their own, so driving a batch from
-creation to delivery means a regulator reassigning one of the four to those roles as the batch
-moves. That is a limit of how the network was generated rather than of the registry, which accepts
-any number of stakeholders.
+Every role signs with its own certificate, so each step of a batch's journey is authorised by a
+different party and the registry's role checks are doing real work.
 
-More identities can be added without disturbing the ones already in use. Raising `Users.Count` in
-each `crypto-config-org*.yaml` and running `cryptogen extend` issues the new certificates from the
-organisation CA that is already there, leaving the existing users and their registrations intact.
-The four are kept because the demo reads more clearly with fewer actors, not because the network
-cannot hold more.
+Fabric's test network is generated with two users per organisation, four in total, which is two
+short of the six roles. `pnpm fabric:enrol-identities` closes the gap. It rewrites the network's
+own cryptogen template with a higher user count and runs `cryptogen extend`, which issues only the
+missing certificates from the organisation CA already on disk. Certificates already in use are
+untouched, so anything registered against them keeps working, and the peers accept the new ones
+without a restart.
 
 ## Commands
 
