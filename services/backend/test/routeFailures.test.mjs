@@ -194,6 +194,32 @@ test("a match is only reported when the ledger itself supplies the anchor", asyn
   );
 });
 
+// Falling back to the database's copy would hand an auditor a transaction ID taken from the very
+// record they are checking, under a field documented as coming off the ledger.
+test("an anchor with no transaction ID is reported as missing, not filled in from the database", async () => {
+  const readings = [{ sensorId: "S-1", recordedAt: "2026-07-30T00:00:00.000Z", celsius: 2 }];
+  const { sha256TemperatureReadings } = await import("@fresh-milk/storage");
+  const anchored = sha256TemperatureReadings("B-1", readings);
+
+  await withServer(
+    {
+      temperatureRepository: repositoryStub({
+        getEvidence: async () =>
+          storedEvidence({ evidenceHash: anchored, fabricTransactionId: "tx-from-database" }),
+        getReadings: async () => readings
+      }),
+      readerForRequest: () => ({
+        getAnchoredEvidence: async () => ({ evidenceHash: anchored })
+      })
+    },
+    async ({ call }) => {
+      const result = await call("GET", "/temperature/evidence/EV-1/verify");
+      assert.equal(result.status, 200);
+      assert.equal(result.body.fabricTransactionId, null);
+    }
+  );
+});
+
 test("an altered reading breaks the match while the ledger's hash stays put", async () => {
   const anchored = "a".repeat(64);
   await withServer(

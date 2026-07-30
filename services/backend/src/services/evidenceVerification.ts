@@ -28,7 +28,9 @@ export interface EvidenceVerificationResult {
   readonly databaseHash: string;
   readonly recomputedHash: string;
   readonly readingCount: number;
-  readonly fabricTransactionId: string;
+  // Null when the anchored record carries no transaction ID. Reported as missing rather than
+  // filled in from the database, so this field always means what it says.
+  readonly fabricTransactionId: string | null;
 }
 
 export type EvidenceVerificationErrorCode =
@@ -98,6 +100,8 @@ export async function verifyTemperatureEvidence(
     databaseHash,
     recomputedHash,
     readingCount: readings.length,
-    fabricTransactionId: fabricEvidence.fabricTransactionId ?? evidence.fabricTransactionId
+    // Only ever the ledger's. Falling back to the database's copy would hand an auditor a
+    // transaction ID from the very record they are checking, under a field that says otherwise.
+    fabricTransactionId: fabricEvidence.fabricTransactionId ?? null
   };
 }
