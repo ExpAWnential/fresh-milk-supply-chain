@@ -8,7 +8,7 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
-    "test": "pnpm --filter @fresh-milk/storage build && pnpm --filter @fresh-milk/oracle test && pnpm --filter @fresh-milk/storage test && pnpm --filter @fresh-milk/backend test",
+    "test": "pnpm --filter @fresh-milk/chaincode-stakeholder test && pnpm --filter @fresh-milk/chaincode-supplychain test && pnpm --filter @fresh-milk/storage build && pnpm --filter @fresh-milk/oracle test && pnpm --filter @fresh-milk/storage test && pnpm --filter @fresh-milk/backend test",
     "fabric:start": "pnpm --filter @fresh-milk/fabric-network start",
     "fabric:stop": "pnpm --filter @fresh-milk/fabric-network stop",
     "fabric:deploy-chaincode": "pnpm --filter @fresh-milk/fabric-network deploy-chaincode",
