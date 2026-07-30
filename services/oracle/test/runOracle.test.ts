@@ -36,6 +36,9 @@ function recordingRepository() {
       async getEvidence() {
         return undefined;
       },
+      async listEvidenceForBatch() {
+        return [];
+      },
       async getReadings() {
         return [];
       }

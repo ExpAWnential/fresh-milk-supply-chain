@@ -31,6 +31,7 @@ export interface TemperatureRepository {
   markAnchored(evidenceId: string, fabricTransactionId: string): Promise<void>;
   markFailed(evidenceId: string): Promise<void>;
   getEvidence(evidenceId: string): Promise<StoredTemperatureEvidence | undefined>;
+  listEvidenceForBatch(batchId: string): Promise<readonly StoredTemperatureEvidence[]>;
   getReadings(evidenceId: string): Promise<readonly StoredTemperatureReading[]>;
 }
 
@@ -129,6 +130,30 @@ export function createTemperatureRepository(pool: Pool): TemperatureRepository {
       );
 
       return result.rows[0] ? mapEvidenceRow(result.rows[0]) : undefined;
+    },
+
+    async listEvidenceForBatch(batchId: string): Promise<readonly StoredTemperatureEvidence[]> {
+      const result = await pool.query<EvidenceRow>(
+        `
+          SELECT evidence_id,
+                 batch_id,
+                 sensor_id,
+                 evidence_hash,
+                 min_celsius,
+                 max_celsius,
+                 average_celsius,
+                 reading_count,
+                 compliance_outcome,
+                 submission_status,
+                 fabric_transaction_id
+          FROM temperature_evidence
+          WHERE batch_id = $1
+          ORDER BY created_at ASC, evidence_id ASC
+        `,
+        [batchId]
+      );
+
+      return result.rows.map(mapEvidenceRow);
     },
 
     async getReadings(evidenceId: string): Promise<readonly StoredTemperatureReading[]> {

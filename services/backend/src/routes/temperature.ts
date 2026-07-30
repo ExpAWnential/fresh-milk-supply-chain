@@ -4,6 +4,7 @@ import type { TemperatureRepository } from "@fresh-milk/storage";
 import { config } from "../config.js";
 import { bindLedger, requireString } from "../fabric/ledger.js";
 import { sendGatewayError, type GatewayConnector } from "../fabric/request.js";
+import { BATCH_CONTRACT } from "./batches.js";
 import {
   EvidenceVerificationError,
   type AnchoredEvidenceReader,
@@ -27,6 +28,8 @@ export function createTemperatureRouter({
   readerForRequest
 }: TemperatureRouterDependencies): Router {
   const temperature = bindLedger(connect, config.supplychainChaincodeName, TEMPERATURE_CONTRACT);
+  // Reading a batch is how the evidence listing below borrows the contract's own authorisation.
+  const batches = bindLedger(connect, config.supplychainChaincodeName, BATCH_CONTRACT);
   const router = Router();
 
   router.post("/batches/:batchId/evidence", async (req, res) => {
@@ -61,6 +64,33 @@ export function createTemperatureRouter({
       const reason = requireString(req.body?.reason, "reason");
       await temperature.submit(req, "resolveTemperatureBreach", req.params.batchId, reason);
       res.json({ batchId: req.params.batchId, reason });
+    } catch (error) {
+      sendGatewayError(res, error);
+    }
+  });
+
+  // The evidence ID embeds a hash of the readings, so it cannot be guessed. Without this a
+  // regulator who sees a batch flip to COLD_CHAIN_BREACH has no way to reach the evidence that
+  // caused it. The batch is read from the ledger first, so the contract decides who may look.
+  router.get("/batches/:batchId/evidence", async (req, res) => {
+    if (!temperatureRepository) {
+      res.status(503).json({ error: "temperature storage is not configured" });
+      return;
+    }
+
+    try {
+      await batches.evaluateJson(req, "getBatch", req.params.batchId);
+      const evidence = await temperatureRepository.listEvidenceForBatch(req.params.batchId);
+
+      res.json(
+        evidence.map((record) => ({
+          evidenceId: record.evidenceId,
+          evidenceHash: record.evidenceHash,
+          readingCount: record.readingCount,
+          submissionStatus: record.submissionStatus,
+          fabricTransactionId: record.fabricTransactionId
+        }))
+      );
     } catch (error) {
       sendGatewayError(res, error);
     }

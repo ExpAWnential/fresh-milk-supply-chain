@@ -146,6 +146,21 @@ describe("temperature repository", () => {
     assert.deepEqual(await repository.getEvidence("EV-001"), sampleEvidence());
   });
 
+  // The evidence ID embeds a hash of the readings, so it cannot be guessed. Listing by batch is
+  // the only way to reach the evidence behind a cold-chain breach.
+  it("lists a batch's evidence oldest first", async () => {
+    const pool = new FakePool();
+    pool.evidenceRows = [];
+    const repository = createTemperatureRepository(pool as unknown as Pool);
+
+    assert.deepEqual(await repository.listEvidenceForBatch("BATCH-001"), []);
+
+    const [query] = pool.queries;
+    assert.match(query.text, /WHERE batch_id = \$1/);
+    assert.match(query.text, /ORDER BY created_at ASC, evidence_id ASC/);
+    assert.deepEqual(query.values, ["BATCH-001"]);
+  });
+
   it("fetches readings in deterministic database order", async () => {
     const pool = new FakePool();
     pool.readingRows = [
