@@ -21,8 +21,16 @@ function repository(readings = originalReadings, overrides = {}) {
   });
 }
 
-function ledgerHolding(evidenceHash, fabricTransactionId = "tx-on-ledger") {
-  return { getAnchoredEvidence: async () => ({ evidenceHash, fabricTransactionId }) };
+// The honest summary of originalReadings, which is what the oracle should have anchored.
+const honestStatistics = {
+  minCelsius: 3.2,
+  maxCelsius: 3.5,
+  averageCelsius: 3.35,
+  readingCount: 2
+};
+
+function ledgerHolding(evidenceHash, fabricTransactionId = "tx-on-ledger", statistics = honestStatistics) {
+  return { getAnchoredEvidence: async () => ({ evidenceHash, fabricTransactionId, statistics }) };
 }
 
 test("unchanged readings still hash to what the ledger anchored", async () => {
@@ -34,8 +42,61 @@ test("unchanged readings still hash to what the ledger anchored", async () => {
   assert.equal(result.match, true);
   assert.equal(result.databaseHashMatchesAnchor, true);
   assert.equal(result.recomputedHash, anchoredHash);
+  assert.equal(result.statisticsMatch, true);
   // The transaction reported is the one the ledger holds, not the database's copy of it.
   assert.equal(result.fabricTransactionId, "tx-on-ledger");
+});
+
+// The case the hash cannot see. The oracle stores the readings honestly, so nothing is tampered
+// with and the hash agrees, but it anchors a summary that hides the spike. The contract judged
+// that summary, so the ledger says COMPLIANT for milk that was not.
+test("an honest reading set with a flattering summary is caught", async () => {
+  const readingsWithASpike = [
+    { sensorId: "SENSOR-01", recordedAt: "2026-07-20T09:00:00Z", celsius: 3.2 },
+    { sensorId: "SENSOR-01", recordedAt: "2026-07-20T09:05:00Z", celsius: 9.4 }
+  ];
+  const hashOfThoseReadings = sha256TemperatureReadings("MILK-001", readingsWithASpike);
+
+  const result = await verifyTemperatureEvidence("EV-1", {
+    temperatureRepository: repositoryStub({
+      getEvidence: async () =>
+        storedEvidence({ batchId: "MILK-001", evidenceHash: hashOfThoseReadings }),
+      getReadings: async () => readingsWithASpike
+    }),
+    // Claims a 3.5 maximum, comfortably inside the safe range, for readings that hit 9.4.
+    anchoredEvidenceReader: ledgerHolding(hashOfThoseReadings, "tx-on-ledger", {
+      minCelsius: 3.2,
+      maxCelsius: 3.5,
+      averageCelsius: 3.35,
+      readingCount: 2
+    })
+  });
+
+  // Nothing was edited, so every hash check passes. This is exactly why the hash is not enough.
+  assert.equal(result.match, true);
+  assert.equal(result.databaseHashMatchesAnchor, true);
+
+  assert.equal(result.statisticsMatch, false);
+  assert.equal(result.anchoredStatistics.maxCelsius, 3.5);
+  assert.equal(result.recomputedStatistics.maxCelsius, 9.4);
+});
+
+test("a record anchored without statistics reports the check as unavailable", async () => {
+  const result = await verifyTemperatureEvidence("EV-1", {
+    temperatureRepository: repository(),
+    // Built inline rather than through the helper, whose default would fill the statistics back in.
+    anchoredEvidenceReader: {
+      getAnchoredEvidence: async () => ({
+        evidenceHash: anchoredHash,
+        fabricTransactionId: "tx-on-ledger"
+      })
+    }
+  });
+
+  // Not false, which would read as a detected lie rather than a check that could not be run.
+  assert.equal(result.statisticsMatch, null);
+  assert.equal(result.anchoredStatistics, null);
+  assert.equal(result.match, true);
 });
 
 test("a modified reading no longer matches the anchor", async () => {

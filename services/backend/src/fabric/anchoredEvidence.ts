@@ -9,10 +9,18 @@ import { config } from "../config.js";
 import { resolveDemoIdentity, type DemoIdentity } from "../demoIdentity.js";
 import { createFabricGatewayClient, type FabricGatewayClient } from "./gateway.js";
 import { TEMPERATURE_CONTRACT } from "./contracts.js";
+import type { TemperatureStatistics } from "@fresh-milk/storage";
 import type {
   AnchoredEvidence,
   AnchoredEvidenceReader
 } from "../services/evidenceVerification.js";
+
+// The parts of the ledger's evidence record this reader uses.
+interface AnchoredEvidenceRecord {
+  readonly evidenceHash: string;
+  readonly submittedTxId: string;
+  readonly statistics?: TemperatureStatistics;
+}
 
 // Without this reader, verification compares the database's stored hash against the database's own
 // readings, which proves nothing. Reading the hash back off the ledger is what makes tampering
@@ -38,14 +46,14 @@ export function createReaderForRequest(
           "getTemperatureEvidence",
           evidenceId
         );
-        const anchored = JSON.parse(Buffer.from(bytes).toString()) as {
-          evidenceHash: string;
-          submittedTxId: string;
-        };
+        const anchored = JSON.parse(Buffer.from(bytes).toString()) as AnchoredEvidenceRecord;
 
         return {
           evidenceHash: anchored.evidenceHash,
-          fabricTransactionId: anchored.submittedTxId
+          fabricTransactionId: anchored.submittedTxId,
+          // The summary the contract judged. Carried through so verification can check it against
+          // the readings, which the hash on its own cannot do.
+          statistics: anchored.statistics
         };
       } catch (error) {
         // Only the contract saying the evidence is unknown means "never anchored". A peer being

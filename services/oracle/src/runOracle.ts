@@ -6,12 +6,14 @@
  * evidence stranded between the database and the ledger.
  */
 import {
+  calculateTemperatureStatistics,
   sha256TemperatureReadings,
   type StoredTemperatureReading,
-  type TemperatureRepository
+  type TemperatureRepository,
+  type TemperatureStatistics
 } from "@fresh-milk/storage";
 import { canonicaliseReadings, type RawTemperatureReading } from "./canonicalise.js";
-import { assessCompliance, calculateStatistics, type TemperatureStatistics } from "./compliance.js";
+import { assessCompliance } from "./compliance.js";
 import { AnchorError } from "./oracleClient.js";
 import type { AnchoredEvidence, TemperatureEvidenceSubmission } from "./oracleClient.js";
 
@@ -53,7 +55,7 @@ export async function runOracle(
 ): Promise<OracleResult> {
   const canonicalReadings = canonicaliseReadings(rawReadings);
   const batchId = singleBatchId(canonicalReadings.map((reading) => reading.batchId));
-  const statistics = calculateStatistics(canonicalReadings);
+  const statistics = calculateTemperatureStatistics(canonicalReadings);
 
   const readings: readonly StoredTemperatureReading[] = canonicalReadings.map((reading) => ({
     sensorId: reading.sensorId,

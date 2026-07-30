@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { sha256TemperatureReadings } from "@fresh-milk/storage";
 import { canonicaliseReadings } from "../src/canonicalise.js";
-import { assessCompliance, calculateStatistics } from "../src/compliance.js";
+import { calculateTemperatureStatistics as calculateStatistics } from "@fresh-milk/storage";
+import { assessCompliance } from "../src/compliance.js";
 import { parseTemperatureReadingsCsv } from "../src/csvReader.js";
 
 describe("temperature oracle", () => {

@@ -1,15 +1,26 @@
 /**
- * The tamper check. Recomputes the fingerprint of the stored readings and compares it against the
- * hash anchored on the ledger.
+ * The tamper check. Two comparisons against the stored readings, answering different questions.
+ *
+ * The hash asks whether the readings were edited after they were anchored. The statistics ask
+ * whether the summary the contract passed judgement on ever described those readings, which the
+ * hash cannot tell you because it does not cover that summary.
  *
  * Whether the readings changed and whether the database's own copy of the hash changed are
- * reported separately, because those two point at different culprits.
+ * reported separately too, because those point at different culprits.
  */
-import { sha256TemperatureReadings, type TemperatureRepository } from "@fresh-milk/storage";
+import {
+  calculateTemperatureStatistics,
+  sha256TemperatureReadings,
+  type TemperatureRepository,
+  type TemperatureStatistics
+} from "@fresh-milk/storage";
 
 export interface AnchoredEvidence {
   readonly evidenceHash: string;
   readonly fabricTransactionId?: string | null;
+  // The summary the contract derived its verdict from. The hash covers the readings but not this,
+  // so without it there is no way to tell whether the verdict was reached from the real numbers.
+  readonly statistics?: TemperatureStatistics;
 }
 
 export interface AnchoredEvidenceReader {
@@ -34,6 +45,13 @@ export interface EvidenceVerificationResult {
   readonly anchoredHash: string;
   readonly databaseHash: string;
   readonly recomputedHash: string;
+  // Whether the summary the contract judged actually describes the stored readings. A hash match
+  // with this false means nobody edited the readings, but the oracle's summary of them was wrong,
+  // so the verdict on the ledger was reached from numbers that were never true.
+  // Null when the anchored record carried no statistics to compare against.
+  readonly statisticsMatch: boolean | null;
+  readonly anchoredStatistics: TemperatureStatistics | null;
+  readonly recomputedStatistics: TemperatureStatistics;
   readonly readingCount: number;
   // Null when the anchored record carries no transaction ID. Reported as missing rather than
   // filled in from the database, so this field always means what it says.
@@ -98,6 +116,12 @@ export async function verifyTemperatureEvidence(
   const databaseHash = evidence.evidenceHash.toLowerCase();
   const recomputedHash = sha256TemperatureReadings(evidence.batchId, readings);
 
+  // The hash proves the readings were not edited after anchoring. It says nothing about whether
+  // the summary sent alongside it described those readings, and the summary is what the contract
+  // judged, so an oracle could store honest readings and anchor a flattering summary of them.
+  const anchoredStatistics = fabricEvidence.statistics ?? null;
+  const recomputedStatistics = calculateTemperatureStatistics(readings);
+
   return {
     evidenceId: normalisedEvidenceId,
     batchId: evidence.batchId,
@@ -106,9 +130,28 @@ export async function verifyTemperatureEvidence(
     anchoredHash,
     databaseHash,
     recomputedHash,
+    statisticsMatch: anchoredStatistics
+      ? statisticsAgree(anchoredStatistics, recomputedStatistics)
+      : null,
+    anchoredStatistics,
+    recomputedStatistics,
     readingCount: readings.length,
     // Only ever the ledger's. Falling back to the database's copy would hand an auditor a
     // transaction ID from the very record they are checking, under a field that says otherwise.
     fabricTransactionId: fabricEvidence.fabricTransactionId ?? null
   };
+}
+
+// Both sides are produced by the storage package's calculator, which rounds to three decimals, so
+// they are directly comparable rather than needing a tolerance.
+function statisticsAgree(
+  anchored: TemperatureStatistics,
+  recomputed: TemperatureStatistics
+): boolean {
+  return (
+    anchored.minCelsius === recomputed.minCelsius &&
+    anchored.maxCelsius === recomputed.maxCelsius &&
+    anchored.averageCelsius === recomputed.averageCelsius &&
+    anchored.readingCount === recomputed.readingCount
+  );
 }

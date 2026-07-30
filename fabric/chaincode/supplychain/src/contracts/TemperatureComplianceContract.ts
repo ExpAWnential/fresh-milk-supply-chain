@@ -1,9 +1,12 @@
 /**
  * Anchors the oracle's temperature evidence and decides whether the cold chain held.
  *
- * The verdict is derived here from the submitted statistics and never taken from the oracle, so a
- * compromised oracle cannot declare unsafe milk safe. Unsafe evidence puts the batch on hold, and
- * only a regulator can clear it.
+ * The verdict is derived here from the submitted statistics and never taken from the oracle, so the
+ * oracle cannot simply assert that unsafe milk passed. It has no way to see the readings those
+ * statistics summarise, which stay off-chain, so a dishonest summary would be believed here and is
+ * caught off-chain instead, by recomputing the statistics from the readings during verification.
+ *
+ * Unsafe evidence puts the batch on hold, and only a regulator can clear it.
  */
 
 // Value import, not "import type": @Transaction identifies the ctx parameter by comparing its

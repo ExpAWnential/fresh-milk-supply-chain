@@ -6,6 +6,8 @@ export { createPool } from "./pool.js";
 export type { StorageConfig } from "./pool.js";
 export { compareTemperatureReadings, sha256TemperatureReadings } from "./evidenceHash.js";
 export type { CanonicalTemperatureReading } from "./evidenceHash.js";
+export { calculateTemperatureStatistics } from "./evidenceStatistics.js";
+export type { TemperatureStatistics } from "./evidenceStatistics.js";
 export { createTemperatureRepository } from "./repositories/temperatureRepository.js";
 export type {
   ComplianceOutcome,

@@ -22,13 +22,20 @@ function stubGateway(evaluate) {
 const encode = (value) => Buffer.from(JSON.stringify(value));
 
 test("the anchored hash and transaction come off the ledger as the calling identity", async () => {
+  // The statistics come across too, because verification checks them against the readings and the
+  // hash cannot stand in for that.
+  const statistics = { minCelsius: 1, maxCelsius: 4, averageCelsius: 2.5, readingCount: 3 };
   const { state, connect } = stubGateway(() =>
-    encode({ evidenceHash: "a".repeat(64), submittedTxId: "tx-9" })
+    encode({ evidenceHash: "a".repeat(64), submittedTxId: "tx-9", statistics })
   );
 
   const anchored = await createReaderForRequest(asRegulator, connect).getAnchoredEvidence("EV-1");
 
-  assert.deepEqual(anchored, { evidenceHash: "a".repeat(64), fabricTransactionId: "tx-9" });
+  assert.deepEqual(anchored, {
+    evidenceHash: "a".repeat(64),
+    fabricTransactionId: "tx-9",
+    statistics
+  });
   assert.deepEqual(state.calls[0].slice(1), [
     "TemperatureComplianceContract",
     "getTemperatureEvidence",

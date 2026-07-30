@@ -4,7 +4,7 @@
  * Its job is to report precisely what happened, in particular whether a failed submission still
  * reached the ledger, because that is what decides whether a run can be repaired.
  */
-import type { TemperatureStatistics } from "./compliance.js";
+import type { TemperatureStatistics } from "@fresh-milk/storage";
 
 export interface TemperatureEvidenceSubmission {
   readonly evidenceId: string;
@@ -35,7 +35,9 @@ export class AnchorError extends Error {
 const backendUrl = process.env.BACKEND_URL ?? "http://localhost:3000";
 
 // The compliance outcome is deliberately absent from the submission. The oracle reports the
-// statistics and the contract decides, so a compromised oracle cannot declare unsafe milk safe.
+// statistics and the contract decides, so the oracle cannot simply assert that unsafe milk passed.
+// It could still anchor a flattering summary of honest readings, which is why verification
+// recomputes the statistics from those readings rather than trusting the anchored copy.
 export async function submitTemperatureEvidence(
   submission: TemperatureEvidenceSubmission
 ): Promise<AnchoredEvidence> {
