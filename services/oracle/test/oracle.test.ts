@@ -158,4 +158,33 @@ BATCH-001,SENSOR-001,2026-07-14T08:00:00Z`),
       "UNSAFE"
     );
   });
+
+  it("refuses to calculate statistics for no readings at all", () => {
+    assert.throws(() => calculateStatistics([]), /empty reading set/);
+  });
+
+  // A reading the oracle cannot make sense of must stop the run. Canonicalising it to something
+  // plausible would put a fingerprint on the ledger covering readings nobody recorded.
+  it("refuses a timestamp it cannot read", () => {
+    assert.throws(
+      () =>
+        canonicaliseReadings([
+          { batchId: "B-1", sensorId: "S-1", recordedAt: "last tuesday", celsius: 3 }
+        ]),
+      /Invalid recordedAt timestamp: last tuesday/
+    );
+  });
+
+  it("refuses a temperature that is not a finite number", () => {
+    for (const celsius of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.throws(
+        () =>
+          canonicaliseReadings([
+            { batchId: "B-1", sensorId: "S-1", recordedAt: "2026-07-14T08:00:00Z", celsius }
+          ]),
+        /Invalid celsius value/,
+        String(celsius)
+      );
+    }
+  });
 });
