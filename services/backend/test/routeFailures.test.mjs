@@ -96,6 +96,38 @@ test("verification is unavailable rather than wrong when storage is not configur
   });
 });
 
+// Verification reads the anchor as the caller, so it needs an identity like every other route.
+// Reporting that as a server fault would tell an operator following the setup guide that the
+// backend broke, when the request simply did not say who was asking.
+test("verification refuses a missing identity the way every other route does", async () => {
+  const readerForRequest = () => {
+    throw new Error("Missing x-demo-identity header. Expected one of: regulator, oracle.");
+  };
+
+  await withServer({ temperatureRepository: repositoryStub(), readerForRequest }, async ({ call }) => {
+    const result = await call("GET", "/temperature/evidence/EV-1/verify");
+    assert.equal(result.status, 400);
+    assert.match(result.body.error, /Missing x-demo-identity header/);
+  });
+});
+
+// An unexpected failure during verification must not be dressed up as a verification result.
+test("an unexpected verification failure is reported as a server fault", async () => {
+  const temperatureRepository = repositoryStub({
+    getEvidence: async () => {
+      throw new Error("connection terminated unexpectedly");
+    }
+  });
+
+  await withServer({ temperatureRepository }, async ({ call }) => {
+    const result = await call("GET", "/temperature/evidence/EV-1/verify");
+    assert.equal(result.status, 500);
+    assert.match(result.body.error, /failed to verify temperature evidence/);
+    // The database's own wording stays in the log, not in the response.
+    assert.doesNotMatch(result.body.error, /connection terminated/);
+  });
+});
+
 test("verification names which precondition failed", async () => {
   const cases = [
     {

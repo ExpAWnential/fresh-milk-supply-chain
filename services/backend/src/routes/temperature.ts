@@ -82,12 +82,22 @@ export function createTemperatureRouter({
       return;
     }
 
+    // Resolved before the try below, so a missing or unknown identity header is reported the same
+    // way every other route reports it rather than falling through to an opaque 500.
+    let anchoredEvidenceReader: AnchoredEvidenceReader;
+    try {
+      anchoredEvidenceReader = readerForRequest(req);
+    } catch (error) {
+      sendGatewayError(res, error);
+      return;
+    }
+
     try {
       // Verification reads the anchored hash as the caller, so the contract decides whether they
       // are allowed to see it rather than this route trusting an unauthenticated request.
       const result = await verifyTemperatureEvidence(req.params.evidenceId, {
         temperatureRepository,
-        anchoredEvidenceReader: readerForRequest(req)
+        anchoredEvidenceReader
       });
       res.json(result);
     } catch (error) {
