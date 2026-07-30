@@ -31,10 +31,14 @@ Not included:
 Fabric's test network enrols two users per organisation, four in total, while the registry models
 six roles. FARM and PROCESSOR therefore have no certificate of their own, so driving a batch from
 creation to delivery means a regulator reassigning one of the four to those roles as the batch
-moves. That is a limit of the test network's fixed certificate set rather than of the registry,
-which accepts any number of stakeholders. Giving every role its own identity means enrolling more
-users through Fabric CA, which would reissue the existing certificates and orphan every
-stakeholder already registered on the ledger.
+moves. That is a limit of how the network was generated rather than of the registry, which accepts
+any number of stakeholders.
+
+More identities can be added without disturbing the ones already in use. Raising `Users.Count` in
+each `crypto-config-org*.yaml` and running `cryptogen extend` issues the new certificates from the
+organisation CA that is already there, leaving the existing users and their registrations intact.
+The four are kept because the demo reads more clearly with fewer actors, not because the network
+cannot hold more.
 
 ## Commands
 
