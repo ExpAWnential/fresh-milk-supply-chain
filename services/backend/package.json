@@ -7,7 +7,6 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "tsc -p tsconfig.json --noEmit",
     "test": "pnpm --filter @fresh-milk/storage build && pnpm build && node --test test/*.test.mjs",
     "dev": "tsx src/index.ts"
   },
@@ -15,8 +14,7 @@
     "@fresh-milk/storage": "workspace:*",
     "@grpc/grpc-js": "^1.14.0",
     "@hyperledger/fabric-gateway": "^1.6.0",
-    "express": "^4.19.2",
-    "zod": "^3.23.8"
+    "express": "^4.19.2"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

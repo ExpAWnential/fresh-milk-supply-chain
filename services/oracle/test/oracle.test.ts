@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  canonicaliseReadings,
-  serialiseCanonicalReadings
-} from "../src/canonicalise.js";
+import { sha256TemperatureReadings } from "@fresh-milk/storage";
+import { canonicaliseReadings } from "../src/canonicalise.js";
 import { assessCompliance, calculateStatistics } from "../src/compliance.js";
 import { parseTemperatureReadingsCsv } from "../src/csvReader.js";
-import { hashCanonicalEvidence } from "../src/hash.js";
 
 describe("temperature oracle", () => {
   it("parses sensor readings from CSV", () => {
@@ -100,8 +97,10 @@ BATCH-001,SENSOR-001,2026-07-14T08:00:00Z`),
     });
   });
 
+  // Hashed with the same function the oracle anchors with, so this proves order independence
+  // of the fingerprint that actually reaches the ledger.
   it("produces the same fingerprint for the same readings in different order", () => {
-    const firstOrder = canonicaliseReadings([
+    const readings = [
       {
         batchId: "BATCH-001",
         sensorId: "SENSOR-001",
@@ -114,12 +113,13 @@ BATCH-001,SENSOR-001,2026-07-14T08:00:00Z`),
         recordedAt: "2026-07-14T08:15:00Z",
         celsius: 3.6
       }
-    ]);
-    const secondOrder = canonicaliseReadings([...firstOrder].reverse());
+    ];
+    const strip = (list: readonly { sensorId: string; recordedAt: string; celsius: number }[]) =>
+      list.map(({ sensorId, recordedAt, celsius }) => ({ sensorId, recordedAt, celsius }));
 
     assert.equal(
-      hashCanonicalEvidence(serialiseCanonicalReadings(firstOrder)),
-      hashCanonicalEvidence(serialiseCanonicalReadings(secondOrder))
+      sha256TemperatureReadings("BATCH-001", strip(canonicaliseReadings(readings))),
+      sha256TemperatureReadings("BATCH-001", strip(canonicaliseReadings([...readings].reverse())))
     );
   });
 

@@ -154,14 +154,6 @@ test("ORACLE can anchor boundary-safe evidence and the contract derives COMPLIAN
   );
   assert.equal(batch.status, "IN_TRANSIT");
   assert.equal(stub.events.at(-1).name, "TemperatureEvidenceSubmitted");
-  assert.equal(
-    await contract.verifyEvidenceReference(ctx, "EVIDENCE-001", VALID_HASH_A),
-    true
-  );
-  assert.equal(
-    await contract.verifyEvidenceReference(ctx, "EVIDENCE-001", VALID_HASH_B),
-    false
-  );
 });
 
 test("unsafe evidence flags the batch and emits ColdChainBreach", async () => {

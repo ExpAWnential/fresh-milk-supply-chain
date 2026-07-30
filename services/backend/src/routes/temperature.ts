@@ -123,5 +123,3 @@ export function createTemperatureRouter(
 
   return router;
 }
-
-export const temperatureRouter = createTemperatureRouter();

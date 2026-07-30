@@ -173,19 +173,6 @@ export class TemperatureComplianceContract extends Contract {
     return value.toString();
   }
 
-  @Transaction(false)
-  @Returns("boolean")
-  public async verifyEvidenceReference(
-    ctx: Context,
-    evidenceId: string,
-    evidenceHash: string
-  ): Promise<boolean> {
-    const anchoredEvidence = JSON.parse(
-      await this.getTemperatureEvidence(ctx, evidenceId)
-    ) as TemperatureEvidence;
-    const recomputedHash = parseSha256Hash(evidenceHash);
-    return anchoredEvidence.evidenceHash === recomputedHash;
-  }
 }
 
 function requireValue(value: string, fieldName: string): string {

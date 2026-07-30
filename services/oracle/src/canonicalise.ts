@@ -25,11 +25,6 @@ export function canonicaliseReadings(
     .sort(compareCanonicalReadings);
 }
 
-export function serialiseCanonicalReadings(
-  readings: readonly CanonicalTemperatureReading[]
-): string {
-  return JSON.stringify(readings);
-}
 
 function normaliseRequiredText(value: string, fieldName: string): string {
   const normalised = value.trim();
