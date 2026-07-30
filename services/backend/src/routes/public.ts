@@ -1,7 +1,7 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { config } from "../config.js";
 import type { FabricGatewayClient } from "../fabric/gateway.js";
-import { sendGatewayError } from "../fabric/request.js";
+import { extractChaincodeMessage } from "../fabric/request.js";
 import { BATCH_CONTRACT } from "./batches.js";
 import { consumerView, type LedgerBatch, type LedgerHistoryEntry } from "../services/consumerView.js";
 
@@ -37,11 +37,29 @@ export function createPublicRouter(readAsRegulator: PublicReader): Router {
 
       res.json(consumerView(batch, history));
     } catch (error) {
-      sendGatewayError(res, error);
+      sendPublicError(res, error);
     } finally {
       client?.close();
     }
   });
 
   return router;
+}
+
+// The contract's own wording never reaches a consumer. It names stakeholders and registry state,
+// which is exactly what consumerView strips out of the successful response, and it is written for
+// an operator rather than someone holding a carton of milk.
+function sendPublicError(response: Response, error: unknown): void {
+  const message = extractChaincodeMessage(error);
+  if (message && /^Batch '.*' does not exist\.?$/i.test(message)) {
+    response
+      .status(404)
+      .json({ error: "We could not find that batch code. Check the code on the pack and try again." });
+    return;
+  }
+
+  console.error("Public batch lookup failed.", error);
+  response
+    .status(502)
+    .json({ error: "Batch information is unavailable right now. Please try again shortly." });
 }

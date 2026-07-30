@@ -30,8 +30,7 @@ test("every endpoint passes the contract's refusal back to the caller", async ()
         }
       ],
       ["POST", "/temperature/batches/b1/resolve-breach", { reason: "cleared" }],
-      ["GET", "/temperature/evidence/e1"],
-      ["GET", "/public/batches/b1"]
+      ["GET", "/temperature/evidence/e1"]
     ];
 
     for (const [method, path, body] of requests) {
@@ -43,6 +42,28 @@ test("every endpoint passes the contract's refusal back to the caller", async ()
         `${method} ${path} should keep the contract's wording`
       );
     }
+  });
+});
+
+// The one route without an authenticated caller. The contract's wording names stakeholders and
+// registry state, which is exactly what the consumer view strips out of a successful response.
+test("the public endpoint never repeats the contract's wording to a consumer", async () => {
+  const ledger = refusingLedger("Stakeholder 'regulator-001' is suspended.");
+  await withServer({ ledger }, async ({ call }) => {
+    const result = await call("GET", "/public/batches/b1");
+
+    assert.equal(result.status, 502);
+    assert.doesNotMatch(result.body.error, /regulator-001|suspended/i);
+  });
+});
+
+test("an unknown batch code is reported to a consumer as not found", async () => {
+  const ledger = refusingLedger("Batch 'b1' does not exist.");
+  await withServer({ ledger }, async ({ call }) => {
+    const result = await call("GET", "/public/batches/b1");
+
+    assert.equal(result.status, 404);
+    assert.match(result.body.error, /could not find that batch code/i);
   });
 });
 

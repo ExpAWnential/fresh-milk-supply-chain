@@ -29,7 +29,7 @@ interface GatewayErrorDetail {
 
 // Fabric buries the contract's own message inside the gRPC error details. Surfacing that rather
 // than "endorsement failure" is what makes a rejected transaction readable.
-function extractChaincodeMessage(error: unknown): string | undefined {
+export function extractChaincodeMessage(error: unknown): string | undefined {
   if (typeof error !== "object" || error === null) {
     return undefined;
   }
