@@ -49,7 +49,11 @@ const DEMO_IDENTITIES: Record<string, { org: "org1" | "org2"; user: string }> = 
 
 export function getDemoIdentity(name: string): DemoIdentity {
   const normalised = name.trim().toLowerCase();
-  const mapping = DEMO_IDENTITIES[normalised];
+  // Checked with hasOwn rather than a plain lookup: an inherited key such as 'constructor' would
+  // otherwise return a truthy value off the prototype and slip past the guard below.
+  const mapping = Object.hasOwn(DEMO_IDENTITIES, normalised)
+    ? DEMO_IDENTITIES[normalised]
+    : undefined;
   if (!mapping) {
     throw new Error(
       `Unknown demo identity '${name}'. Expected one of: ${Object.keys(DEMO_IDENTITIES).join(", ")}.`

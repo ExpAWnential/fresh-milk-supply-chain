@@ -34,6 +34,17 @@ test("an unknown identity is refused and the message lists the valid ones", () =
   });
 });
 
+// A plain object lookup answers inherited keys from the prototype, and a truthy answer would slip
+// past the unknown-identity guard and crash on the next line instead of naming the valid options.
+test("an inherited property name is refused like any other unknown identity", () => {
+  for (const name of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+    assert.throws(() => getDemoIdentity(name), (error) => {
+      assert.match(error.message, /Unknown demo identity/);
+      return true;
+    }, `${name} should be refused`);
+  }
+});
+
 test("a request without the identity header is refused", () => {
   assert.throws(
     () => resolveDemoIdentity(requestWithHeader(undefined)),
