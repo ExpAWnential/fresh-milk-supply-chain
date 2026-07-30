@@ -162,15 +162,21 @@ export async function createLedgerEventStream(
   };
 }
 
+// Opening the gateway is a parameter so the client this returns can be exercised against a stub.
+// Everything below it is a thin pass-through, and a pass-through nothing ever runs is exactly the
+// kind of thing that turns out to have the arguments in the wrong order.
+export type GatewayOpener = (options: Parameters<typeof connect>[0]) => Gateway;
+
 export async function createFabricGatewayClient(
-  identity: DemoIdentity
+  identity: DemoIdentity,
+  openGateway: GatewayOpener = connect
 ): Promise<FabricGatewayClient> {
   const wallet = await loadWallet(identity);
   const client = createGrpcClient(identity, wallet.tlsRootCert);
 
   let gateway: Gateway;
   try {
-    gateway = connect({
+    gateway = openGateway({
       client,
       identity: { mspId: identity.mspId, credentials: wallet.certificate },
       signer: wallet.signer,
