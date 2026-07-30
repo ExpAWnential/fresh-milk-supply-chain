@@ -51,6 +51,16 @@ export function refusingLedger(message) {
   };
 }
 
+// A ledger that fails every call with the given error, whatever kind of failure it represents.
+export function failingLedger(error) {
+  const fail = async () => {
+    throw error;
+  };
+  return {
+    connect: async () => ({ submitTransaction: fail, evaluateTransaction: fail, close() {} })
+  };
+}
+
 export function chaincodeRejection(message) {
   const error = new Error("failed to endorse transaction");
   error.details = [{ message: `chaincode response 500, ${message}` }];
