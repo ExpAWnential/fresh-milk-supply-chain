@@ -141,4 +141,21 @@ BATCH-001,SENSOR-001,2026-07-14T08:00:00Z`),
 
     assert.equal(assessCompliance(calculateStatistics(readings)), "UNSAFE");
   });
+
+  // The contract re-derives this outcome from the same 0-5C range, so the boundaries and the
+  // frozen-milk case must agree with TemperatureComplianceContract.
+  it("applies the same 0-5C range as the on-chain contract", () => {
+    assert.equal(
+      assessCompliance({ minCelsius: 0, maxCelsius: 5, averageCelsius: 2.5, readingCount: 2 }),
+      "COMPLIANT"
+    );
+    assert.equal(
+      assessCompliance({ minCelsius: -0.1, maxCelsius: 3, averageCelsius: 1.5, readingCount: 2 }),
+      "UNSAFE"
+    );
+    assert.equal(
+      assessCompliance({ minCelsius: 3, maxCelsius: 5.1, averageCelsius: 4, readingCount: 2 }),
+      "UNSAFE"
+    );
+  });
 });

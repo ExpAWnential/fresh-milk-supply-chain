@@ -9,6 +9,11 @@ export interface TemperatureStatistics {
 
 export type ComplianceOutcome = "COMPLIANT" | "UNSAFE";
 
+// Must stay identical to TemperatureComplianceContract, which re-derives the outcome on-chain.
+// If these drift, the oracle's reported result contradicts the ledger.
+const MIN_SAFE_CELSIUS = 0;
+const MAX_SAFE_CELSIUS = 5;
+
 export function calculateStatistics(
   readings: readonly CanonicalTemperatureReading[]
 ): TemperatureStatistics {
@@ -28,5 +33,8 @@ export function calculateStatistics(
 }
 
 export function assessCompliance(statistics: TemperatureStatistics): ComplianceOutcome {
-  return statistics.maxCelsius <= 4 ? "COMPLIANT" : "UNSAFE";
+  return statistics.minCelsius >= MIN_SAFE_CELSIUS &&
+    statistics.maxCelsius <= MAX_SAFE_CELSIUS
+    ? "COMPLIANT"
+    : "UNSAFE";
 }
