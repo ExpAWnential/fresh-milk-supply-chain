@@ -1,11 +1,26 @@
-import { printPlannedCommand } from "./commands.js";
+import { reportFailure, runCommand } from "./commands.js";
+import {
+  assertTestNetworkAvailable,
+  channelName,
+  stateDatabase,
+  testNetworkPath
+} from "./config.js";
 
-printPlannedCommand({
-  name: "start",
-  description: "Start the local Hyperledger Fabric network.",
-  steps: [
-    "Define organizations, peers, orderer and channel topology.",
-    "Start required Docker containers.",
-    "Create and join the application channel."
-  ]
-});
+try {
+  assertTestNetworkAvailable();
+
+  // One invocation brings the peers and orderer up and creates the channel, which avoids the
+  // network being left half configured if the second step is forgotten.
+  await runCommand(
+    "./network.sh",
+    ["up", "createChannel", "-c", channelName, "-s", stateDatabase],
+    { cwd: testNetworkPath }
+  );
+
+  console.log(
+    `[fabric-network] channel '${channelName}' is up with the ${stateDatabase} state database.`
+  );
+  console.log("[fabric-network] next: pnpm fabric:deploy-chaincode");
+} catch (error) {
+  reportFailure(error);
+}

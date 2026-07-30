@@ -1,10 +1,16 @@
-import { printPlannedCommand } from "./commands.js";
+import { reportFailure, runCommand } from "./commands.js";
+import { assertTestNetworkAvailable, testNetworkPath } from "./config.js";
 
-printPlannedCommand({
-  name: "stop",
-  description: "Stop the local Hyperledger Fabric network.",
-  steps: [
-    "Stop Fabric Docker containers.",
-    "Preserve or clean generated artifacts according to the selected demo workflow."
-  ]
-});
+try {
+  assertTestNetworkAvailable();
+
+  console.warn(
+    "[fabric-network] stopping the network removes the ledger, the channel artifacts and the " +
+      "committed chaincode. Everything has to be deployed again afterwards."
+  );
+
+  await runCommand("./network.sh", ["down"], { cwd: testNetworkPath });
+  console.log("[fabric-network] network stopped.");
+} catch (error) {
+  reportFailure(error);
+}
