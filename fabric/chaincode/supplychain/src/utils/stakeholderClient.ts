@@ -9,7 +9,7 @@ export type StakeholderRole =
   | "RETAILER"
   | "ORACLE";
 
-export const STAKEHOLDER_CHAINCODE_NAME = "stakeholder";
+const STAKEHOLDER_CHAINCODE_NAME = "stakeholder";
 const STAKEHOLDER_ROLE_ASSERTION_TRANSACTION =
   "StakeholderRegistryContract:assertActiveRole";
 
