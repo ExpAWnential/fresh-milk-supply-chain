@@ -1,7 +1,7 @@
 import type { Request as ExpressRequest } from "express";
 import { config } from "../config.js";
-import { resolveDemoIdentity } from "../demoIdentity.js";
-import { createFabricGatewayClient } from "./gateway.js";
+import { resolveDemoIdentity, type DemoIdentity } from "../demoIdentity.js";
+import { createFabricGatewayClient, type FabricGatewayClient } from "./gateway.js";
 import { TEMPERATURE_CONTRACT } from "../routes/temperature.js";
 import type {
   AnchoredEvidence,
@@ -14,12 +14,17 @@ import type {
 //
 // It runs as the caller, so the contract decides who may read the anchored evidence rather than
 // the backend granting it to anyone who asks.
-export function createReaderForRequest(request: ExpressRequest): AnchoredEvidenceReader {
+// The connector is a parameter for the same reason every route takes one: it is the seam that
+// lets this be exercised without a live network.
+export function createReaderForRequest(
+  request: ExpressRequest,
+  connect: (identity: DemoIdentity) => Promise<FabricGatewayClient> = createFabricGatewayClient
+): AnchoredEvidenceReader {
   const identity = resolveDemoIdentity(request);
 
   return {
     async getAnchoredEvidence(evidenceId: string): Promise<AnchoredEvidence | undefined> {
-      const client = await createFabricGatewayClient(identity);
+      const client = await connect(identity);
       try {
         const bytes = await client.evaluateTransaction(
           config.supplychainChaincodeName,
@@ -51,12 +56,16 @@ export function createReaderForRequest(request: ExpressRequest): AnchoredEvidenc
   };
 }
 
-function describesMissingEvidence(error: unknown): boolean {
+export function describesMissingEvidence(error: unknown): boolean {
   const details = (error as { details?: readonly { message?: string }[] })?.details;
   const messages = [
     ...(Array.isArray(details) ? details.map((detail) => detail?.message ?? "") : []),
     error instanceof Error ? error.message : ""
   ];
 
-  return messages.some((message) => /does not exist/i.test(message));
+  // Matched against the contract's exact wording for absent evidence. A bare "does not exist"
+  // also covers the stakeholder registry, whose errors reach this call because reading the
+  // evidence resolves the caller first, and treating a broken registry entry as missing evidence
+  // would tell an auditor nothing was ever anchored.
+  return messages.some((message) => /Temperature evidence '[^']*' does not exist/i.test(message));
 }
