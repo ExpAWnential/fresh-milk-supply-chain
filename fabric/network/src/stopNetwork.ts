@@ -1,3 +1,6 @@
+/**
+ * `pnpm fabric:stop`. Tears the network down, ledger included.
+ */
 import { reportFailure, runCommand } from "./commands.js";
 import { assertTestNetworkAvailable, testNetworkPath } from "./config.js";
 

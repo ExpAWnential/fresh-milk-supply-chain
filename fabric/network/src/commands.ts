@@ -1,3 +1,7 @@
+/**
+ * Runs Fabric's shell tooling and reports failures. Every network script goes through here so they
+ * all fail the same way.
+ */
 import { spawn } from "node:child_process";
 
 interface CommandOptions {

@@ -1,3 +1,7 @@
+/**
+ * HTTP for the batch lifecycle. Validates request fields and forwards each one to the contract,
+ * which is where the transition rules and the role checks live.
+ */
 import { Router } from "express";
 import { config } from "../config.js";
 import { BATCH_CONTRACT } from "../fabric/contracts.js";

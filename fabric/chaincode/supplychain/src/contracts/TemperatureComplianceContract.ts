@@ -1,3 +1,11 @@
+/**
+ * Anchors the oracle's temperature evidence and decides whether the cold chain held.
+ *
+ * The verdict is derived here from the submitted statistics and never taken from the oracle, so a
+ * compromised oracle cannot declare unsafe milk safe. Unsafe evidence puts the batch on hold, and
+ * only a regulator can clear it.
+ */
+
 // Value import, not "import type": @Transaction identifies the ctx parameter by comparing its
 // emitted runtime type against Context, so an erased type import makes Fabric expect an extra
 // argument on every transaction.

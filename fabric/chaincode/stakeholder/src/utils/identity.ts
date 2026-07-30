@@ -1,3 +1,7 @@
+/**
+ * Who Fabric says is calling. Reads the caller's certificate and MSP out of the verified
+ * transaction context.
+ */
 import type { Context } from "fabric-contract-api";
 
 export interface InvokingIdentity {

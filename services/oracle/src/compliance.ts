@@ -1,3 +1,9 @@
+/**
+ * Summarises a set of readings and reports whether they sit inside the safe range.
+ *
+ * This is the oracle's own reading of the data. The contract derives the verdict again on-chain,
+ * and that is the one that counts.
+ */
 import { CanonicalTemperatureReading } from "./canonicalise.js";
 
 export interface TemperatureStatistics {

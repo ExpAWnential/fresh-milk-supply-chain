@@ -1,3 +1,9 @@
+/**
+ * The one endpoint a shopper can reach.
+ *
+ * Consumers hold no Fabric identity, so this route reads the ledger on their behalf and returns
+ * only the filtered view, in wording written for them rather than for an operator.
+ */
 import { Router, type Response } from "express";
 import { config } from "../config.js";
 import { BATCH_CONTRACT } from "../fabric/contracts.js";
@@ -5,9 +11,8 @@ import type { FabricGatewayClient } from "../fabric/gateway.js";
 import { extractChaincodeMessage } from "../fabric/request.js";
 import { consumerView, type LedgerBatch, type LedgerHistoryEntry } from "../services/consumerView.js";
 
-// Consumers are not members of the Fabric network. They read a filtered view of a batch through
-// this endpoint instead of holding a blockchain identity, so the request carries no identity
-// header and the backend reads the ledger on their behalf.
+// Opens a connection under the backend's own identity rather than the caller's, because the
+// request carries no identity header for this route.
 export type PublicReader = () => Promise<FabricGatewayClient>;
 
 export function createPublicRouter(readAsRegulator: PublicReader): Router {

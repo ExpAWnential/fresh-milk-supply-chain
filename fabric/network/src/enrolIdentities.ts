@@ -1,3 +1,7 @@
+/**
+ * `pnpm fabric:enrol-identities`. Issues the extra user certificates the six demo roles need,
+ * without disturbing the certificates already in use.
+ */
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { reportFailure, runCommand } from "./commands.js";

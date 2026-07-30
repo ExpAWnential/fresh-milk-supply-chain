@@ -1,3 +1,7 @@
+/**
+ * `pnpm oracle:dev`. Reads a readings file, runs the oracle against the real backend and database,
+ * and prints the result.
+ */
 import { createPool, createTemperatureRepository } from "@fresh-milk/storage";
 import { readTemperatureReadingsCsv } from "./csvReader.js";
 import { readAnchoredEvidence, submitTemperatureEvidence } from "./oracleClient.js";

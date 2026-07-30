@@ -1,3 +1,7 @@
+/**
+ * The storage package's public surface. Other packages import from here rather than reaching into
+ * its files, so what is shared stays a deliberate choice.
+ */
 export { createPool } from "./pool.js";
 export type { StorageConfig } from "./pool.js";
 export { compareTemperatureReadings, sha256TemperatureReadings } from "./evidenceHash.js";

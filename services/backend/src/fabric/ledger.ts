@@ -1,3 +1,7 @@
+/**
+ * The two things every route needs before it can talk to a contract: a chaincode and contract
+ * bound once, and a check that a request field really is a non-empty string.
+ */
 import type { Request } from "express";
 import { withGateway, type GatewayConnector } from "./request.js";
 

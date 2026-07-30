@@ -1,3 +1,9 @@
+/**
+ * Turns a request into a Fabric connection, and a Fabric failure into an HTTP status.
+ *
+ * The distinction it exists to draw: a contract refusing a transaction is the caller's problem,
+ * while an unreachable peer or a defect in this service is not. The three must not read alike.
+ */
 import type { Request, Response } from "express";
 import { resolveDemoIdentity } from "../demoIdentity.js";
 import { createFabricGatewayClient, type FabricGatewayClient } from "./gateway.js";

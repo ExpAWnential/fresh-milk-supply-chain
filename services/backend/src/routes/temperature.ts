@@ -1,3 +1,7 @@
+/**
+ * HTTP for temperature evidence: submitting it, clearing a breach, reading a record back, and
+ * verifying the stored readings against what the ledger anchored.
+ */
 import { Router } from "express";
 import type { Request as ExpressRequest } from "express";
 import type { TemperatureRepository } from "@fresh-milk/storage";

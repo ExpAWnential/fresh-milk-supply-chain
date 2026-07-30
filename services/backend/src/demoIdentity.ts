@@ -1,3 +1,10 @@
+/**
+ * Maps a role name onto one of the certificates the network generated, so each stakeholder signs
+ * as itself.
+ *
+ * This only chooses which key signs. It grants no permission of its own: what a certificate is
+ * allowed to do is decided by the contracts.
+ */
 import { join } from "node:path";
 import type { Request } from "express";
 import { config } from "./config.js";

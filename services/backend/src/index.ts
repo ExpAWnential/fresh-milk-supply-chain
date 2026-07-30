@@ -1,3 +1,9 @@
+/**
+ * Process entry point. Builds the real dependencies, starts the HTTP server and the ledger event
+ * listener, and shuts both down on a signal.
+ *
+ * Wiring only. Every decision made here is which implementation to hand to something else.
+ */
 import { createPool, createTemperatureRepository } from "@fresh-milk/storage";
 import { createApp } from "./app.js";
 import { config } from "./config.js";

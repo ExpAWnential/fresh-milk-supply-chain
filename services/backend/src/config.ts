@@ -1,3 +1,7 @@
+/**
+ * Everything the backend reads from its environment, with defaults that match a local test
+ * network. Values that have to agree with what was deployed are fixed rather than configurable.
+ */
 import { homedir } from "node:os";
 import { join } from "node:path";
 

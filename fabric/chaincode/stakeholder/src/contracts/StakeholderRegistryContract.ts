@@ -1,3 +1,11 @@
+/**
+ * The registry of who exists on this network and what they are allowed to do. Ties each company to
+ * the Fabric certificate it signs with.
+ *
+ * `assertActiveRole` is the check the supply-chain chaincode calls across to before it will act on
+ * anyone's behalf. Roles are granted, changed and withdrawn here and nowhere else.
+ */
+
 // Value import, not "import type": @Transaction identifies the ctx parameter by comparing its
 // emitted runtime type against Context, so an erased type import makes Fabric expect an extra
 // argument on every transaction.

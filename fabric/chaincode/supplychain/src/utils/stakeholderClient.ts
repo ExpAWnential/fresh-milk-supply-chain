@@ -1,3 +1,9 @@
+/**
+ * The supply-chain chaincode's door into the stakeholder registry.
+ *
+ * It invokes the registry's `assertActiveRole` across chaincodes and then re-checks the answer
+ * here, so a malformed or unexpected response still cannot let the wrong role through.
+ */
 import type { Context } from "fabric-contract-api";
 import { getInvokingIdentity } from "./identity.js";
 

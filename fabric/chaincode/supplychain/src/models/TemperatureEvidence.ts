@@ -1,3 +1,9 @@
+/**
+ * The shape of one anchored temperature record.
+ *
+ * Only the fingerprint, the summary statistics and the verdict are held on the ledger. The raw
+ * readings they were computed from stay in PostgreSQL.
+ */
 export type ComplianceOutcome = "COMPLIANT" | "UNSAFE";
 
 export interface TemperatureStatistics {

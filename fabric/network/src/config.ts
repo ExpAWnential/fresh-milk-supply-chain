@@ -1,3 +1,7 @@
+/**
+ * Where Fabric's test network lives and what this project deploys onto it. One place for the
+ * paths, channel and chaincode list that all four network scripts share.
+ */
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";

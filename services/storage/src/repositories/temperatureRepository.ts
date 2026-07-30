@@ -1,3 +1,9 @@
+/**
+ * Every read and write of the off-chain temperature tables. SQL lives only here.
+ *
+ * Written so a failed run can be repeated safely, and so an anchored row is never overwritten: its
+ * readings are the baseline the ledger's hash is checked against.
+ */
 import { Pool, PoolClient, QueryResult } from "pg";
 
 export type ComplianceOutcome = "COMPLIANT" | "UNSAFE";

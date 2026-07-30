@@ -1,3 +1,10 @@
+/**
+ * The fingerprint the whole tamper-evidence story rests on: readings reduced to one exact
+ * canonical form, then SHA-256 over it.
+ *
+ * The oracle, the verification endpoint and the tamper demo all hash through here, so none of them
+ * can disagree about what the fingerprint covers.
+ */
 import { createHash } from "node:crypto";
 
 export interface HashableTemperatureReading {

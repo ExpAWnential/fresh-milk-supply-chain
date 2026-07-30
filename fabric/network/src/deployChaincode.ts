@@ -1,3 +1,7 @@
+/**
+ * `pnpm fabric:deploy-chaincode`. Builds each chaincode, stages a clean copy of the compiled
+ * output, and runs Fabric's install, approve and commit lifecycle against it.
+ */
 import { cp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { reportFailure, runCommand } from "./commands.js";

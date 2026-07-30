@@ -1,3 +1,11 @@
+/**
+ * The batch state machine: created, processed, in transit, delivered, plus a regulator recall.
+ *
+ * Every transition is checked against the batch's current status before anything is written, and
+ * each step carries its own role rule. Temperature and cold-chain breaches belong to
+ * TemperatureComplianceContract, not to this one.
+ */
+
 // Value import, not "import type": @Transaction identifies the ctx parameter by comparing its
 // emitted runtime type against Context, so an erased type import makes Fabric expect an extra
 // argument on every transaction.

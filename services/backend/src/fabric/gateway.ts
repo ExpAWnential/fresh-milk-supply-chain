@@ -1,3 +1,10 @@
+/**
+ * The connection to Fabric. Loads a stakeholder's certificate and key off disk, opens a gRPC
+ * channel to that organisation's peer, and hands back either a client scoped to one request or a
+ * long-lived event stream.
+ *
+ * Nothing here knows anything about milk, batches or roles.
+ */
 import { credentials, Client } from "@grpc/grpc-js";
 import {
   checkpointers,

@@ -1,3 +1,6 @@
+/**
+ * `pnpm fabric:start`. Brings the peers and orderer up and creates the channel.
+ */
 import { reportFailure, runCommand } from "./commands.js";
 import {
   assertTestNetworkAvailable,

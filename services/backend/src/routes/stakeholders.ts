@@ -1,3 +1,7 @@
+/**
+ * HTTP for the stakeholder registry. Validates request fields and forwards each one to the
+ * contract, which is where every authorisation decision is actually made.
+ */
 import { Router } from "express";
 import { config } from "../config.js";
 import { STAKEHOLDER_CONTRACT } from "../fabric/contracts.js";

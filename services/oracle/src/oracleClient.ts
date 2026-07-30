@@ -1,3 +1,9 @@
+/**
+ * The oracle's HTTP calls to the backend: submit evidence, and read an anchored record back.
+ *
+ * Its job is to report precisely what happened, in particular whether a failed submission still
+ * reached the ledger, because that is what decides whether a run can be repaired.
+ */
 import type { TemperatureStatistics } from "./compliance.js";
 
 export interface TemperatureEvidenceSubmission {

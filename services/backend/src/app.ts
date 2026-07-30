@@ -1,3 +1,9 @@
+/**
+ * Assembles the Express app from its routers.
+ *
+ * Dependencies are passed in rather than constructed here, which is what lets the whole API be
+ * exercised without a Fabric network or a database.
+ */
 import express, { type Express } from "express";
 import { createBatchRouter } from "./routes/batches.js";
 import { createPublicRouter, type PublicReader } from "./routes/public.js";

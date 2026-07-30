@@ -1,3 +1,9 @@
+/**
+ * Reads an anchored evidence hash back off the ledger.
+ *
+ * Verification needs an anchor from outside the database it is checking, and this is the only
+ * place that anchor comes from.
+ */
 import type { Request as ExpressRequest } from "express";
 import { config } from "../config.js";
 import { resolveDemoIdentity, type DemoIdentity } from "../demoIdentity.js";

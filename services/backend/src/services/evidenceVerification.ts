@@ -1,3 +1,10 @@
+/**
+ * The tamper check. Recomputes the fingerprint of the stored readings and compares it against the
+ * hash anchored on the ledger.
+ *
+ * Whether the readings changed and whether the database's own copy of the hash changed are
+ * reported separately, because those two point at different culprits.
+ */
 import { sha256TemperatureReadings, type TemperatureRepository } from "@fresh-milk/storage";
 
 export interface AnchoredEvidence {

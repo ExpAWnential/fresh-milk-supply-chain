@@ -1,3 +1,10 @@
+/**
+ * One oracle run, end to end: canonicalise, hash, store off-chain, anchor on-chain, record the
+ * result.
+ *
+ * Written so a run that fails part way through can be repeated and repaired, rather than leaving
+ * evidence stranded between the database and the ledger.
+ */
 import {
   sha256TemperatureReadings,
   type StoredTemperatureReading,

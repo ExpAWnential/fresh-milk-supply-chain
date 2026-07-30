@@ -1,3 +1,9 @@
+/**
+ * The shape of a milk batch on the ledger, and of one entry in its history.
+ *
+ * Types only. Which transitions are legal lives in BatchLifecycleContract.
+ */
+
 // Every status is produced by a transaction on BatchLifecycleContract or
 // TemperatureComplianceContract. IN_TRANSIT has two sources: starting transport, and a regulator
 // clearing a cold-chain breach, which returns the batch to where it was. Statuses with no

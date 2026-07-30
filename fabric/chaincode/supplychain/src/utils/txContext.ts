@@ -1,3 +1,8 @@
+/**
+ * The audit stamp written onto every ledger record: which transaction, when, and signed by whom.
+ *
+ * All three are taken from Fabric's transaction context, so no caller can choose them.
+ */
 import type { Context } from "fabric-contract-api";
 import { getInvokingIdentity } from "./identity.js";
 

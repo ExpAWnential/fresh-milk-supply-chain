@@ -1,3 +1,9 @@
+/**
+ * `pnpm demo:tamper`. Alters one stored reading and shows the fingerprint stop matching the ledger.
+ *
+ * The decision logic takes its database access as a parameter so the refusals can be exercised
+ * without a database. The command entry point at the bottom supplies the real one.
+ */
 import { pathToFileURL } from "node:url";
 import type { Pool } from "pg";
 import { createPool } from "./pool.js";

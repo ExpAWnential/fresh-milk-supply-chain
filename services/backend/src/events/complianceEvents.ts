@@ -1,3 +1,9 @@
+/**
+ * Applies the ledger's own compliance events to the off-chain database.
+ *
+ * This is how the PostgreSQL copy of a verdict comes from what the contract decided, rather than
+ * from what the oracle expected it to decide.
+ */
 import type { ComplianceOutcome, TemperatureRepository } from "@fresh-milk/storage";
 
 // The shape this consumer needs from a chaincode event, so it can be exercised without a network.

@@ -1,6 +1,9 @@
-// Both contracts change a batch's status, so reading, validating and writing the record lives
-// here. Keeping it single-sourced is what stops the two from disagreeing about which statuses are
-// valid.
+/**
+ * Reading, validating and writing a batch record.
+ *
+ * Both contracts change a batch's status, so this is single-sourced. Keeping it in one place is
+ * what stops the two from disagreeing about which statuses are valid.
+ */
 import type { Context } from "fabric-contract-api";
 import { BATCH_STATUSES, type Batch, type BatchStatus } from "../models/Batch.js";
 import { batchKey } from "./ledgerKeys.js";

@@ -1,3 +1,9 @@
+/**
+ * Reduces a full ledger batch record to what a shopper is allowed to see.
+ *
+ * Everything naming who did what, and every transaction ID, is dropped here rather than at the
+ * route, so there is one place to check that nothing commercially sensitive escapes.
+ */
 export interface LedgerBatch {
   readonly batchId: string;
   readonly status: string;
@@ -48,8 +54,6 @@ function milestones(history: readonly LedgerHistoryEntry[]): Record<string, stri
   return reached;
 }
 
-// What a consumer is allowed to see. Everything else the ledger holds, in particular which
-// stakeholder recorded each step and the transaction IDs, stays out of the response.
 export function consumerView(
   batch: LedgerBatch,
   history: readonly LedgerHistoryEntry[]

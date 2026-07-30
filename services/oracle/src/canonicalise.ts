@@ -1,3 +1,10 @@
+/**
+ * Puts readings into the one exact form the fingerprint is computed over: trimmed text, ISO
+ * timestamps, temperatures to three decimals, in a fixed order.
+ *
+ * Two runs over the same readings have to produce byte-identical output, or the hash means
+ * nothing.
+ */
 // Sorted with the storage package's comparator, the same one the hash uses, so the order this
 // produces and the order the fingerprint is built from can never disagree.
 import { compareTemperatureReadings } from "@fresh-milk/storage";

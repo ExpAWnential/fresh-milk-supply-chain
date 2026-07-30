@@ -1,3 +1,7 @@
+/**
+ * The composite keys both contracts store records under. Kept in one place so a reader and a
+ * writer can never disagree about where a record lives.
+ */
 import type { Context } from "fabric-contract-api";
 
 const BATCH_KEY_PREFIX = "batch";
