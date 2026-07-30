@@ -67,6 +67,9 @@ importers:
       '@fresh-milk/storage':
         specifier: workspace:*
         version: link:../storage
+      '@grpc/grpc-js':
+        specifier: ^1.14.0
+        version: 1.14.4
       '@hyperledger/fabric-gateway':
         specifier: ^1.6.0
         version: 1.11.0
