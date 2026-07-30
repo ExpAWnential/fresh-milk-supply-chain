@@ -45,7 +45,7 @@ const DEMO_IDENTITIES: Record<string, { org: "org1" | "org2"; user: string }> = 
   logistics: { org: "org2", user: "User1" }
 };
 
-export function listDemoIdentities(): readonly string[] {
+function listDemoIdentities(): readonly string[] {
   return Object.keys(DEMO_IDENTITIES);
 }
 

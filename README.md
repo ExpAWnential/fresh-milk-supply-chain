@@ -5,28 +5,28 @@ Fresh Milk Supply Chain
 
 This repository is a TypeScript monorepo scaffold for a permissioned Hyperledger Fabric proof of concept for a fresh-milk cold-chain supply chain.
 
-The planned architecture includes:
+The architecture:
 
 - Hyperledger Fabric network automation.
 - Two Fabric chaincodes: `stakeholder` (registry) and `supplychain` (batch lifecycle and temperature compliance). The supply-chain contracts delegate role checks to the stakeholder registry through a cross-chaincode invocation.
-- An Express backend that will use Fabric Gateway.
+- An Express backend that reaches both chaincodes through the Fabric Gateway.
 - A separate temperature oracle service.
 - PostgreSQL off-chain storage for raw temperature readings.
-- REST endpoints, scripts and terminal output for demonstration instead of a GUI.
+- REST endpoints and terminal output for demonstration instead of a GUI.
 
 ## Current Scope
 
-This setup step intentionally does not implement the business logic. The code contains package scaffolding, placeholder interfaces and TODO comments for the planned contracts and services.
+The business logic is implemented and runs against a local Fabric network. Both chaincodes are
+deployed, the backend reaches them through the Fabric Gateway, the oracle stores readings in
+PostgreSQL and anchors their fingerprint on-chain, and altering a stored reading is detected.
 
-Not included yet:
+Not included:
 
-- Demo scripts.
-- Test folders.
-- Chaincode, backend, oracle and storage implementations.
-- Fabric network topology, CouchDB state database and chaincode events.
-- Fabric certificates, private keys or generated blockchain artifacts.
+- A graphical interface. The brief allows a REST interface and a scripted demo instead.
+- Fabric certificates, private keys or generated blockchain artifacts, which the network
+  generates locally and which are never committed.
 
-## Expected Commands
+## Commands
 
 Install dependencies:
 
@@ -46,13 +46,13 @@ Typecheck all packages:
 pnpm typecheck
 ```
 
-Start the planned Fabric network wrapper:
+Start the Fabric network:
 
 ```bash
 pnpm fabric:start
 ```
 
-Deploy chaincode through the planned Fabric wrapper:
+Deploy both chaincodes:
 
 ```bash
 pnpm fabric:deploy-chaincode
@@ -77,7 +77,7 @@ Start the oracle:
 pnpm oracle:dev
 ```
 
-## Business Rules To Implement
+## Business Rules
 
 - Only a regulator may register, update or suspend stakeholders.
 - Stakeholders are linked to their authenticated Fabric certificate IDs.

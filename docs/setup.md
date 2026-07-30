@@ -85,9 +85,17 @@ pnpm db:stop                                             # database
 
 ## Deploying the project chaincode
 
-Not wired up yet. The `stakeholder` and `supplychain` chaincodes are still being built.
-Deployment uses `test-network`'s `./network.sh deployCC`; the exact command will be added
-here once the first chaincode is ready to deploy.
+```bash
+pnpm fabric:deploy-chaincode
+```
+
+Builds, packages, installs, approves and commits both chaincodes on the channel. A committed
+definition can only be replaced by a higher sequence number, so redeploying after a code change
+needs both values raised:
+
+```bash
+pnpm fabric:deploy-chaincode -- --version 1.1 --sequence 2
+```
 
 ## Secrets and generated files
 
