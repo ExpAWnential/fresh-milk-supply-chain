@@ -2,17 +2,15 @@ import { Router } from "express";
 import type { Request as ExpressRequest } from "express";
 import type { TemperatureRepository } from "@fresh-milk/storage";
 import { config } from "../config.js";
+import { BATCH_CONTRACT, TEMPERATURE_CONTRACT } from "../fabric/contracts.js";
 import { bindLedger, requireString } from "../fabric/ledger.js";
 import { sendGatewayError, type GatewayConnector } from "../fabric/request.js";
 import { describesMissingEvidence } from "../fabric/anchoredEvidence.js";
-import { BATCH_CONTRACT } from "./batches.js";
 import {
   EvidenceVerificationError,
   type AnchoredEvidenceReader,
   verifyTemperatureEvidence
 } from "../services/evidenceVerification.js";
-
-export const TEMPERATURE_CONTRACT = "TemperatureComplianceContract";
 
 export interface TemperatureRouterDependencies {
   readonly connect: GatewayConnector;

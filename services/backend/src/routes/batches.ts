@@ -1,9 +1,8 @@
 import { Router } from "express";
 import { config } from "../config.js";
+import { BATCH_CONTRACT } from "../fabric/contracts.js";
 import { bindLedger, requireString } from "../fabric/ledger.js";
 import { sendGatewayError, type GatewayConnector } from "../fabric/request.js";
-
-export const BATCH_CONTRACT = "BatchLifecycleContract";
 
 // The lifecycle steps are separate transactions on the contract, so the request names the event
 // and the backend maps it rather than accepting a transaction name from the caller.

@@ -2,7 +2,7 @@ import type { Request as ExpressRequest } from "express";
 import { config } from "../config.js";
 import { resolveDemoIdentity, type DemoIdentity } from "../demoIdentity.js";
 import { createFabricGatewayClient, type FabricGatewayClient } from "./gateway.js";
-import { TEMPERATURE_CONTRACT } from "../routes/temperature.js";
+import { TEMPERATURE_CONTRACT } from "./contracts.js";
 import type {
   AnchoredEvidence,
   AnchoredEvidenceReader

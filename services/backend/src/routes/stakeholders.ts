@@ -1,12 +1,11 @@
 import { Router } from "express";
 import { config } from "../config.js";
+import { STAKEHOLDER_CONTRACT } from "../fabric/contracts.js";
 import { bindLedger, requireString } from "../fabric/ledger.js";
 import { sendGatewayError, type GatewayConnector } from "../fabric/request.js";
 
-const CONTRACT = "StakeholderRegistryContract";
-
 export function createStakeholderRouter(connect: GatewayConnector): Router {
-  const registry = bindLedger(connect, config.stakeholderChaincodeName, CONTRACT);
+  const registry = bindLedger(connect, config.stakeholderChaincodeName, STAKEHOLDER_CONTRACT);
   const router = Router();
 
   // Creates the first regulator on an empty registry. Every other registration needs an existing

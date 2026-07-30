@@ -1,8 +1,8 @@
 import { Router, type Response } from "express";
 import { config } from "../config.js";
+import { BATCH_CONTRACT } from "../fabric/contracts.js";
 import type { FabricGatewayClient } from "../fabric/gateway.js";
 import { extractChaincodeMessage } from "../fabric/request.js";
-import { BATCH_CONTRACT } from "./batches.js";
 import { consumerView, type LedgerBatch, type LedgerHistoryEntry } from "../services/consumerView.js";
 
 // Consumers are not members of the Fabric network. They read a filtered view of a batch through

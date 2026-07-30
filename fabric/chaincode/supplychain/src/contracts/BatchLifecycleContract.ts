@@ -257,12 +257,6 @@ export class BatchLifecycleContract extends Contract {
   }
 }
 
-
-
-
-
-
-
 function emitLifecycleEvent(
   ctx: Context,
   eventName: string,
