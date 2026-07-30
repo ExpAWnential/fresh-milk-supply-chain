@@ -8,6 +8,17 @@ function requestWithHeader(value) {
   };
 }
 
+// One certificate per role, so a batch's journey is signed by six different parties rather than
+// a regulator handing its own identity around.
+test("every role has an identity of its own", () => {
+  const roles = ["regulator", "oracle", "farm", "retailer", "logistics", "processor"];
+  const userPaths = roles.map((role) => getDemoIdentity(role).userPath);
+
+  assert.equal(new Set(userPaths).size, roles.length, "two roles are sharing a certificate");
+  assert.match(getDemoIdentity("farm").userPath, /org1\.example\.com\/users\/User2@/);
+  assert.match(getDemoIdentity("processor").userPath, /org2\.example\.com\/users\/User2@/);
+});
+
 test("a known identity resolves to its organisation's wallet material", () => {
   const regulator = getDemoIdentity("regulator");
   // Org1 is the regulator organisation, and the registry only accepts that MSP for first setup.

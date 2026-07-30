@@ -36,15 +36,17 @@ const ORGANISATIONS: Record<"org1" | "org2", OrganisationProfile> = {
 
 // Maps a stakeholder name onto one of the enrolled network identities.
 //
-// The network enrols two users per organisation, four in total, and the registry ties each
-// certificate to exactly one stakeholder. There are six roles, so FARM and PROCESSOR have no
-// identity of their own: to drive a batch through creation and processing, a regulator reassigns
-// one of these four. Giving every role its own identity means enrolling more through Fabric CA.
+// One per role, so every step of a batch's journey is signed by a different certificate and the
+// registry's role checks are doing real work rather than being waved through by a single caller.
+// The last two come from `pnpm fabric:enrol-identities`, because the test network is generated
+// with only two users per organisation.
 const DEMO_IDENTITIES: Record<string, { org: "org1" | "org2"; user: string }> = {
   regulator: { org: "org1", user: "Admin" },
   oracle: { org: "org1", user: "User1" },
+  farm: { org: "org1", user: "User2" },
   retailer: { org: "org2", user: "Admin" },
-  logistics: { org: "org2", user: "User1" }
+  logistics: { org: "org2", user: "User1" },
+  processor: { org: "org2", user: "User2" }
 };
 
 export function getDemoIdentity(name: string): DemoIdentity {
