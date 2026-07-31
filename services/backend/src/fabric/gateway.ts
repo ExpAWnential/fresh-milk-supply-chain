@@ -47,7 +47,7 @@ interface Wallet {
 
 // Fabric names the certificate and key files unpredictably, so the single file in each directory
 // is used rather than a hardcoded filename.
-async function singleFileIn(directory: string): Promise<string> {
+export async function singleFileIn(directory: string): Promise<string> {
   const entries = (await readdir(directory)).filter((entry) => !entry.startsWith("."));
   if (entries.length !== 1) {
     throw new Error(`Expected exactly one file in ${directory}, found ${entries.length}.`);

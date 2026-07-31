@@ -56,6 +56,16 @@ const DEMO_IDENTITIES: Record<string, { org: "org1" | "org2"; user: string }> = 
   processor: { org: "org2", user: "User2" }
 };
 
+// Ordered so the regulator comes first: it has to be bootstrapped before it can register anybody.
+export const DEMO_IDENTITY_NAMES: readonly string[] = [
+  "regulator",
+  "farm",
+  "processor",
+  "logistics",
+  "retailer",
+  "oracle"
+];
+
 export function getDemoIdentity(name: string): DemoIdentity {
   const normalised = name.trim().toLowerCase();
   // Checked with hasOwn rather than a plain lookup: an inherited key such as 'constructor' would
