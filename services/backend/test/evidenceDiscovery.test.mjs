@@ -54,3 +54,55 @@ test("the listing reports storage being unconfigured rather than guessing", asyn
     assert.match(result.body.error, /storage is not configured/);
   });
 });
+
+// Verification could prove a match but never show what had been matched, which left an auditor
+// unable to see the readings the fingerprint covers.
+test("the readings behind an evidence record can be retrieved", async () => {
+  const readings = [
+    { sensorId: "SENSOR-01", recordedAt: "2026-07-20T09:00:00.000Z", celsius: 3.2 },
+    { sensorId: "SENSOR-01", recordedAt: "2026-07-20T09:05:00.000Z", celsius: 3.6 }
+  ];
+  const ledger = stubLedger({
+    evaluate: async () => Buffer.from(JSON.stringify({ evidenceHash: "a".repeat(64) }))
+  });
+  const temperatureRepository = repositoryStub({ getReadings: async () => readings });
+
+  await withServer({ ledger, temperatureRepository }, async ({ call }) => {
+    const result = await call("GET", "/temperature/evidence/EV-1/readings");
+
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body, readings);
+  });
+});
+
+test("a caller the contract refuses cannot read the readings", async () => {
+  const ledger = failingLedger(chaincodeRejection("Stakeholder 'farm-001' is suspended."));
+  let read = false;
+  const temperatureRepository = repositoryStub({
+    getReadings: async () => {
+      read = true;
+      return [];
+    }
+  });
+
+  await withServer({ ledger, temperatureRepository }, async ({ call }) => {
+    const result = await call("GET", "/temperature/evidence/EV-1/readings");
+
+    assert.equal(result.status, 400);
+    assert.equal(read, false, "the database must not be read once the contract has refused");
+  });
+});
+
+// Distinguished from a refusal by the status alone, so a caller need not match on wording.
+test("readings for evidence the ledger has never seen answer 404", async () => {
+  const ledger = failingLedger(
+    chaincodeRejection("Temperature evidence 'EV-9' does not exist.")
+  );
+
+  await withServer({ ledger, temperatureRepository: repositoryStub() }, async ({ call }) => {
+    const result = await call("GET", "/temperature/evidence/EV-9/readings");
+
+    assert.equal(result.status, 404);
+    assert.match(result.body.error, /not on the ledger/);
+  });
+});

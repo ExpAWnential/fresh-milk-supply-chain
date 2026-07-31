@@ -115,6 +115,27 @@ export function createTemperatureRouter({
     }
   });
 
+  // The readings the fingerprint covers. Reading the evidence off the ledger first is how this
+  // borrows the contract's own authorisation rather than handing off-chain data to anyone who asks.
+  // Verification could previously prove a match but never show what had been matched.
+  router.get("/evidence/:evidenceId/readings", async (req, res) => {
+    if (!temperatureRepository) {
+      res.status(503).json({ error: "temperature storage is not configured" });
+      return;
+    }
+
+    try {
+      await temperature.evaluateJson(req, "getTemperatureEvidence", req.params.evidenceId);
+      res.json(await temperatureRepository.getReadings(req.params.evidenceId));
+    } catch (error) {
+      if (describesMissingEvidence(error)) {
+        res.status(404).json({ error: `Evidence '${req.params.evidenceId}' is not on the ledger.` });
+        return;
+      }
+      sendGatewayError(res, error);
+    }
+  });
+
   router.get("/evidence/:evidenceId/verify", async (req, res) => {
     if (!temperatureRepository) {
       res.status(503).json({ error: "temperature storage is not configured" });
