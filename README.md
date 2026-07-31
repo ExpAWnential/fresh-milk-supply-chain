@@ -69,6 +69,33 @@ pnpm typecheck    # types across every package
 pnpm demo:tamper  # alter a stored reading, then verify it to see the mismatch
 ```
 
+## Demo
+
+With the network, database and backend running, open <http://localhost:3000>.
+
+Choose which company you are signing as, choose a batch, and drive the system in any order. Every
+request and the contract's own reply are shown, so a refusal reads as a refusal rather than a fault.
+**Set up demo** registers the regulator and the five other companies in one go, deriving each one's
+certificate ID from the certificates the network generated.
+
+Temperature evidence comes from the oracle rather than from the page. The oracle stores the readings
+off-chain and anchors the fingerprint in the same run, so submitting evidence from a browser would
+put a record on the ledger with nothing behind it:
+
+```bash
+pnpm oracle:dev                            # compliant readings for BATCH-001
+pnpm oracle:dev data/unsafe-readings.csv   # a cold-chain breach for BATCH-002
+```
+
+Tampering is done straight against PostgreSQL, deliberately going around the application:
+
+```bash
+pnpm demo:tamper --evidence <evidence-id> --confirm-tamper
+```
+
+Press **Show evidence** again afterwards and the off-chain panel has changed while the anchored hash
+has not.
+
 ## Business Rules
 
 - Only a regulator may register, update or suspend stakeholders.
