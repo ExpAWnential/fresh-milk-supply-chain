@@ -1,0 +1,12 @@
+# Certificates for the logistics organisation. One peer, one admin and one user: the user is the
+# identity the logistics signs its business transactions with.
+PeerOrgs:
+  - Name: Logistics
+    Domain: logistics.example.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS:
+        - localhost
+    Users:
+      Count: 1

@@ -1,0 +1,12 @@
+# Certificates for the farm organisation. One peer, one admin and one user: the user is the
+# identity the farm signs its business transactions with.
+PeerOrgs:
+  - Name: Farm
+    Domain: farm.example.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS:
+        - localhost
+    Users:
+      Count: 1

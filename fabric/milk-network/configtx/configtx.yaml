@@ -38,52 +38,114 @@ Organizations:
         Rule: "OR('OrdererMSP.admin')"
     OrdererEndpoints:
       - orderer.example.com:7050
-  - &Org1
-    # DefaultOrg defines the organization which is used in the sampleconfig
-    # of the fabric.git development environment
-    Name: Org1MSP
-    # ID to load the MSP definition as
-    ID: Org1MSP
-    MSPDir: ../organizations/peerOrganizations/org1.example.com/msp
-    # Policies defines the set of policies at this level of the config tree
-    # For organization policies, their canonical path is usually
-    #   /Channel/<Application|Orderer>/<OrgName>/<PolicyName>
+  - &Regulator
+    Name: RegulatorMSP
+    ID: RegulatorMSP
+    MSPDir: ../organizations/peerOrganizations/regulator.example.com/msp
     Policies:
       Readers:
         Type: Signature
-        Rule: "OR('Org1MSP.admin', 'Org1MSP.peer', 'Org1MSP.client')"
+        Rule: "OR('RegulatorMSP.admin', 'RegulatorMSP.peer', 'RegulatorMSP.client')"
       Writers:
         Type: Signature
-        Rule: "OR('Org1MSP.admin', 'Org1MSP.client')"
+        Rule: "OR('RegulatorMSP.admin', 'RegulatorMSP.client')"
       Admins:
         Type: Signature
-        Rule: "OR('Org1MSP.admin')"
+        Rule: "OR('RegulatorMSP.admin')"
       Endorsement:
         Type: Signature
-        Rule: "OR('Org1MSP.peer')"
-  - &Org2
-    # DefaultOrg defines the organization which is used in the sampleconfig
-    # of the fabric.git development environment
-    Name: Org2MSP
-    # ID to load the MSP definition as
-    ID: Org2MSP
-    MSPDir: ../organizations/peerOrganizations/org2.example.com/msp
-    # Policies defines the set of policies at this level of the config tree
-    # For organization policies, their canonical path is usually
-    #   /Channel/<Application|Orderer>/<OrgName>/<PolicyName>
+        Rule: "OR('RegulatorMSP.peer')"
+
+  - &Farm
+    Name: FarmMSP
+    ID: FarmMSP
+    MSPDir: ../organizations/peerOrganizations/farm.example.com/msp
     Policies:
       Readers:
         Type: Signature
-        Rule: "OR('Org2MSP.admin', 'Org2MSP.peer', 'Org2MSP.client')"
+        Rule: "OR('FarmMSP.admin', 'FarmMSP.peer', 'FarmMSP.client')"
       Writers:
         Type: Signature
-        Rule: "OR('Org2MSP.admin', 'Org2MSP.client')"
+        Rule: "OR('FarmMSP.admin', 'FarmMSP.client')"
       Admins:
         Type: Signature
-        Rule: "OR('Org2MSP.admin')"
+        Rule: "OR('FarmMSP.admin')"
       Endorsement:
         Type: Signature
-        Rule: "OR('Org2MSP.peer')"
+        Rule: "OR('FarmMSP.peer')"
+
+  - &Processor
+    Name: ProcessorMSP
+    ID: ProcessorMSP
+    MSPDir: ../organizations/peerOrganizations/processor.example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('ProcessorMSP.admin', 'ProcessorMSP.peer', 'ProcessorMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('ProcessorMSP.admin', 'ProcessorMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('ProcessorMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('ProcessorMSP.peer')"
+
+  - &Logistics
+    Name: LogisticsMSP
+    ID: LogisticsMSP
+    MSPDir: ../organizations/peerOrganizations/logistics.example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('LogisticsMSP.admin', 'LogisticsMSP.peer', 'LogisticsMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('LogisticsMSP.admin', 'LogisticsMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('LogisticsMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('LogisticsMSP.peer')"
+
+  - &Retailer
+    Name: RetailerMSP
+    ID: RetailerMSP
+    MSPDir: ../organizations/peerOrganizations/retailer.example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('RetailerMSP.admin', 'RetailerMSP.peer', 'RetailerMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('RetailerMSP.admin', 'RetailerMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('RetailerMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('RetailerMSP.peer')"
+
+  - &Oracle
+    Name: OracleMSP
+    ID: OracleMSP
+    MSPDir: ../organizations/peerOrganizations/oracle.example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('OracleMSP.admin', 'OracleMSP.peer', 'OracleMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('OracleMSP.admin', 'OracleMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('OracleMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('OracleMSP.peer')"
+
 ################################################################################
 #
 #   SECTION: Capabilities
@@ -274,6 +336,10 @@ Profiles:
     Application:
       <<: *ApplicationDefaults
       Organizations:
-        - *Org1
-        - *Org2
+        - *Regulator
+        - *Farm
+        - *Processor
+        - *Logistics
+        - *Retailer
+        - *Oracle
       Capabilities: *ApplicationCapabilities

@@ -2,66 +2,216 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
+# CouchDB rather than LevelDB for every peer, because the batch-by-status lookup is a rich query
+# and a peer running LevelDB cannot answer one.
 
 networks:
   test:
-    name: fabric_test
+    name: fabric_milk
 
 services:
-  couchdb0:
-    container_name: couchdb0
+
+  couchdb-regulator:
+    container_name: couchdb-regulator
     image: couchdb:3.4.2
     labels:
       service: hyperledger-fabric
-    # Populate the COUCHDB_USER and COUCHDB_PASSWORD to set an admin user and password
-    # for CouchDB.  This will prevent CouchDB from operating in an "Admin Party" mode.
     environment:
       - COUCHDB_USER=admin
       - COUCHDB_PASSWORD=adminpw
-    # Comment/Uncomment the port mapping if you want to hide/expose the CouchDB service,
-    # for example map it to utilize Fauxton User Interface in dev environments.
+    # CouchDB accepts connections before it has finished creating its admin user, and a peer that
+    # arrives in that window is refused with a 401 and gives up. Waiting for _up makes startup
+    # deterministic instead of a race that one peer in six loses.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5984/_up"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    # Published so the database can be inspected during a demo. In a real deployment this port
+    # would stay inside the network.
     ports:
       - "5984:5984"
     networks:
       - test
 
-  peer0.org1.example.com:
+  peer0.regulator.example.com:
     environment:
       - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
-      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb0:5984
-      # The CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME and CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD
-      # provide the credentials for ledger to connect to CouchDB.  The username and password must
-      # match the username and password set for the associated CouchDB.
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb-regulator:5984
       - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
       - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
     depends_on:
-      - couchdb0
+      couchdb-regulator:
+        condition: service_healthy
 
-  couchdb1:
-    container_name: couchdb1
+  couchdb-farm:
+    container_name: couchdb-farm
     image: couchdb:3.4.2
     labels:
       service: hyperledger-fabric
-    # Populate the COUCHDB_USER and COUCHDB_PASSWORD to set an admin user and password
-    # for CouchDB.  This will prevent CouchDB from operating in an "Admin Party" mode.
     environment:
       - COUCHDB_USER=admin
       - COUCHDB_PASSWORD=adminpw
-    # Comment/Uncomment the port mapping if you want to hide/expose the CouchDB service,
-    # for example map it to utilize Fauxton User Interface in dev environments.
+    # CouchDB accepts connections before it has finished creating its admin user, and a peer that
+    # arrives in that window is refused with a 401 and gives up. Waiting for _up makes startup
+    # deterministic instead of a race that one peer in six loses.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5984/_up"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    # Published so the database can be inspected during a demo. In a real deployment this port
+    # would stay inside the network.
+    ports:
+      - "6984:5984"
+    networks:
+      - test
+
+  peer0.farm.example.com:
+    environment:
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb-farm:5984
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    depends_on:
+      couchdb-farm:
+        condition: service_healthy
+
+  couchdb-processor:
+    container_name: couchdb-processor
+    image: couchdb:3.4.2
+    labels:
+      service: hyperledger-fabric
+    environment:
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=adminpw
+    # CouchDB accepts connections before it has finished creating its admin user, and a peer that
+    # arrives in that window is refused with a 401 and gives up. Waiting for _up makes startup
+    # deterministic instead of a race that one peer in six loses.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5984/_up"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    # Published so the database can be inspected during a demo. In a real deployment this port
+    # would stay inside the network.
     ports:
       - "7984:5984"
     networks:
       - test
 
-  peer0.org2.example.com:
+  peer0.processor.example.com:
     environment:
       - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
-      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb1:5984
-      # The CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME and CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD
-      # provide the credentials for ledger to connect to CouchDB.  The username and password must
-      # match the username and password set for the associated CouchDB.
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb-processor:5984
       - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
       - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
     depends_on:
-      - couchdb1
+      couchdb-processor:
+        condition: service_healthy
+
+  couchdb-logistics:
+    container_name: couchdb-logistics
+    image: couchdb:3.4.2
+    labels:
+      service: hyperledger-fabric
+    environment:
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=adminpw
+    # CouchDB accepts connections before it has finished creating its admin user, and a peer that
+    # arrives in that window is refused with a 401 and gives up. Waiting for _up makes startup
+    # deterministic instead of a race that one peer in six loses.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5984/_up"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    # Published so the database can be inspected during a demo. In a real deployment this port
+    # would stay inside the network.
+    ports:
+      - "8984:5984"
+    networks:
+      - test
+
+  peer0.logistics.example.com:
+    environment:
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb-logistics:5984
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    depends_on:
+      couchdb-logistics:
+        condition: service_healthy
+
+  couchdb-retailer:
+    container_name: couchdb-retailer
+    image: couchdb:3.4.2
+    labels:
+      service: hyperledger-fabric
+    environment:
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=adminpw
+    # CouchDB accepts connections before it has finished creating its admin user, and a peer that
+    # arrives in that window is refused with a 401 and gives up. Waiting for _up makes startup
+    # deterministic instead of a race that one peer in six loses.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5984/_up"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    # Published so the database can be inspected during a demo. In a real deployment this port
+    # would stay inside the network.
+    ports:
+      - "9984:5984"
+    networks:
+      - test
+
+  peer0.retailer.example.com:
+    environment:
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb-retailer:5984
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    depends_on:
+      couchdb-retailer:
+        condition: service_healthy
+
+  couchdb-oracle:
+    container_name: couchdb-oracle
+    image: couchdb:3.4.2
+    labels:
+      service: hyperledger-fabric
+    environment:
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=adminpw
+    # CouchDB accepts connections before it has finished creating its admin user, and a peer that
+    # arrives in that window is refused with a 401 and gives up. Waiting for _up makes startup
+    # deterministic instead of a race that one peer in six loses.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5984/_up"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    # Published so the database can be inspected during a demo. In a real deployment this port
+    # would stay inside the network.
+    ports:
+      - "10984:5984"
+    networks:
+      - test
+
+  peer0.oracle.example.com:
+    environment:
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb-oracle:5984
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    depends_on:
+      couchdb-oracle:
+        condition: service_healthy
+

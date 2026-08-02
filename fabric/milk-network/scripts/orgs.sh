@@ -10,10 +10,18 @@
 # The newest bash on macOS is 3.2, which has no associative arrays, so each organisation is a
 # colon-delimited record and the accessors below pull fields out of it.
 
+# One organisation per company, so a certificate authority never issues identities for a business
+# it has no relationship with, and an endorsement policy can name a role rather than a group of
+# unrelated ones.
+#
 # name:mspId:domain:peerPort:chaincodePort:operationsPort:couchName:couchHostPort
 ORG_DEFS=(
-  "org1:Org1MSP:org1.example.com:7051:7052:9444:couchdb0:5984"
-  "org2:Org2MSP:org2.example.com:9051:9052:9445:couchdb1:7984"
+  "regulator:RegulatorMSP:regulator.example.com:7051:7052:9451:couchdb-regulator:5984"
+  "farm:FarmMSP:farm.example.com:8051:8052:9452:couchdb-farm:6984"
+  "processor:ProcessorMSP:processor.example.com:9051:9052:9453:couchdb-processor:7984"
+  "logistics:LogisticsMSP:logistics.example.com:10051:10052:9454:couchdb-logistics:8984"
+  "retailer:RetailerMSP:retailer.example.com:11051:11052:9455:couchdb-retailer:9984"
+  "oracle:OracleMSP:oracle.example.com:12051:12052:9456:couchdb-oracle:10984"
 )
 
 orgNames() {
