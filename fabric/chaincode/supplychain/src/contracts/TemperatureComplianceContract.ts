@@ -1,12 +1,5 @@
 /**
- * Anchors the oracle's temperature evidence and decides whether the cold chain held.
- *
- * The verdict is derived here from the submitted statistics and never taken from the oracle, so the
- * oracle cannot simply assert that unsafe milk passed. It has no way to see the readings those
- * statistics summarise, which stay off-chain, so a dishonest summary would be believed here and is
- * caught off-chain instead, by recomputing the statistics from the readings during verification.
- *
- * Unsafe evidence puts the batch on hold, and only a regulator can clear it.
+ * Manages temperature evidence and cold-chain compliance for milk batches.
  */
 
 // Value import, not "import type": @Transaction identifies the ctx parameter by comparing its
@@ -31,8 +24,9 @@ const MAX_SAFE_CELSIUS = 5;
   description: "Anchors hashed temperature evidence and decides cold-chain compliance."
 })
 export class TemperatureComplianceContract extends Contract {
-  // The oracle submits statistics computed off-chain, but the compliance result is always
-  // derived again by this contract. Raw sensor readings remain in PostgreSQL.
+  // Determine whether the temperatures were safe and prepare ledger writes that record the oracle's
+  // evidence. If they were unsafe, also place the batch on hold. Raw sensor readings remain in
+  // PostgreSQL.
   @Transaction()
   public async submitTemperatureEvidence(
     ctx: Context,
@@ -128,6 +122,7 @@ export class TemperatureComplianceContract extends Contract {
     );
   }
 
+  // Allow a regulator to resolve a cold-chain breach and lift the hold on the batch.
   @Transaction()
   public async resolveTemperatureBreach(
     ctx: Context,
@@ -176,6 +171,7 @@ export class TemperatureComplianceContract extends Contract {
     );
   }
 
+  // Retrieve stored temperature evidence without changing the ledger.
   @Transaction(false)
   @Returns("string")
   public async getTemperatureEvidence(ctx: Context, evidenceId: string): Promise<string> {
@@ -256,4 +252,3 @@ function deriveComplianceOutcome(
     ? "COMPLIANT"
     : "UNSAFE";
 }
-
