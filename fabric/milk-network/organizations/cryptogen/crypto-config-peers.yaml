@@ -1,0 +1,65 @@
+# Certificates for every company. One peer, one admin and one user each: the user is the identity
+# a company signs its business transactions with, and the admin is only used by the network scripts.
+#
+# The organisations here must match scripts/orgs.sh, configtx/configtx.yaml and the compose files.
+PeerOrgs:
+  - Name: Regulator
+    Domain: regulator.example.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS:
+        - localhost
+    Users:
+      Count: 1
+
+  - Name: Farm
+    Domain: farm.example.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS:
+        - localhost
+    Users:
+      Count: 1
+
+  - Name: Processor
+    Domain: processor.example.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS:
+        - localhost
+    Users:
+      Count: 1
+
+  - Name: Logistics
+    Domain: logistics.example.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS:
+        - localhost
+    Users:
+      Count: 1
+
+  - Name: Retailer
+    Domain: retailer.example.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS:
+        - localhost
+    Users:
+      Count: 1
+
+  - Name: Oracle
+    Domain: oracle.example.com
+    EnableNodeOUs: true
+    Template:
+      Count: 1
+      SANS:
+        - localhost
+    Users:
+      Count: 1
+

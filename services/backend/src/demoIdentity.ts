@@ -66,15 +66,10 @@ const ORGANISATIONS: Record<string, OrganisationProfile> = {
 // should be carrying that authority.
 const DEMO_USER = "User1";
 
-// Ordered so the regulator comes first: it has to be bootstrapped before it can register anybody.
-export const DEMO_IDENTITY_NAMES: readonly string[] = [
-  "regulator",
-  "farm",
-  "processor",
-  "logistics",
-  "retailer",
-  "oracle"
-];
+// Derived rather than restated, so a company cannot be added to one list and missed in the other.
+// The order is the declaration order above, which puts the regulator first: it has to be
+// bootstrapped before it can register anybody.
+export const DEMO_IDENTITY_NAMES: readonly string[] = Object.keys(ORGANISATIONS);
 
 export function getDemoIdentity(name: string): DemoIdentity {
   const normalised = name.trim().toLowerCase();

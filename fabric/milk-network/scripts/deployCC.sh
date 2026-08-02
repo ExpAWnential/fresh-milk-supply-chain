@@ -97,26 +97,23 @@ for org in $(orgNames); do
   approveForMyOrg $org
 done
 
-## check the definition is ready to commit, expecting every organisation to have approved.
-## The sample checked readiness again after each individual approval to illustrate the lifecycle;
-## that is one polled call per organisation per approval, so it is done once here at the end.
+## Check the definition is ready to commit, expecting every organisation to have approved.
+## Readiness is computed from channel state, so every peer returns the same answer: one call, once,
+## after all the approvals. The sample re-checked after each individual approval to illustrate the
+## lifecycle, which at six organisations is thirty-six polled round trips for one piece of state.
 EXPECTED_APPROVALS=()
 for org in $(orgNames); do
   EXPECTED_APPROVALS=("${EXPECTED_APPROVALS[@]}" "\"$(orgMsp $org)\": true")
 done
-for org in $(orgNames); do
-  checkCommitReadiness $org "${EXPECTED_APPROVALS[@]}"
-done
+checkCommitReadiness $(orgNames | head -1) "${EXPECTED_APPROVALS[@]}"
 
 ## now that we know every organisation has approved, commit the definition.
 ## The commit is validated against the channel's LifecycleEndorsement policy rather than the
 ## chaincode's own, so every peer is offered as an endorser to satisfy it with margin.
 commitChaincodeDefinition $(orgNames)
 
-## query on every org to see that the definition committed successfully
-for org in $(orgNames); do
-  queryCommitted $org
-done
+## The committed definition is channel state too, so one peer confirms it for all of them.
+queryCommitted $(orgNames | head -1)
 
 ## Invoke the chaincode - this does require that the chaincode have the 'initLedger'
 ## method defined

@@ -5,6 +5,15 @@
 # Docker-specific overlay: the peer builds chaincode by talking to the host's docker socket, and
 # the container it starts has to join the same network as the peers.
 
+# Identical for every peer, so it is written once.
+x-peer-docker: &peer-docker
+  volumes:
+    - ./docker/peercfg:/etc/hyperledger/peercfg
+    - ${DOCKER_SOCK}:/host/var/run/docker.sock
+  environment:
+    - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+    - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_milk
+
 services:
 
   orderer.example.com:
@@ -12,50 +21,20 @@ services:
       - ./docker/peercfg:/etc/hyperledger/peercfg
 
   peer0.regulator.example.com:
-    volumes:
-      - ./docker/peercfg:/etc/hyperledger/peercfg
-      - ${DOCKER_SOCK}:/host/var/run/docker.sock
-    environment:
-      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
-      - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_milk
+    <<: *peer-docker
 
   peer0.farm.example.com:
-    volumes:
-      - ./docker/peercfg:/etc/hyperledger/peercfg
-      - ${DOCKER_SOCK}:/host/var/run/docker.sock
-    environment:
-      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
-      - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_milk
+    <<: *peer-docker
 
   peer0.processor.example.com:
-    volumes:
-      - ./docker/peercfg:/etc/hyperledger/peercfg
-      - ${DOCKER_SOCK}:/host/var/run/docker.sock
-    environment:
-      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
-      - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_milk
+    <<: *peer-docker
 
   peer0.logistics.example.com:
-    volumes:
-      - ./docker/peercfg:/etc/hyperledger/peercfg
-      - ${DOCKER_SOCK}:/host/var/run/docker.sock
-    environment:
-      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
-      - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_milk
+    <<: *peer-docker
 
   peer0.retailer.example.com:
-    volumes:
-      - ./docker/peercfg:/etc/hyperledger/peercfg
-      - ${DOCKER_SOCK}:/host/var/run/docker.sock
-    environment:
-      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
-      - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_milk
+    <<: *peer-docker
 
   peer0.oracle.example.com:
-    volumes:
-      - ./docker/peercfg:/etc/hyperledger/peercfg
-      - ${DOCKER_SOCK}:/host/var/run/docker.sock
-    environment:
-      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
-      - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=fabric_milk
+    <<: *peer-docker
 

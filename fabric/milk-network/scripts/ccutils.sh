@@ -148,32 +148,6 @@ function chaincodeInvokeInit() {
   successln "Invoke transaction successful on $PEERS on channel '$CHANNEL_NAME'"
 }
 
-function chaincodeQuery() {
-  ORG=$1
-  setGlobals $ORG
-  infoln "Querying on peer0.${ORG} on channel '$CHANNEL_NAME'..."
-  local rc=1
-  local COUNTER=1
-  # continue to poll
-  # we either get a successful response, or reach MAX RETRY
-  while [ $rc -ne 0 -a $COUNTER -lt $MAX_RETRY ]; do
-    sleep $DELAY
-    infoln "Attempting to Query peer0.${ORG}, Retry after $DELAY seconds."
-    set -x
-    peer chaincode query -C $CHANNEL_NAME -n ${CC_NAME} -c '{"Args":["org.hyperledger.fabric:GetMetadata"]}' >&log.txt
-    res=$?
-    { set +x; } 2>/dev/null
-    let rc=$res
-    COUNTER=$(expr $COUNTER + 1)
-  done
-  cat log.txt
-  if test $rc -eq 0; then
-    successln "Query successful on peer0.${ORG} on channel '$CHANNEL_NAME'"
-  else
-    fatalln "After $MAX_RETRY attempts, Query result on peer0.${ORG} is INVALID!"
-  fi
-}
-
 function resolveSequence() {
 
   #if the sequence is not "auto", then use the provided sequence
@@ -299,7 +273,11 @@ chaincodeInvoke() {
   # first newline.
   local ENDORSING_ORGS="${5:-$(orgNames | tr '\n' ' ')}"
 
+  # parsePeerConnectionParameters calls setGlobals for each endorser in turn, so the signing
+  # identity is left as the last one in the list. Restore the organisation the caller asked to act
+  # as, or the transaction is signed by whoever happened to be last.
   parsePeerConnectionParameters $ENDORSING_ORGS
+  setGlobals $ORG
 
   infoln "Invoking on peer0.${ORG} on channel '$CHANNEL_NAME', endorsed by: ${ENDORSING_ORGS}"
   local rc=1

@@ -5,10 +5,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-# This script brings up a Hyperledger Fabric network for testing smart contracts
-# and applications. The test network consists of two organizations with one
-# peer each, and a single node Raft ordering service. Users can also use this
-# script to create a channel deploy a chaincode on the channel
+# Brings up the fresh-milk network: one organisation per company, each with a peer and a CouchDB
+# instance, plus a single-node Raft ordering service. Also creates the channel and deploys the
+# chaincode. The organisations are listed in scripts/orgs.sh.
 #
 # This network lives inside the project rather than beside Fabric's binaries, so the peer CLI and
 # its default core.yaml are resolved from wherever fabric-samples was installed instead of from a
@@ -95,39 +94,6 @@ function checkPrereqs() {
     fi
   done
 
-  ## check for cfssl binaries
-  if [ "$CRYPTO" == "cfssl" ]; then
-  
-    cfssl version > /dev/null 2>&1
-    if [[ $? -ne 0 ]]; then
-      errorln "cfssl binary not found.."
-      errorln
-      errorln "Follow the instructions to install the cfssl and cfssljson binaries:"
-      errorln "https://github.com/cloudflare/cfssl#installation"
-      exit 1
-    fi
-  fi
-
-  ## Check for fabric-ca
-  if [ "$CRYPTO" == "Certificate Authorities" ]; then
-
-    fabric-ca-client version > /dev/null 2>&1
-    if [[ $? -ne 0 ]]; then
-      errorln "fabric-ca-client binary not found.."
-      errorln
-      errorln "Follow the instructions in the Fabric docs to install the Fabric Binaries:"
-      errorln "https://hyperledger-fabric.readthedocs.io/en/latest/install.html"
-      exit 1
-    fi
-    CA_LOCAL_VERSION=$(fabric-ca-client version | sed -ne 's/ Version: //p')
-    CA_DOCKER_IMAGE_VERSION=$(${CONTAINER_CLI} run --rm hyperledger/fabric-ca:latest fabric-ca-client version | sed -ne 's/ Version: //p' | head -1)
-    infoln "CA_LOCAL_VERSION=$CA_LOCAL_VERSION"
-    infoln "CA_DOCKER_IMAGE_VERSION=$CA_DOCKER_IMAGE_VERSION"
-
-    if [ "$CA_LOCAL_VERSION" != "$CA_DOCKER_IMAGE_VERSION" ]; then
-      warnln "Local fabric-ca binaries and docker images are out of sync. This may cause problems."
-    fi
-  fi
 }
 
 # Before you can bring up a network, each organization needs to generate the crypto
@@ -155,43 +121,34 @@ function checkPrereqs() {
 # "organizations/ordererOrganizations" directory.
 
 # Create Organization crypto material using cryptogen or CAs
+# Create the crypto material for every organisation and the orderer.
 function createOrgs() {
   if [ -d "organizations/peerOrganizations" ]; then
     rm -Rf organizations/peerOrganizations && rm -Rf organizations/ordererOrganizations
   fi
 
-  # Create crypto material using cryptogen
-  if [ "$CRYPTO" == "cryptogen" ]; then
-    which cryptogen
-    if [ "$?" -ne 0 ]; then
-      fatalln "cryptogen tool not found. exiting"
-    fi
-    infoln "Generating certificates using cryptogen tool"
-
-    for org in $(orgNames); do
-      infoln "Creating ${org} identities"
-
-      set -x
-      cryptogen generate --config=./organizations/cryptogen/crypto-config-${org}.yaml --output="organizations"
-      res=$?
-      { set +x; } 2>/dev/null
-      if [ $res -ne 0 ]; then
-        fatalln "Failed to generate certificates for ${org}..."
-      fi
-    done
-
-    infoln "Creating Orderer Org Identities"
-
-    set -x
-    cryptogen generate --config=./organizations/cryptogen/crypto-config-orderer.yaml --output="organizations"
-    res=$?
-    { set +x; } 2>/dev/null
-    if [ $res -ne 0 ]; then
-      fatalln "Failed to generate certificates..."
-    fi
-
+  which cryptogen
+  if [ "$?" -ne 0 ]; then
+    fatalln "cryptogen tool not found. exiting"
   fi
 
+  infoln "Generating certificates for $(orgCount) organisations and the orderer"
+
+  set -x
+  cryptogen generate --config=./organizations/cryptogen/crypto-config-peers.yaml --output="organizations"
+  res=$?
+  { set +x; } 2>/dev/null
+  if [ $res -ne 0 ]; then
+    fatalln "Failed to generate peer certificates..."
+  fi
+
+  set -x
+  cryptogen generate --config=./organizations/cryptogen/crypto-config-orderer.yaml --output="organizations"
+  res=$?
+  { set +x; } 2>/dev/null
+  if [ $res -ne 0 ]; then
+    fatalln "Failed to generate orderer certificates..."
+  fi
 }
 
 # Once you create the organization crypto material, you need to create the
@@ -290,13 +247,6 @@ function deployCC() {
 }
 
 ## Call the script to deploy a chaincode to the channel
-function deployCCAAS() {
-  scripts/deployCCAAS.sh $CHANNEL_NAME $CC_NAME $CC_SRC_PATH $CCAAS_DOCKER_RUN $CC_VERSION $CC_SEQUENCE $CC_INIT_FCN $CC_END_POLICY $CC_COLL_CONFIG $CLI_DELAY $MAX_RETRY $VERBOSE $CCAAS_DOCKER_RUN
-
-  if [ $? -ne 0 ]; then
-    fatalln "Deploying chaincode-as-a-service failed"
-  fi
-}
 
 ## Call the script to package the chaincode
 function packageChaincode() {
@@ -398,8 +348,6 @@ COMPOSE_FILE_COUCH=compose-couch.yaml
 SOCK="${DOCKER_HOST:-/var/run/docker.sock}"
 DOCKER_SOCK="${SOCK##unix://}"
 
-# BFT activated flag
-BFT=0
 
 # Parse commandline args
 
@@ -448,15 +396,9 @@ while [[ $# -ge 1 ]] ; do
     CHANNEL_NAME="$2"
     shift
     ;;
-  -bft )
-    BFT=1
-    ;;
-  -ca )
-    CRYPTO="Certificate Authorities"
-    ;;
-  -cfssl )
-    CRYPTO="cfssl"
-    ;;
+
+
+
   -r )
     MAX_RETRY="$2"
     shift
@@ -501,15 +443,15 @@ while [[ $# -ge 1 ]] ; do
     CC_INIT_FCN="$2"
     shift
     ;;
-  -ccaasdocker )
-    CCAAS_DOCKER_RUN="$2"
-    shift
-    ;;
+
   -verbose )
     VERBOSE=true
     ;;
   -org )
     ORG="$2"
+    # Checked here so a typo names the flag and stops before the network is touched, rather than
+    # surfacing part-way through a deploy.
+    requireOrg "$ORG"
     shift
     ;;
   -i )
@@ -528,6 +470,7 @@ while [[ $# -ge 1 ]] ; do
   # how an endorsement policy is proved to reject an incomplete set.
   -ccorgs )
     CC_ENDORSING_ORGS="$2"
+    for org in $CC_ENDORSING_ORGS; do requireOrg "$org"; done
     shift
     ;;
   -ccqc )
@@ -543,24 +486,18 @@ while [[ $# -ge 1 ]] ; do
   shift
 done
 
-# Are we generating crypto material with this command?
-if [ ! -d "organizations/peerOrganizations" ]; then
-  CRYPTO_MODE="with crypto from '${CRYPTO}'"
-else
-  CRYPTO_MODE=""
-fi
 
 # Determine mode of operation and printing out what we asked for
 if [ "$MODE" == "prereq" ]; then
   infoln "Installing binaries and fabric images. Fabric Version: ${IMAGETAG}  Fabric CA Version: ${CA_IMAGETAG}"
   installPrereqs
 elif [ "$MODE" == "up" ]; then
-  infoln "Starting nodes with CLI timeout of '${MAX_RETRY}' tries and CLI delay of '${CLI_DELAY}' seconds and using database '${DATABASE}' ${CRYPTO_MODE}"
+  infoln "Starting nodes with CLI timeout of '${MAX_RETRY}' tries and CLI delay of '${CLI_DELAY}' seconds and using database '${DATABASE}'"
   networkUp
 elif [ "$MODE" == "createChannel" ]; then
   infoln "Creating channel '${CHANNEL_NAME}'."
-  infoln "If network is not up, starting nodes with CLI timeout of '${MAX_RETRY}' tries and CLI delay of '${CLI_DELAY}' seconds and using database '${DATABASE} ${CRYPTO_MODE}"
-  createChannel $BFT
+  infoln "If network is not up, starting nodes with CLI timeout of '${MAX_RETRY}' tries and CLI delay of '${CLI_DELAY}' seconds and using database '${DATABASE}'"
+  createChannel
 elif [ "$MODE" == "down" ]; then
   infoln "Stopping network"
   networkDown
@@ -571,9 +508,6 @@ elif [ "$MODE" == "restart" ]; then
 elif [ "$MODE" == "deployCC" ]; then
   infoln "deploying chaincode on channel '${CHANNEL_NAME}'"
   deployCC
-elif [ "$MODE" == "deployCCAAS" ]; then
-  infoln "deploying chaincode-as-a-service on channel '${CHANNEL_NAME}'"
-  deployCCAAS
 elif [ "$MODE" == "cc" ] && [ "$SUBCOMMAND" == "package" ]; then
   packageChaincode
 elif [ "$MODE" == "cc" ] && [ "$SUBCOMMAND" == "list" ]; then

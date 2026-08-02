@@ -25,9 +25,6 @@ function printHelp() {
     println "  network.sh \033[0;32mup\033[0m [Flags]"
     println
     println "    Flags:"
-    println "    -ca - Use Certificate Authorities to generate network crypto material"
-    println "    -cfssl <use CFSSL> -  Use CFSSL CA to generate network crypto material"
-    println "    -bft - Use Orderers with consensus type BFT (Not available in Fabric v2.x)"
     println "    -c <channel name> - Name of channel to create (defaults to \"mychannel\")"
     println "    -s <dbtype> - Peer state database to deploy: goleveldb (default) or couchdb"
     println "    -r <max retry> - CLI times out after certain number of attempts (defaults to 5)"
@@ -37,20 +34,13 @@ function printHelp() {
     println "    -h - Print this message"
     println
     println " Possible Mode and flag combinations"
-    println "   \033[0;32mup\033[0m -ca -r -d -s -verbose"
-    println "   \033[0;32mup\033[0m -bft -r -d -s -verbose"
-    println "   \033[0;32mup createChannel\033[0m -ca -c -r -d -s -verbose"
-    println "   \033[0;32mup createChannel\033[0m -bft -c -r -d -s -verbose"
     println
     println " Examples:"
-    println "   network.sh up createChannel -ca -c mychannel -s couchdb "
-    println "   network.sh up createChannel -bft -c mychannel -s couchdb "
   elif [ "$USAGE" == "createChannel" ]; then
     println "Usage: "
     println "  network.sh \033[0;32mcreateChannel\033[0m [Flags]"
     println
     println "    Flags:"
-    println "    -bft - Use Orderers with consensus type BFT (Not available in Fabric v2.x)"
     println "    -c <channel name> - Name of channel to create (defaults to \"mychannel\")"
     println "    -r <max retry> - CLI times out after certain number of attempts (defaults to 5)"
     println "    -d <delay> - CLI delays for a certain number of seconds (defaults to 3)"
@@ -59,11 +49,9 @@ function printHelp() {
     println "    -h - Print this message"
     println
     println " Possible Mode and flag combinations"
-    println "   \033[0;32mcreateChannel\033[0m -bft -c -r -d -verbose"
     println
     println " Examples:"
     println "   network.sh createChannel -c channelName"
-    println "   network.sh createChannel -bft"
   elif [ "$USAGE" == "deployCC" ]; then
     println "Usage: "
     println "  network.sh \033[0;32mdeployCC\033[0m [Flags]"
@@ -75,7 +63,7 @@ function printHelp() {
     println "    -ccv <version>  - Chaincode version. 1.0 (default), v2, version3.x, etc"
     println "    -ccs <sequence>  - Chaincode definition sequence.  Must be auto (default) or an integer, 1 , 2, 3, etc"
     println "    -ccp <path>  - File path to the chaincode."
-    println "    -ccep <policy>  - (Optional) Chaincode endorsement policy using signature policy syntax. The default policy requires an endorsement from Org1 and Org2"
+    println "    -ccep <policy>  - (Optional) Chaincode endorsement policy using signature policy syntax. The default is the channel policy, a majority of the six organisations"
     println "    -cccg <collection-config>  - (Optional) File path to private data collections configuration file"
     println "    -cci <fcn name>  - (Optional) Name of chaincode initialization function. When a function is provided, the execution of init will be requested and the function will be invoked."
     println
@@ -87,29 +75,6 @@ function printHelp() {
     println " Examples:"
     println "   network.sh deployCC -ccn basic -ccp ../asset-transfer-basic/chaincode-javascript/ ./ -ccl javascript"
     println "   network.sh deployCC -ccn mychaincode -ccp ./user/mychaincode -ccv 1 -ccl javascript"
-  elif [ "$USAGE" == "deployCCAAS" ]; then
-    println "Usage: "
-    println "  network.sh \033[0;32mdeployCCAAS\033[0m [Flags]"
-    println
-    println "    Flags:"
-    println "    -c <channel name> - Name of channel to deploy chaincode to"
-    println "    -ccn <name> - Chaincode name."
-    println "    -ccv <version>  - Chaincode version. 1.0 (default), v2, version3.x, etc"
-    println "    -ccs <sequence>  -  Chaincode definition sequence.  Must be auto (default) or an integer, 1 , 2, 3, etc"
-    println "    -ccp <path>  - File path to the chaincode. (used to find the dockerfile for building the docker image only)"
-    println "    -ccep <policy>  - (Optional) Chaincode endorsement policy using signature policy syntax. The default policy requires an endorsement from Org1 and Org2"
-    println "    -cccg <collection-config>  - (Optional) File path to private data collections configuration file"
-    println "    -cci <fcn name>  - (Optional) Name of chaincode initialization function. When a function is provided, the execution of init will be requested and the function will be invoked."
-    println "    -ccaasdocker <true|false>  - (Optional) Default is true; the chaincode docker image will be built and containers started automatically. Set to false to control this manually"
-    println
-    println "    -h - Print this message"
-    println
-    println " Possible Mode and flag combinations"
-    println "   \033[0;32mdeployCC\033[0m -ccn -ccv -ccs -ccp -cci -r -d -verbose"
-    println
-    println " Examples:"
-    println "   network.sh deployCCAAS  -ccn basicj -ccp ../asset-transfer-basic/chaincode-java"
-    println "   network.sh deployCCAAS  -ccn basict -ccp ../asset-transfer-basic/chaincode-typescript -ccaasdocker false"
   elif [ "$USAGE" == "cc" ] ; then
     println "Usage: "
     println "  network.sh cc <Mode> [Flags]"
@@ -121,7 +86,7 @@ function printHelp() {
     println "      \033[0;32mquery\033[0m - execute an query operation"
     println
     println "    Flags:"
-    println "    -org <number>     - Org number for the executing the command (1,2,etc) (default is 1)."
+    println "    -org <name> - Organisation to run the command as: regulator, farm, processor, logistics, retailer or oracle (default is regulator)"
     println "    -c <channel name> - Name of channel"
     println "    -ccn <name>       - Chaincode name."
     println "    -ccl <language>   - Programming language of chaincode to deploy: go, java, javascript, typescript"
@@ -163,9 +128,6 @@ function printHelp() {
     println "    -cai   Fabric CA Version (default: '1.5.21')"
     println
     println "    Used with \033[0;32mnetwork.sh up\033[0m, \033[0;32mnetwork.sh createChannel\033[0m:"
-    println "    -ca - Use Certificate Authorities to generate network crypto material"
-    println "    -cfssl <use CFSSL> -  Use CFSSL CA to generate network crypto material"
-    println "    -bft - Use Orderers with consensus type BFT (Not available in Fabric v2.x)"
     println "    -c <channel name> - Name of channel to create (defaults to \"mychannel\")"
     println "    -s <dbtype> - Peer state database to deploy: goleveldb (default) or couchdb"
     println "    -r <max retry> - CLI times out after certain number of attempts (defaults to 5)"
@@ -179,22 +141,16 @@ function printHelp() {
     println "    -ccv <version>  - Chaincode version. 1.0 (default), v2, version3.x, etc"
     println "    -ccs <sequence>  - Chaincode definition sequence.  Must be auto (default) or an integer, 1 , 2, 3, etc"
     println "    -ccp <path>  - File path to the chaincode."
-    println "    -ccep <policy>  - (Optional) Chaincode endorsement policy using signature policy syntax. The default policy requires an endorsement from Org1 and Org2"
+    println "    -ccep <policy>  - (Optional) Chaincode endorsement policy using signature policy syntax. The default is the channel policy, a majority of the six organisations"
     println "    -cccg <collection-config>  - (Optional) File path to private data collections configuration file"
     println "    -cci <fcn name>  - (Optional) Name of chaincode initialization function. When a function is provided, the execution of init will be requested and the function will be invoked."
     println
     println "    -h - Print this message"
     println
     println " Possible Mode and flag combinations"
-    println "   \033[0;32mup\033[0m -ca -r -d -s -verbose"
-    println "   \033[0;32mup\033[0m -bft -r -d -s -verbose"
-    println "   \033[0;32mup createChannel\033[0m -ca -c -r -d -s -verbose"
-    println "   \033[0;32mup createChannel\033[0m -bft -c -r -d -s -verbose"
-    println "   \033[0;32mcreateChannel\033[0m -bft -c -r -d -verbose"
     println "   \033[0;32mdeployCC\033[0m -ccn -ccl -ccv -ccs -ccp -cci -r -d -verbose"
     println
     println " Examples:"
-    println "   network.sh up createChannel -ca -c mychannel -s couchdb"
     println "   network.sh createChannel -c channelName"
     println "   network.sh deployCC -ccn basic -ccp ../asset-transfer-basic/chaincode-javascript/ -ccl javascript"
     println "   network.sh deployCC -ccn mychaincode -ccp ./user/mychaincode -ccv 1 -ccl javascript"

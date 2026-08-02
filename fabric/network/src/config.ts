@@ -18,18 +18,23 @@ export interface ChaincodeDefinition {
 const REGULATOR_MSP = "RegulatorMSP";
 const OTHER_MSPS = ["FarmMSP", "ProcessorMSP", "LogisticsMSP", "RetailerMSP", "OracleMSP"];
 
-// The regulator's own peer has to run the transaction and agree, on top of a majority of everyone
-// else. Four organisations are enough to satisfy the channel default, so without this term the
-// other five could record a cold-chain verdict between themselves with the regulator never
-// involved. Being able to name a single role like this is the reason each company has its own
-// organisation.
+// The regulator's own peer has to run the transaction and agree, on top of enough of the others to
+// still make a majority of the whole network. Four organisations satisfy the channel default on
+// their own, so without the regulator term the other five could record a cold-chain verdict
+// between themselves and the regulator would never see it. Being able to name a single role like
+// this is the reason each company has its own organisation.
 //
-// Built from a list rather than written out, and deliberately free of spaces: the deploy script
-// passes this through an unquoted shell expansion, so a space would split the policy across
-// arguments and the peer would reject it with an error that says nothing about whitespace.
-export const regulatorMustEndorse =
+// The threshold is computed rather than written down: a majority of N organisations is N/2 + 1, and
+// one of those is always the regulator. Adding a company would otherwise leave a literal here that
+// quietly stopped being a majority.
+const othersRequired = Math.floor((OTHER_MSPS.length + 1) / 2);
+
+// Deliberately free of spaces. The deploy script passes this through an unquoted shell expansion,
+// so a space would split the policy across arguments and the peer would reject it with an error
+// that says nothing about whitespace.
+const regulatorMustEndorse =
   `AND('${REGULATOR_MSP}.peer',` +
-  `OutOf(3,${OTHER_MSPS.map((msp) => `'${msp}.peer'`).join(",")}))`;
+  `OutOf(${othersRequired},${OTHER_MSPS.map((msp) => `'${msp}.peer'`).join(",")}))`;
 
 // Resolves the same way from src/ under tsx and from dist/ after a build, since both sit one
 // level below the package root and two below fabric/.

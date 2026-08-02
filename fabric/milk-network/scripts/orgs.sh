@@ -14,14 +14,18 @@
 # it has no relationship with, and an endorsement policy can name a role rather than a group of
 # unrelated ones.
 #
-# name:mspId:domain:peerPort:chaincodePort:operationsPort:couchName:couchHostPort
+# The chaincode, operations and CouchDB ports are not here: they are only ever read by Docker, so
+# they live in the compose files where they take effect. A copy here would look authoritative and
+# change nothing.
+#
+# name:mspId:domain:peerPort
 ORG_DEFS=(
-  "regulator:RegulatorMSP:regulator.example.com:7051:7052:9451:couchdb-regulator:5984"
-  "farm:FarmMSP:farm.example.com:8051:8052:9452:couchdb-farm:6984"
-  "processor:ProcessorMSP:processor.example.com:9051:9052:9453:couchdb-processor:7984"
-  "logistics:LogisticsMSP:logistics.example.com:10051:10052:9454:couchdb-logistics:8984"
-  "retailer:RetailerMSP:retailer.example.com:11051:11052:9455:couchdb-retailer:9984"
-  "oracle:OracleMSP:oracle.example.com:12051:12052:9456:couchdb-oracle:10984"
+  "regulator:RegulatorMSP:regulator.example.com:7051"
+  "farm:FarmMSP:farm.example.com:8051"
+  "processor:ProcessorMSP:processor.example.com:9051"
+  "logistics:LogisticsMSP:logistics.example.com:10051"
+  "retailer:RetailerMSP:retailer.example.com:11051"
+  "oracle:OracleMSP:oracle.example.com:12051"
 )
 
 orgNames() {
@@ -47,12 +51,20 @@ requireOrg() {
   fatalln "Unknown organisation '$1'. Expected one of: $(orgNames | tr '\n' ' ')"
 }
 
-# $1 organisation name, $2 one-based field number
+# $1 organisation name, $2 one-based field number. Uses parameter expansion rather than cut so
+# that reading a field does not fork a process; setGlobals reads four of them, on every one of the
+# roughly eighty calls a deploy makes.
 orgField() {
-  local def
+  local def rest
   for def in "${ORG_DEFS[@]}"; do
     if [ "${def%%:*}" = "$1" ]; then
-      echo "$def" | cut -d: -f"$2"
+      rest=$def
+      local i=1
+      while [ $i -lt "$2" ]; do
+        rest=${rest#*:}
+        i=$((i + 1))
+      done
+      echo "${rest%%:*}"
       return 0
     fi
   done
@@ -63,10 +75,6 @@ orgField() {
 orgMsp() { orgField "$1" 2; }
 orgDomain() { orgField "$1" 3; }
 orgPeerPort() { orgField "$1" 4; }
-orgChaincodePort() { orgField "$1" 5; }
-orgOpsPort() { orgField "$1" 6; }
-orgCouchName() { orgField "$1" 7; }
-orgCouchPort() { orgField "$1" 8; }
 
 orgPeerHost() {
   echo "peer0.$(orgDomain "$1")"

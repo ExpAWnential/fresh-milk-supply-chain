@@ -22,7 +22,6 @@ createAnchorPeerUpdate() {
 
   infoln "Generating anchor peer update transaction for ${ORG} on channel $CHANNEL_NAME"
 
-  requireOrg "$ORG"
   HOST=$(orgPeerHost "$ORG")
   PORT=$(orgPeerPort "$ORG")
 
