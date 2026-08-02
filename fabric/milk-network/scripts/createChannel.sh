@@ -27,7 +27,7 @@ if [ ! -d "channel-artifacts" ]; then
 fi
 
 createChannelGenesisBlock() {
-  setGlobals 1
+  setGlobals $(orgNames | head -1)
 	which configtxgen
 	if [ "$?" -ne 0 ]; then
 		fatalln "configtxgen tool not found."
@@ -87,7 +87,7 @@ joinChannel() {
 		COUNTER=$(expr $COUNTER + 1)
 	done
 	cat log.txt
-	verifyResult $res "After $MAX_RETRY attempts, peer0.org${ORG} has failed to join channel '$CHANNEL_NAME' "
+	verifyResult $res "After $MAX_RETRY attempts, peer0.${ORG} has failed to join channel '$CHANNEL_NAME' "
 }
 
 setAnchorPeer() {
@@ -113,15 +113,17 @@ createChannel $BFT
 successln "Channel '$CHANNEL_NAME' created"
 
 ## Join all the peers to the channel
-infoln "Joining org1 peer to the channel..."
-joinChannel 1
-infoln "Joining org2 peer to the channel..."
-joinChannel 2
+for org in $(orgNames); do
+  infoln "Joining ${org} peer to the channel..."
+  joinChannel $org
+done
 
-## Set the anchor peers for each org in the channel
-infoln "Setting anchor peer for org1..."
-setAnchorPeer 1
-infoln "Setting anchor peer for org2..."
-setAnchorPeer 2
+## Set the anchor peers for each org in the channel.
+## Done after every peer has joined rather than interleaved, so two anchor peer updates never race
+## on the same channel configuration.
+for org in $(orgNames); do
+  infoln "Setting anchor peer for ${org}..."
+  setAnchorPeer $org
+done
 
 successln "Channel '$CHANNEL_NAME' joined"

@@ -24,7 +24,9 @@ export VERBOSE=false
 pushd ${ROOTDIR} > /dev/null
 trap "popd > /dev/null" EXIT
 
+export MILK_NETWORK_HOME=${ROOTDIR}
 . scripts/utils.sh
+. scripts/orgs.sh
 
 : ${CONTAINER_CLI:="docker"}
 if command -v ${CONTAINER_CLI}-compose > /dev/null 2>&1; then
@@ -166,25 +168,17 @@ function createOrgs() {
     fi
     infoln "Generating certificates using cryptogen tool"
 
-    infoln "Creating Org1 Identities"
+    for org in $(orgNames); do
+      infoln "Creating ${org} identities"
 
-    set -x
-    cryptogen generate --config=./organizations/cryptogen/crypto-config-org1.yaml --output="organizations"
-    res=$?
-    { set +x; } 2>/dev/null
-    if [ $res -ne 0 ]; then
-      fatalln "Failed to generate certificates..."
-    fi
-
-    infoln "Creating Org2 Identities"
-
-    set -x
-    cryptogen generate --config=./organizations/cryptogen/crypto-config-org2.yaml --output="organizations"
-    res=$?
-    { set +x; } 2>/dev/null
-    if [ $res -ne 0 ]; then
-      fatalln "Failed to generate certificates..."
-    fi
+      set -x
+      cryptogen generate --config=./organizations/cryptogen/crypto-config-${org}.yaml --output="organizations"
+      res=$?
+      { set +x; } 2>/dev/null
+      if [ $res -ne 0 ]; then
+        fatalln "Failed to generate certificates for ${org}..."
+      fi
+    done
 
     infoln "Creating Orderer Org Identities"
 
@@ -266,12 +260,14 @@ function createChannel() {
   CONTAINERS=($($CONTAINER_CLI ps | grep hyperledger/ | awk '{print $2}'))
   len=$(echo ${#CONTAINERS[@]})
 
-  if [[ $len -ge 4 ]] && [[ ! -d "organizations/peerOrganizations" ]]; then
+  EXPECTED_CONTAINERS=$(( $(orgCount) + 1 ))
+
+  if [[ $len -ge $EXPECTED_CONTAINERS ]] && [[ ! -d "organizations/peerOrganizations" ]]; then
     echo "Bringing network down to sync certs with containers"
     networkDown
   fi
 
-  [[ $len -lt 4 ]] || [[ ! -d "organizations/peerOrganizations" ]] && bringUpNetwork="true" || echo "Network Running Already"
+  [[ $len -lt $EXPECTED_CONTAINERS ]] || [[ ! -d "organizations/peerOrganizations" ]] && bringUpNetwork="true" || echo "Network Running Already"
 
   if [ $bringUpNetwork == "true"  ]; then
     infoln "Bringing up network"
