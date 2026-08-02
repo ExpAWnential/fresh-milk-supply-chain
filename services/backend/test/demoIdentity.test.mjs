@@ -8,29 +8,42 @@ function requestWithHeader(value) {
   };
 }
 
-// One certificate per role, so a batch's journey is signed by six different parties rather than
-// a regulator handing its own identity around.
-test("every role has an identity of its own", () => {
-  const roles = ["regulator", "oracle", "farm", "retailer", "logistics", "processor"];
-  const userPaths = roles.map((role) => getDemoIdentity(role).userPath);
+const ROLES = ["regulator", "oracle", "farm", "retailer", "logistics", "processor"];
 
-  assert.equal(new Set(userPaths).size, roles.length, "two roles are sharing a certificate");
-  assert.match(getDemoIdentity("farm").userPath, /org1\.example\.com\/users\/User2@/);
-  assert.match(getDemoIdentity("processor").userPath, /org2\.example\.com\/users\/User2@/);
+// One organisation per role, so no certificate authority issues identities for a company it has no
+// relationship with, and an endorsement policy can name a single role.
+test("every role has an organisation, a certificate and a peer of its own", () => {
+  const identities = ROLES.map(getDemoIdentity);
+
+  assert.equal(
+    new Set(identities.map((identity) => identity.mspId)).size,
+    ROLES.length,
+    "two roles are sharing an organisation"
+  );
+  assert.equal(
+    new Set(identities.map((identity) => identity.userPath)).size,
+    ROLES.length,
+    "two roles are sharing a certificate"
+  );
+  assert.equal(
+    new Set(identities.map((identity) => identity.peerEndpoint)).size,
+    ROLES.length,
+    "two roles are sharing a peer"
+  );
 });
 
 test("a known identity resolves to its organisation's wallet material", () => {
   const regulator = getDemoIdentity("regulator");
-  // Org1 is the regulator organisation, and the registry only accepts that MSP for first setup.
-  assert.equal(regulator.mspId, "Org1MSP");
+  assert.equal(regulator.mspId, "RegulatorMSP");
   assert.equal(regulator.peerEndpoint, "localhost:7051");
-  assert.equal(regulator.peerHostAlias, "peer0.org1.example.com");
-  assert.match(regulator.userPath, /org1\.example\.com\/users\/Admin@org1\.example\.com\/msp$/);
-  assert.match(regulator.peerTlsCaPath, /tlsca\.org1\.example\.com-cert\.pem$/);
+  assert.equal(regulator.peerHostAlias, "peer0.regulator.example.com");
+  // User1 rather than Admin: no demo role should be carrying channel-administration authority.
+  assert.match(regulator.userPath, /regulator\.example\.com\/users\/User1@regulator\.example\.com\/msp$/);
+  assert.match(regulator.peerTlsCaPath, /tlsca\.regulator\.example\.com-cert\.pem$/);
 
   const logistics = getDemoIdentity("logistics");
-  assert.equal(logistics.mspId, "Org2MSP");
-  assert.equal(logistics.peerEndpoint, "localhost:9051");
+  assert.equal(logistics.mspId, "LogisticsMSP");
+  assert.equal(logistics.peerEndpoint, "localhost:10051");
 });
 
 test("identity names are matched regardless of spacing and case", () => {
@@ -65,5 +78,5 @@ test("a request without the identity header is refused", () => {
 
 test("the header selects which wallet identity signs", () => {
   assert.equal(resolveDemoIdentity(requestWithHeader("oracle")).name, "oracle");
-  assert.equal(resolveDemoIdentity(requestWithHeader("retailer")).mspId, "Org2MSP");
+  assert.equal(resolveDemoIdentity(requestWithHeader("retailer")).mspId, "RetailerMSP");
 });

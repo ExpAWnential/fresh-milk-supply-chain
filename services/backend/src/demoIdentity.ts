@@ -26,35 +26,45 @@ interface OrganisationProfile {
   readonly peerEndpoint: string;
 }
 
-// Matches the two organisations the network script brings up. Org1 is the regulator side, which
-// is also the only MSP the stakeholder registry accepts for first-time setup.
-const ORGANISATIONS: Record<"org1" | "org2", OrganisationProfile> = {
-  org1: {
-    domain: "org1.example.com",
-    mspId: "Org1MSP",
+// One organisation per company, matching fabric/milk-network/scripts/orgs.sh. Each has its own
+// certificate authority, so no company can issue an identity for another.
+const ORGANISATIONS: Record<string, OrganisationProfile> = {
+  regulator: {
+    domain: "regulator.example.com",
+    mspId: "RegulatorMSP",
     peerEndpoint: "localhost:7051"
   },
-  org2: {
-    domain: "org2.example.com",
-    mspId: "Org2MSP",
+  farm: {
+    domain: "farm.example.com",
+    mspId: "FarmMSP",
+    peerEndpoint: "localhost:8051"
+  },
+  processor: {
+    domain: "processor.example.com",
+    mspId: "ProcessorMSP",
     peerEndpoint: "localhost:9051"
+  },
+  logistics: {
+    domain: "logistics.example.com",
+    mspId: "LogisticsMSP",
+    peerEndpoint: "localhost:10051"
+  },
+  retailer: {
+    domain: "retailer.example.com",
+    mspId: "RetailerMSP",
+    peerEndpoint: "localhost:11051"
+  },
+  oracle: {
+    domain: "oracle.example.com",
+    mspId: "OracleMSP",
+    peerEndpoint: "localhost:12051"
   }
 };
 
-// Maps a stakeholder name onto one of the enrolled network identities.
-//
-// One per role, so every step of a batch's journey is signed by a different certificate and the
-// registry's role checks are doing real work rather than being waved through by a single caller.
-// The last two come from `pnpm fabric:enrol-identities`, because the test network is generated
-// with only two users per organisation.
-const DEMO_IDENTITIES: Record<string, { org: "org1" | "org2"; user: string }> = {
-  regulator: { org: "org1", user: "Admin" },
-  oracle: { org: "org1", user: "User1" },
-  farm: { org: "org1", user: "User2" },
-  retailer: { org: "org2", user: "Admin" },
-  logistics: { org: "org2", user: "User1" },
-  processor: { org: "org2", user: "User2" }
-};
+// Every role signs as its own organisation's User1. Deliberately not Admin: an organisation's
+// administrator can change channel configuration, and no company's ordinary business traffic
+// should be carrying that authority.
+const DEMO_USER = "User1";
 
 // Ordered so the regulator comes first: it has to be bootstrapped before it can register anybody.
 export const DEMO_IDENTITY_NAMES: readonly string[] = [
@@ -70,22 +80,21 @@ export function getDemoIdentity(name: string): DemoIdentity {
   const normalised = name.trim().toLowerCase();
   // Checked with hasOwn rather than a plain lookup: an inherited key such as 'constructor' would
   // otherwise return a truthy value off the prototype and slip past the guard below.
-  const mapping = Object.hasOwn(DEMO_IDENTITIES, normalised)
-    ? DEMO_IDENTITIES[normalised]
+  const organisation = Object.hasOwn(ORGANISATIONS, normalised)
+    ? ORGANISATIONS[normalised]
     : undefined;
-  if (!mapping) {
+  if (!organisation) {
     throw new Error(
-      `Unknown demo identity '${name}'. Expected one of: ${Object.keys(DEMO_IDENTITIES).join(", ")}.`
+      `Unknown demo identity '${name}'. Expected one of: ${Object.keys(ORGANISATIONS).join(", ")}.`
     );
   }
 
-  const organisation = ORGANISATIONS[mapping.org];
   const organisationPath = join(config.fabricOrganizationsPath, organisation.domain);
 
   return {
     name: normalised,
     mspId: organisation.mspId,
-    userPath: join(organisationPath, "users", `${mapping.user}@${organisation.domain}`, "msp"),
+    userPath: join(organisationPath, "users", `${DEMO_USER}@${organisation.domain}`, "msp"),
     peerEndpoint: organisation.peerEndpoint,
     peerHostAlias: `peer0.${organisation.domain}`,
     peerTlsCaPath: join(organisationPath, "tlsca", `tlsca.${organisation.domain}-cert.pem`)
@@ -99,7 +108,7 @@ export function resolveDemoIdentity(request: Request): DemoIdentity {
   const header = request.header(DEMO_IDENTITY_HEADER);
   if (!header) {
     throw new Error(
-      `Missing ${DEMO_IDENTITY_HEADER} header. Expected one of: ${Object.keys(DEMO_IDENTITIES).join(", ")}.`
+      `Missing ${DEMO_IDENTITY_HEADER} header. Expected one of: ${Object.keys(ORGANISATIONS).join(", ")}.`
     );
   }
 

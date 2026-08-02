@@ -38,6 +38,14 @@ fi
 if [ "$CC_END_POLICY" = "NA" ]; then
   CC_END_POLICY=""
 else
+  # Every use of this variable below is an unquoted expansion, relying on word splitting to
+  # separate the flag from its value. A space inside the policy would split it across arguments as
+  # well, and the peer rejects that with a parse error that says nothing about whitespace.
+  case "$CC_END_POLICY" in
+    *" "*)
+      fatalln "The endorsement policy must not contain spaces: '${CC_END_POLICY}'"
+      ;;
+  esac
   CC_END_POLICY="--signature-policy $CC_END_POLICY"
 fi
 

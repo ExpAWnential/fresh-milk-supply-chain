@@ -16,10 +16,12 @@ test("only the regulator MSP can bootstrap the registry, and only once", async (
   const contract = new StakeholderRegistryContract();
   const stub = new MemoryStub();
 
-  // A caller from the normal supply chain MSP must not become the first regulator
+  // A caller from any other organisation must not become the first regulator. Matched against the
+  // exported constant rather than a literal, so renaming the regulator's organisation cannot leave
+  // this asserting on a name nothing uses.
   await expectReject(
     contract.bootstrapRegulator(context(stub, "cert-attacker"), "attacker"),
-    /Only a member of MSP 'Org1MSP'/
+    new RegExp(`Only a member of MSP '${REGULATOR_MSP_ID}'`)
   );
 
   const regulatorContext = context(stub, "cert-regulator", REGULATOR_MSP_ID);

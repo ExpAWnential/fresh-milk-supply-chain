@@ -11,7 +11,25 @@ export interface ChaincodeDefinition {
   readonly name: string;
   readonly packageName: string;
   readonly sourcePath: string;
+  // Omitted to fall back on the channel's own policy, which is a majority of organisations.
+  readonly endorsementPolicy?: string;
 }
+
+const REGULATOR_MSP = "RegulatorMSP";
+const OTHER_MSPS = ["FarmMSP", "ProcessorMSP", "LogisticsMSP", "RetailerMSP", "OracleMSP"];
+
+// The regulator's own peer has to run the transaction and agree, on top of a majority of everyone
+// else. Four organisations are enough to satisfy the channel default, so without this term the
+// other five could record a cold-chain verdict between themselves with the regulator never
+// involved. Being able to name a single role like this is the reason each company has its own
+// organisation.
+//
+// Built from a list rather than written out, and deliberately free of spaces: the deploy script
+// passes this through an unquoted shell expansion, so a space would split the policy across
+// arguments and the peer would reject it with an error that says nothing about whitespace.
+export const regulatorMustEndorse =
+  `AND('${REGULATOR_MSP}.peer',` +
+  `OutOf(3,${OTHER_MSPS.map((msp) => `'${msp}.peer'`).join(",")}))`;
 
 // Resolves the same way from src/ under tsx and from dist/ after a build, since both sit one
 // level below the package root and two below fabric/.
@@ -50,7 +68,10 @@ export const chaincodes: readonly ChaincodeDefinition[] = [
   {
     name: "supplychain",
     packageName: "@fresh-milk/chaincode-supplychain",
-    sourcePath: join(fabricDirectory, "chaincode", "supplychain")
+    sourcePath: join(fabricDirectory, "chaincode", "supplychain"),
+    // Only this one. The registry is read across chaincodes on every call, and requiring a
+    // specific endorser for those reads would buy nothing.
+    endorsementPolicy: regulatorMustEndorse
   }
 ];
 

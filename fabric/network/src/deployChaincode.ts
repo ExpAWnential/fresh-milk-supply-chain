@@ -77,7 +77,8 @@ try {
         "-ccv",
         version,
         "-ccs",
-        sequence
+        sequence,
+        ...(chaincode.endorsementPolicy ? ["-ccep", chaincode.endorsementPolicy] : [])
       ],
       { cwd: networkPath }
     );

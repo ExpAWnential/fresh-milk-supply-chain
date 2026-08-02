@@ -28,8 +28,9 @@ const CERTIFICATE_KEY_PREFIX = "certificate";
 const REGISTRY_INITIALISED_KEY = "registry.initialised";
 const ACTIVE_REGULATOR_COUNT_KEY = "registry.activeRegulatorCount";
 
-// in our case Org1 is the regulator organisation
-export const REGULATOR_MSP_ID = "Org1MSP";
+// The regulator has its own organisation, so this names it directly rather than borrowing one
+// shared with the companies it regulates.
+export const REGULATOR_MSP_ID = "RegulatorMSP";
 
 const VALID_ROLES: ReadonlySet<string> = new Set<StakeholderRole>([
   "REGULATOR",

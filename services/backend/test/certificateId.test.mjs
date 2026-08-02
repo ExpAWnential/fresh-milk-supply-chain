@@ -29,8 +29,8 @@ test("the derived ID matches the form Fabric stores on the ledger", async (t) =>
 
   assert.equal(
     await deriveCertificateId(farm),
-    "x509::/C=US/ST=California/L=San Francisco/OU=client/CN=User2@org1.example.com" +
-      "::/C=US/ST=California/L=San Francisco/O=org1.example.com/CN=ca.org1.example.com"
+    "x509::/C=US/ST=California/L=San Francisco/OU=client/CN=User1@farm.example.com" +
+      "::/C=US/ST=California/L=San Francisco/O=farm.example.com/CN=ca.farm.example.com"
   );
 });
 
