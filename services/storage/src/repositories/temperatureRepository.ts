@@ -1,3 +1,9 @@
+/**
+ * Every read and write of the off-chain temperature tables. SQL lives only here.
+ *
+ * Written so a failed run can be repeated safely, and so an anchored row is never overwritten: its
+ * readings are the baseline the ledger's hash is checked against.
+ */
 import { Pool, PoolClient, QueryResult } from "pg";
 
 export type ComplianceOutcome = "COMPLIANT" | "UNSAFE";
@@ -30,7 +36,15 @@ export interface TemperatureRepository {
   ): Promise<void>;
   markAnchored(evidenceId: string, fabricTransactionId: string): Promise<void>;
   markFailed(evidenceId: string): Promise<void>;
+  // Applies what the ledger itself reported for this evidence. Reports whether a row was updated,
+  // so a caller can tell an evidence record it does not hold from one it has just corrected.
+  recordLedgerOutcome(
+    evidenceId: string,
+    complianceOutcome: ComplianceOutcome,
+    fabricTransactionId: string
+  ): Promise<boolean>;
   getEvidence(evidenceId: string): Promise<StoredTemperatureEvidence | undefined>;
+  listEvidenceForBatch(batchId: string): Promise<readonly StoredTemperatureEvidence[]>;
   getReadings(evidenceId: string): Promise<readonly StoredTemperatureReading[]>;
 }
 
@@ -66,8 +80,16 @@ export function createTemperatureRepository(pool: Pool): TemperatureRepository {
 
       try {
         await client.query("BEGIN");
-        await insertEvidence(client, evidence);
-        await insertReadings(client, evidence.evidenceId, readings);
+        const written = await upsertEvidence(client, evidence);
+        // An anchored row is left exactly as it stands. Its readings are what the hash on the
+        // ledger covers, so rewriting them would destroy the baseline tamper detection compares
+        // against. Any other row is replaced, which is what makes a failed run repeatable.
+        if (written) {
+          await client.query("DELETE FROM temperature_readings WHERE evidence_id = $1", [
+            evidence.evidenceId
+          ]);
+          await insertReadings(client, evidence.evidenceId, readings);
+        }
         await client.query("COMMIT");
       } catch (error) {
         await client.query("ROLLBACK");
@@ -100,6 +122,29 @@ export function createTemperatureRepository(pool: Pool): TemperatureRepository {
       );
     },
 
+    async recordLedgerOutcome(
+      evidenceId: string,
+      complianceOutcome: ComplianceOutcome,
+      fabricTransactionId: string
+    ): Promise<boolean> {
+      // The event is proof the transaction committed, so the row is confirmed anchored at the same
+      // time. That also rescues a row the oracle left pending because it could not read the
+      // submission back. Writing the same event twice lands on the same values, so a replayed
+      // event changes nothing.
+      const result = await pool.query(
+        `
+          UPDATE temperature_evidence
+          SET compliance_outcome = $2,
+              submission_status = 'ANCHORED',
+              fabric_transaction_id = $3
+          WHERE evidence_id = $1
+        `,
+        [evidenceId, complianceOutcome, fabricTransactionId]
+      );
+
+      return (result.rowCount ?? 0) > 0;
+    },
+
     async getEvidence(evidenceId: string): Promise<StoredTemperatureEvidence | undefined> {
       const result = await pool.query<EvidenceRow>(
         `
@@ -121,6 +166,30 @@ export function createTemperatureRepository(pool: Pool): TemperatureRepository {
       );
 
       return result.rows[0] ? mapEvidenceRow(result.rows[0]) : undefined;
+    },
+
+    async listEvidenceForBatch(batchId: string): Promise<readonly StoredTemperatureEvidence[]> {
+      const result = await pool.query<EvidenceRow>(
+        `
+          SELECT evidence_id,
+                 batch_id,
+                 sensor_id,
+                 evidence_hash,
+                 min_celsius,
+                 max_celsius,
+                 average_celsius,
+                 reading_count,
+                 compliance_outcome,
+                 submission_status,
+                 fabric_transaction_id
+          FROM temperature_evidence
+          WHERE batch_id = $1
+          ORDER BY created_at ASC, evidence_id ASC
+        `,
+        [batchId]
+      );
+
+      return result.rows.map(mapEvidenceRow);
     },
 
     async getReadings(evidenceId: string): Promise<readonly StoredTemperatureReading[]> {
@@ -156,11 +225,14 @@ function validateEvidenceForReadings(
   }
 }
 
-async function insertEvidence(
+// Reports whether the row was written. The evidence ID is derived from the readings, so a run that
+// failed part way through produces the same ID when it is repeated: without the upsert the retry
+// would die on the primary key and those readings could never be anchored.
+async function upsertEvidence(
   client: PoolClient,
   evidence: StoredTemperatureEvidence
-): Promise<QueryResult> {
-  return client.query(
+): Promise<boolean> {
+  const result: QueryResult = await client.query(
     `
       INSERT INTO temperature_evidence (
         evidence_id,
@@ -176,6 +248,18 @@ async function insertEvidence(
         fabric_transaction_id
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      ON CONFLICT (evidence_id) DO UPDATE SET
+        batch_id = EXCLUDED.batch_id,
+        sensor_id = EXCLUDED.sensor_id,
+        evidence_hash = EXCLUDED.evidence_hash,
+        min_celsius = EXCLUDED.min_celsius,
+        max_celsius = EXCLUDED.max_celsius,
+        average_celsius = EXCLUDED.average_celsius,
+        reading_count = EXCLUDED.reading_count,
+        compliance_outcome = EXCLUDED.compliance_outcome,
+        submission_status = EXCLUDED.submission_status,
+        fabric_transaction_id = EXCLUDED.fabric_transaction_id
+      WHERE temperature_evidence.submission_status <> 'ANCHORED'
     `,
     [
       evidence.evidenceId,
@@ -191,6 +275,8 @@ async function insertEvidence(
       evidence.fabricTransactionId
     ]
   );
+
+  return (result.rowCount ?? 0) > 0;
 }
 
 async function insertReadings(

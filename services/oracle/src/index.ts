@@ -1,35 +1,29 @@
-import {
-  canonicaliseReadings,
-  serialiseCanonicalReadings
-} from "./canonicalise.js";
-import { assessCompliance, calculateStatistics } from "./compliance.js";
+/**
+ * `pnpm oracle:dev`. Reads a readings file, runs the oracle against the real backend and database,
+ * and prints the result.
+ */
+import { createPool, createTemperatureRepository } from "@fresh-milk/storage";
 import { readTemperatureReadingsCsv } from "./csvReader.js";
-import { hashCanonicalEvidence } from "./hash.js";
+import { readAnchoredEvidence, submitTemperatureEvidence } from "./oracleClient.js";
+import { runOracle } from "./runOracle.js";
 
 const inputPath = process.argv[2] ?? "data/compliant-readings.csv";
+const databaseUrl =
+  process.env.DATABASE_URL ?? "postgres://freshmilk:freshmilk@localhost:5432/freshmilk";
+
+const pool = createPool({ connectionString: databaseUrl });
 
 try {
-  const readings = await readTemperatureReadingsCsv(inputPath);
-  const canonicalReadings = canonicaliseReadings(readings);
-  const canonicalJson = serialiseCanonicalReadings(canonicalReadings);
-  const statistics = calculateStatistics(canonicalReadings);
-  const evidenceHash = hashCanonicalEvidence(canonicalJson);
-  const complianceOutcome = assessCompliance(statistics);
-
-  console.log(JSON.stringify(
-    {
-      inputPath,
-      readingCount: statistics.readingCount,
-      statistics,
-      complianceOutcome,
-      evidenceHash,
-      canonicalReadings
-    },
-    null,
-    2
-  ));
+  const result = await runOracle(await readTemperatureReadingsCsv(inputPath), {
+    repository: createTemperatureRepository(pool),
+    anchor: submitTemperatureEvidence,
+    readAnchored: readAnchoredEvidence
+  });
+  console.log(JSON.stringify(result, null, 2));
 } catch (error) {
   const message = error instanceof Error ? error.message : "Unknown oracle error";
   console.error(`oracle failed: ${message}`);
   process.exitCode = 1;
+} finally {
+  await pool.end();
 }

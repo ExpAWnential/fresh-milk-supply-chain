@@ -1,3 +1,9 @@
+/**
+ * Reads sensor readings out of a CSV file.
+ *
+ * Parsing only. Nothing here reshapes or judges a reading beyond checking that the columns are
+ * present and the temperature is a number.
+ */
 import { readFile } from "node:fs/promises";
 import { RawTemperatureReading } from "./canonicalise.js";
 

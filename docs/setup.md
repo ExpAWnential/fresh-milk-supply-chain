@@ -83,11 +83,31 @@ cd ~/fabric-samples/test-network && ./network.sh down   # blockchain (wipes ledg
 pnpm db:stop                                             # database
 ```
 
+## Enrolling an identity for every role
+
+```bash
+pnpm fabric:enrol-identities
+```
+
+The test network is generated with two users per organisation, four in all, and the registry has
+six roles. This issues the two missing certificates from the organisation CA already on disk, so
+each role signs as itself instead of two of them borrowing another's identity. Certificates
+already in use are left alone and the peers accept the new ones without a restart, so it is safe
+to run at any time and does nothing on a second run.
+
 ## Deploying the project chaincode
 
-Not wired up yet. The `stakeholder` and `supplychain` chaincodes are still being built.
-Deployment uses `test-network`'s `./network.sh deployCC`; the exact command will be added
-here once the first chaincode is ready to deploy.
+```bash
+pnpm fabric:deploy-chaincode
+```
+
+Builds, packages, installs, approves and commits both chaincodes on the channel. A committed
+definition can only be replaced by a higher sequence number, so redeploying after a code change
+needs both values raised:
+
+```bash
+pnpm fabric:deploy-chaincode -- --version 1.1 --sequence 2
+```
 
 ## Secrets and generated files
 

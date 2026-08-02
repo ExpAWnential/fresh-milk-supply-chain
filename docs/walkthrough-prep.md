@@ -1,0 +1,74 @@
+# Code Walkthrough Prep
+
+What to study, in what order, and what to be able to say about each file. The codebase is about
+4,300 lines of source, but only around 1,500 need to be known cold.
+
+## Tier 1: know these properly
+
+Roughly 1,400 lines. These are what questions will be about.
+
+| File | Lines | Be able to say |
+|---|---|---|
+| `fabric/chaincode/stakeholder/src/contracts/StakeholderRegistryContract.ts` | 443 | The six roles, regulator-only writes, the bootstrap problem, the active-regulator counter, and `assertActiveRole` |
+| `fabric/chaincode/supplychain/src/contracts/BatchLifecycleContract.ts` | 308 | The state machine, the two locks in `transitionBatch`, and why history comes free |
+| `fabric/chaincode/supplychain/src/contracts/TemperatureComplianceContract.ts` | 259 | The 0-5°C rule, and why the contract re-derives the verdict instead of trusting the oracle |
+| `fabric/chaincode/supplychain/src/utils/stakeholderClient.ts` | 106 | How one chaincode calls another to check permissions |
+| `services/storage/src/evidenceHash.ts` | 89 | Canonicalise then SHA-256, and why the ordering rule matters |
+| `services/oracle/src/runOracle.ts` | 147 | The run end to end, why the row is saved PENDING first, and the failure handling |
+| `services/backend/src/services/evidenceVerification.ts` | 157 | Three hashes, and why the anchor has to come off the ledger |
+| `services/storage/schema.sql` | 40 | Two tables, and the constraint that makes ANCHORED without a transaction ID impossible |
+
+## Tier 2: understand, do not memorise
+
+About 500 lines.
+
+| File | Why it matters |
+|---|---|
+| `fabric/chaincode/*/src/utils/identity.ts` and `txContext.ts` | 30 lines each. Where every trusted value comes from. Small but foundational |
+| `services/backend/src/events/complianceEvents.ts` | How the ledger's verdict gets back into PostgreSQL |
+| `services/backend/src/demoIdentity.ts` | The `x-demo-identity` header, and why it is a demo shortcut rather than authentication |
+| `fabric/chaincode/supplychain/src/models/Batch.ts` and `TemperatureEvidence.ts` | What is actually stored. 80 lines total, quick to absorb |
+| `services/storage/src/tamperEvidence.ts` | The demo that gets run live |
+
+## Tier 3: know they exist
+
+`services/backend/src/fabric/gateway.ts` (gRPC plumbing), `services/backend/src/routes/*` (thin
+HTTP wrappers), `fabric/network/*` (setup scripts), `config.ts`, `pool.ts`.
+
+"That is the Fabric connection layer" is a sufficient answer. Nobody is marking gRPC deadlines.
+
+## Reading order
+
+Follow the story rather than the folder structure. Each file hands off to the next.
+
+```
+1. identity.ts + txContext.ts      what "who is calling" actually means
+2. StakeholderRegistryContract     who is allowed to do what
+3. BatchLifecycleContract          the milk's journey
+4. evidenceHash.ts                 the fingerprint
+5. runOracle.ts                    one oracle run
+6. TemperatureComplianceContract   the verdict
+7. evidenceVerification.ts         catching tampering
+8. complianceEvents.ts             the verdict coming back off the chain
+```
+
+## Likely questions and where the answer lives
+
+| Question | Answer |
+|---|---|
+| Where is the off-chain computation? | `runOracle.ts` and `evidenceHash.ts` |
+| How do you know the database was not edited? | `evidenceVerification.ts`, three hashes compared |
+| Why trust the oracle? | You do not. `TemperatureComplianceContract` derives the verdict itself |
+| What stops a logistics company creating a batch? | `assertActiveRole`, and a test proves the rejection |
+| Why two chaincodes? | Different systems with different owners, hence the cross-chaincode call |
+| What if the oracle lies? | The contract stops it asserting a verdict outright, since it only sends statistics. It could still anchor a flattering summary, which verification catches by recomputing the statistics from the readings. An oracle that falsifies a reading before it is ever hashed is a known limitation, and needs signed sensors |
+| At what stage can temperature evidence be submitted? | Any stage except a recalled batch, because milk has to stay cold from the farm's tank to the retailer's fridge. A breach records the stage it interrupted in `statusBeforeBreach`, so clearing it returns the batch there rather than assuming transport |
+
+## Before the walkthrough
+
+Run `pnpm test` and `pnpm typecheck`. Both should be clean.
+
+The demo itself is driven from the control panel at <http://localhost:3000>, with the oracle and the
+tamper command run in a terminal beside it. Those two stay outside the page on purpose: the oracle is
+a separate off-chain process, and tampering means reaching into PostgreSQL around the application, so
+a button inside the application would misrepresent both.

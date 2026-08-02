@@ -1,3 +1,9 @@
+/**
+ * The supply-chain chaincode's door into the stakeholder registry.
+ *
+ * It invokes the registry's `assertActiveRole` across chaincodes and then re-checks the answer
+ * here, so a malformed or unexpected response still cannot let the wrong role through.
+ */
 import type { Context } from "fabric-contract-api";
 import { getInvokingIdentity } from "./identity.js";
 
@@ -9,8 +15,8 @@ export type StakeholderRole =
   | "RETAILER"
   | "ORACLE";
 
-export const STAKEHOLDER_CHAINCODE_NAME = "stakeholder";
-export const STAKEHOLDER_ROLE_ASSERTION_TRANSACTION =
+const STAKEHOLDER_CHAINCODE_NAME = "stakeholder";
+const STAKEHOLDER_ROLE_ASSERTION_TRANSACTION =
   "StakeholderRegistryContract:assertActiveRole";
 
 const ALL_ROLES: readonly StakeholderRole[] = [

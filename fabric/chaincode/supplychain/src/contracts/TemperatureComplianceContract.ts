@@ -1,15 +1,27 @@
-import fabricContractApi from "fabric-contract-api";
-import type { Context } from "fabric-contract-api";
+/**
+ * Anchors the oracle's temperature evidence and decides whether the cold chain held.
+ *
+ * The verdict is derived here from the submitted statistics and never taken from the oracle, so the
+ * oracle cannot simply assert that unsafe milk passed. It has no way to see the readings those
+ * statistics summarise, which stay off-chain, so a dishonest summary would be believed here and is
+ * caught off-chain instead, by recomputing the statistics from the readings during verification.
+ *
+ * Unsafe evidence puts the batch on hold, and only a regulator can clear it.
+ */
+
+// Value import, not "import type": @Transaction identifies the ctx parameter by comparing its
+// emitted runtime type against Context, so an erased type import makes Fabric expect an extra
+// argument on every transaction.
+import { Context, Contract, Info, Returns, Transaction } from "fabric-contract-api";
 import type { Batch } from "../models/Batch.js";
 import type {
   TemperatureEvidence,
   TemperatureStatistics
 } from "../models/TemperatureEvidence.js";
-import { batchKey, temperatureEvidenceKey } from "../utils/ledgerKeys.js";
-import { assertActiveRole } from "../utils/stakeholderClient.js";
+import { temperatureEvidenceKey } from "../utils/ledgerKeys.js";
+import { getBatchRecord, putBatch, requireValue } from "../utils/batchStore.js";
+import { assertActiveRole, getInvokingStakeholder } from "../utils/stakeholderClient.js";
 import { getTransactionMetadata } from "../utils/txContext.js";
-
-const { Contract, Info, Returns, Transaction } = fabricContractApi;
 
 const MIN_SAFE_CELSIUS = 0;
 const MAX_SAFE_CELSIUS = 5;
@@ -42,11 +54,13 @@ export class TemperatureComplianceContract extends Contract {
       throw new Error(`Temperature evidence '${normalisedEvidenceId}' already exists.`);
     }
 
+    // Milk has to stay cold from the farm's bulk tank to the retailer's fridge, not only in the
+    // truck, so evidence is accepted at every stage. A recalled batch is the exception: it has
+    // been withdrawn, and there is nothing left for a cold-chain verdict to protect.
     const batch = await getBatchRecord(ctx, normalisedBatchId);
-    if (batch.status !== "IN_TRANSIT") {
+    if (batch.status === "RECALLED") {
       throw new Error(
-        `Batch '${normalisedBatchId}' must be IN_TRANSIT before temperature evidence can be submitted; ` +
-          `current status is '${batch.status}'.`
+        `Batch '${normalisedBatchId}' has been recalled, so temperature evidence can no longer be submitted.`
       );
     }
 
@@ -70,14 +84,15 @@ export class TemperatureComplianceContract extends Contract {
       const breachedBatch: Batch = {
         ...batch,
         status: "COLD_CHAIN_BREACH",
+        // Only the first breach records where the batch came from. A second unsafe reading while
+        // the hold is already open must not overwrite it with COLD_CHAIN_BREACH itself.
+        statusBeforeBreach:
+          batch.status === "COLD_CHAIN_BREACH" ? batch.statusBeforeBreach : batch.status,
         lastUpdatedByStakeholderId: oracle.stakeholderId,
         lastUpdatedTxId: metadata.txId,
         lastUpdatedAt: metadata.timestamp
       };
-      await ctx.stub.putState(
-        batchKey(ctx, normalisedBatchId),
-        Buffer.from(JSON.stringify(breachedBatch))
-      );
+      await putBatch(ctx, breachedBatch);
 
       ctx.stub.setEvent(
         "ColdChainBreach",
@@ -131,21 +146,22 @@ export class TemperatureComplianceContract extends Contract {
       );
     }
 
-    // A breach occurs during transport, so clearing the hold returns the batch to IN_TRANSIT.
-    // The original unsafe evidence remains immutable on the ledger.
+    // Clearing the hold puts the batch back where the breach found it, so a breach in the farm's
+    // tank does not send the batch forward past processing. The IN_TRANSIT fallback covers records
+    // written before the batch carried this field. The original unsafe evidence stays on the
+    // ledger either way.
     const metadata = getTransactionMetadata(ctx);
     const resolvedBatch: Batch = {
       ...batch,
-      status: "IN_TRANSIT",
+      status: batch.statusBeforeBreach ?? "IN_TRANSIT",
+      // The hold is closed, so what it interrupted is no longer pending. JSON.stringify drops it.
+      statusBeforeBreach: undefined,
       lastUpdatedByStakeholderId: regulator.stakeholderId,
       lastUpdatedTxId: metadata.txId,
       lastUpdatedAt: metadata.timestamp
     };
 
-    await ctx.stub.putState(
-      batchKey(ctx, normalisedBatchId),
-      Buffer.from(JSON.stringify(resolvedBatch))
-    );
+    await putBatch(ctx, resolvedBatch);
     ctx.stub.setEvent(
       "ColdChainBreachResolved",
       Buffer.from(
@@ -163,6 +179,7 @@ export class TemperatureComplianceContract extends Contract {
   @Transaction(false)
   @Returns("string")
   public async getTemperatureEvidence(ctx: Context, evidenceId: string): Promise<string> {
+    await getInvokingStakeholder(ctx);
     const normalisedEvidenceId = requireValue(evidenceId, "Evidence ID");
     const value = await ctx.stub.getState(temperatureEvidenceKey(ctx, normalisedEvidenceId));
     if (value.length === 0) {
@@ -172,27 +189,6 @@ export class TemperatureComplianceContract extends Contract {
     return value.toString();
   }
 
-  @Transaction(false)
-  @Returns("boolean")
-  public async verifyEvidenceReference(
-    ctx: Context,
-    evidenceId: string,
-    evidenceHash: string
-  ): Promise<boolean> {
-    const anchoredEvidence = JSON.parse(
-      await this.getTemperatureEvidence(ctx, evidenceId)
-    ) as TemperatureEvidence;
-    const recomputedHash = parseSha256Hash(evidenceHash);
-    return anchoredEvidence.evidenceHash === recomputedHash;
-  }
-}
-
-function requireValue(value: string, fieldName: string): string {
-  const normalised = value.trim();
-  if (!normalised) {
-    throw new Error(`${fieldName} must not be empty.`);
-  }
-  return normalised;
 }
 
 function parseSha256Hash(value: string): string {
@@ -261,47 +257,3 @@ function deriveComplianceOutcome(
     : "UNSAFE";
 }
 
-async function getBatchRecord(ctx: Context, batchId: string): Promise<Batch> {
-  const value = await ctx.stub.getState(batchKey(ctx, batchId));
-  if (value.length === 0) {
-    throw new Error(`Batch '${batchId}' does not exist.`);
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value.toString());
-  } catch {
-    throw new Error(`Batch '${batchId}' contains invalid ledger data.`);
-  }
-
-  if (!isBatch(parsed) || parsed.batchId !== batchId) {
-    throw new Error(`Batch '${batchId}' contains invalid ledger data.`);
-  }
-  return parsed;
-}
-
-function isBatch(value: unknown): value is Batch {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as Partial<Batch>;
-  const validStatuses = new Set([
-    "CREATED",
-    "PROCESSED",
-    "IN_TRANSIT",
-    "DELIVERED",
-    "RECALLED",
-    "COLD_CHAIN_BREACH"
-  ]);
-
-  return (
-    typeof candidate.batchId === "string" &&
-    candidate.batchId.length > 0 &&
-    typeof candidate.status === "string" &&
-    validStatuses.has(candidate.status) &&
-    typeof candidate.createdByStakeholderId === "string" &&
-    typeof candidate.createdTxId === "string" &&
-    typeof candidate.createdAt === "string"
-  );
-}

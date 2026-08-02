@@ -1,3 +1,6 @@
+/**
+ * Creates the PostgreSQL connection pool. Connection settings only.
+ */
 import { Pool } from "pg";
 
 export interface StorageConfig {

@@ -1,3 +1,8 @@
+/**
+ * The shape of a stakeholder record as it is stored on the ledger.
+ *
+ * Types only. Every rule about who may create or change one lives in StakeholderRegistryContract.
+ */
 export type StakeholderRole =
   | "REGULATOR"
   | "FARM"

@@ -1,12 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  canonicaliseReadings,
-  serialiseCanonicalReadings
-} from "../src/canonicalise.js";
-import { assessCompliance, calculateStatistics } from "../src/compliance.js";
+import { sha256TemperatureReadings } from "@fresh-milk/storage";
+import { canonicaliseReadings } from "../src/canonicalise.js";
+import { calculateTemperatureStatistics as calculateStatistics } from "@fresh-milk/storage";
+import { assessCompliance } from "../src/compliance.js";
 import { parseTemperatureReadingsCsv } from "../src/csvReader.js";
-import { hashCanonicalEvidence } from "../src/hash.js";
 
 describe("temperature oracle", () => {
   it("parses sensor readings from CSV", () => {
@@ -100,8 +98,10 @@ BATCH-001,SENSOR-001,2026-07-14T08:00:00Z`),
     });
   });
 
+  // Hashed with the same function the oracle anchors with, so this proves order independence
+  // of the fingerprint that actually reaches the ledger.
   it("produces the same fingerprint for the same readings in different order", () => {
-    const firstOrder = canonicaliseReadings([
+    const readings = [
       {
         batchId: "BATCH-001",
         sensorId: "SENSOR-001",
@@ -114,12 +114,13 @@ BATCH-001,SENSOR-001,2026-07-14T08:00:00Z`),
         recordedAt: "2026-07-14T08:15:00Z",
         celsius: 3.6
       }
-    ]);
-    const secondOrder = canonicaliseReadings([...firstOrder].reverse());
+    ];
+    const strip = (list: readonly { sensorId: string; recordedAt: string; celsius: number }[]) =>
+      list.map(({ sensorId, recordedAt, celsius }) => ({ sensorId, recordedAt, celsius }));
 
     assert.equal(
-      hashCanonicalEvidence(serialiseCanonicalReadings(firstOrder)),
-      hashCanonicalEvidence(serialiseCanonicalReadings(secondOrder))
+      sha256TemperatureReadings("BATCH-001", strip(canonicaliseReadings(readings))),
+      sha256TemperatureReadings("BATCH-001", strip(canonicaliseReadings([...readings].reverse())))
     );
   });
 
@@ -140,5 +141,51 @@ BATCH-001,SENSOR-001,2026-07-14T08:00:00Z`),
     ]);
 
     assert.equal(assessCompliance(calculateStatistics(readings)), "UNSAFE");
+  });
+
+  // The contract re-derives this outcome from the same 0-5C range, so the boundaries and the
+  // frozen-milk case must agree with TemperatureComplianceContract.
+  it("applies the same 0-5C range as the on-chain contract", () => {
+    assert.equal(
+      assessCompliance({ minCelsius: 0, maxCelsius: 5, averageCelsius: 2.5, readingCount: 2 }),
+      "COMPLIANT"
+    );
+    assert.equal(
+      assessCompliance({ minCelsius: -0.1, maxCelsius: 3, averageCelsius: 1.5, readingCount: 2 }),
+      "UNSAFE"
+    );
+    assert.equal(
+      assessCompliance({ minCelsius: 3, maxCelsius: 5.1, averageCelsius: 4, readingCount: 2 }),
+      "UNSAFE"
+    );
+  });
+
+  it("refuses to calculate statistics for no readings at all", () => {
+    assert.throws(() => calculateStatistics([]), /empty reading set/);
+  });
+
+  // A reading the oracle cannot make sense of must stop the run. Canonicalising it to something
+  // plausible would put a fingerprint on the ledger covering readings nobody recorded.
+  it("refuses a timestamp it cannot read", () => {
+    assert.throws(
+      () =>
+        canonicaliseReadings([
+          { batchId: "B-1", sensorId: "S-1", recordedAt: "last tuesday", celsius: 3 }
+        ]),
+      /Invalid recordedAt timestamp: last tuesday/
+    );
+  });
+
+  it("refuses a temperature that is not a finite number", () => {
+    for (const celsius of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.throws(
+        () =>
+          canonicaliseReadings([
+            { batchId: "B-1", sensorId: "S-1", recordedAt: "2026-07-14T08:00:00Z", celsius }
+          ]),
+        /Invalid celsius value/,
+        String(celsius)
+      );
+    }
   });
 });

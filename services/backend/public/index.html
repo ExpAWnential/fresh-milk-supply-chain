@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fresh Milk Cold Chain — Demo</title>
+    <style>
+      /* Light background and large type: dark themes project poorly in bright rooms. */
+      :root {
+        --ink: #14213d;
+        --muted: #5b6b8c;
+        --line: #d8dee9;
+        --ok: #1b7f4b;
+        --refused: #a6600a;
+        --broken: #b3261e;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        padding: 1rem 1.25rem 3rem;
+        font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: var(--ink);
+        background: #fff;
+      }
+      h1 { font-size: 1.2rem; margin: 0 0 .75rem; }
+      h1 small { font-weight: 400; color: var(--muted); font-size: .8rem; margin-left: .5rem; }
+      .bar {
+        display: flex; flex-wrap: wrap; gap: .75rem; align-items: center;
+        padding: .75rem; border: 2px solid var(--ink); border-radius: 8px; margin-bottom: 1rem;
+      }
+      .bar label { font-weight: 600; }
+      select, input, button {
+        font: inherit; padding: .4rem .6rem; border: 1px solid var(--line);
+        border-radius: 6px; background: #fff; color: inherit;
+      }
+      select, input { min-width: 9rem; }
+      button { cursor: pointer; }
+      button:hover { border-color: var(--ink); }
+      button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+      .group { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: .5rem; }
+      .group .name {
+        width: 8rem; font-size: .75rem; letter-spacing: .07em; text-transform: uppercase;
+        color: var(--muted); font-weight: 700;
+      }
+      .split { display: grid; grid-template-columns: 1fr 1fr; margin: 1rem 0; }
+      .split section { border: 1px solid var(--line); padding: .75rem; min-width: 0; }
+      .split section + section { border-left: 0; }
+      .split h2 {
+        font-size: .75rem; letter-spacing: .07em; text-transform: uppercase;
+        margin: 0 0 .5rem; color: var(--muted);
+      }
+      .split pre { margin: 0; font-size: .85rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+      #log { border: 1px solid var(--line); border-radius: 8px; max-height: 24rem; overflow: auto; }
+      #log:empty::after {
+        content: "Every request and the contract's reply appear here.";
+        display: block; padding: .75rem; color: var(--muted);
+      }
+      .entry { border-bottom: 1px solid var(--line); padding: .55rem .75rem; }
+      .entry:last-child { border-bottom: 0; }
+      .entry .head { font-weight: 600; font-size: .9rem; }
+      .entry pre { margin: .3rem 0 0; font-size: .82rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .ok .head { color: var(--ok); }
+      .refused .head { color: var(--refused); }
+      .broken .head { color: var(--broken); }
+      code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    </style>
+  </head>
+  <body>
+    <h1>
+      Fresh Milk Cold Chain
+      <small>every request is signed by the company selected below</small>
+    </h1>
+
+    <div class="bar">
+      <label for="identity">Acting as</label>
+      <select id="identity"></select>
+
+      <label for="batch">Batch</label>
+      <input id="batch" list="batches" value="BATCH-001" />
+      <datalist id="batches">
+        <option value="BATCH-001"></option>
+        <option value="BATCH-002"></option>
+      </datalist>
+      <button id="newBatch">new</button>
+
+      <button id="setup" class="primary">Set up demo</button>
+      <button id="clear">Clear log</button>
+    </div>
+
+    <div id="actions"></div>
+
+    <div class="split">
+      <section>
+        <h2>PostgreSQL — off-chain</h2>
+        <pre id="offChain">Use "Show evidence" to fill this in.</pre>
+      </section>
+      <section>
+        <h2>Ledger — on-chain</h2>
+        <pre id="onChain">—</pre>
+      </section>
+    </div>
+
+    <div id="log"></div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const identityField = $("identity");
+      const batchField = $("batch");
+
+      function log(tone, title, body) {
+        const entry = document.createElement("div");
+        entry.className = `entry ${tone}`;
+        const head = document.createElement("div");
+        head.className = "head";
+        head.textContent = title;
+        entry.append(head);
+        if (body) {
+          const detail = document.createElement("pre");
+          detail.textContent = body;
+          entry.append(detail);
+        }
+        $("log").prepend(entry);
+      }
+
+      // A refusal is the contract enforcing a rule, so it is coloured apart from a genuine failure.
+      // Showing both the same way would make the strongest moment of the demo look like a crash.
+      function toneFor(status) {
+        if (status >= 200 && status < 300) return "ok";
+        if (status >= 400 && status < 500) return "refused";
+        return "broken";
+      }
+
+      // `identity: null` sends no header at all, which is how the consumer endpoint is reached.
+      async function call(method, path, { body, identity } = {}) {
+        const signer = identity === null ? null : (identity ?? identityField.value);
+        const headers = {};
+        if (signer) headers["x-demo-identity"] = signer;
+        if (body) headers["content-type"] = "application/json";
+
+        try {
+          const response = await fetch(path, {
+            method,
+            headers,
+            body: body ? JSON.stringify(body) : undefined
+          });
+          const text = await response.text();
+          let parsed = text;
+          try { parsed = JSON.parse(text); } catch { /* keep the raw body */ }
+
+          log(
+            toneFor(response.status),
+            `${method} ${path}   ${signer ? `as ${signer}` : "no identity"}   →   ${response.status}`,
+            typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2)
+          );
+          return { status: response.status, body: parsed };
+        } catch (error) {
+          // A failed fetch means the backend is unreachable, which is not the contract refusing.
+          log("broken", `${method} ${path}   →   could not reach the backend`, String(error));
+          return { status: 0, body: null };
+        }
+      }
+
+      let identities = [];
+
+      async function loadIdentities() {
+        const result = await call("GET", "/demo/identities", { identity: null });
+        if (result.status !== 200) return;
+
+        identities = result.body;
+        identityField.innerHTML = identities
+          .map((entry) => `<option value="${entry.role}">${entry.role}</option>`)
+          .join("");
+        identityField.value = localStorage.getItem("identity") ?? "farm";
+      }
+
+      // Bootstrap first: every other registration needs an active regulator to authorise it. The
+      // six requests are made from here rather than server-side so each one appears in the log.
+      async function setUpDemo() {
+        const regulator = identities.find((entry) => entry.role === "regulator");
+        if (!regulator) {
+          log("broken", "Set up demo   →   the identities have not loaded", "Reload the page.");
+          return;
+        }
+
+        await call("POST", "/stakeholders/bootstrap", {
+          identity: "regulator",
+          body: { stakeholderId: regulator.stakeholderId }
+        });
+
+        for (const entry of identities.filter((candidate) => candidate.role !== "regulator")) {
+          await call("POST", "/stakeholders", {
+            identity: "regulator",
+            body: {
+              stakeholderId: entry.stakeholderId,
+              role: entry.role.toUpperCase(),
+              certificateId: entry.certificateId
+            }
+          });
+        }
+      }
+
+      const batch = () => encodeURIComponent(batchField.value);
+      const evidence = (id) => encodeURIComponent(id);
+
+      // The left column is what PostgreSQL holds, the right is what the ledger holds. Side by side
+      // they are the architecture: bulk readings off-chain, a fingerprint on-chain.
+      async function showEvidence() {
+        const listed = await call("GET", `/temperature/batches/${batch()}/evidence`);
+        if (listed.status !== 200 || !Array.isArray(listed.body) || listed.body.length === 0) {
+          $("offChain").textContent = "No evidence recorded for this batch yet.";
+          $("onChain").textContent = "—";
+          return;
+        }
+
+        const evidenceId = listed.body[listed.body.length - 1].evidenceId;
+        const [readings, verified] = await Promise.all([
+          call("GET", `/temperature/evidence/${evidence(evidenceId)}/readings`),
+          call("GET", `/temperature/evidence/${evidence(evidenceId)}/verify`)
+        ]);
+
+        if (readings.status === 200 && Array.isArray(readings.body)) {
+          $("offChain").textContent =
+            `${evidenceId}\n\n` +
+            readings.body
+              .map((r) => `${String(r.celsius).padStart(6)} °C   ${r.recordedAt}   ${r.sensorId}`)
+              .join("\n") +
+            `\n\n${readings.body.length} readings`;
+        }
+
+        if (verified.status === 200) {
+          const v = verified.body;
+          const statistics = v.anchoredStatistics;
+          $("onChain").textContent =
+            `hash        ${v.anchoredHash}\n` +
+            `recomputed  ${v.recomputedHash}\n\n` +
+            (statistics ? `min ${statistics.minCelsius}   max ${statistics.maxCelsius}   avg ${statistics.averageCelsius}\n\n` : "") +
+            `readings match anchor     ${v.match ? "yes" : "NO — tampered"}\n` +
+            `statistics match anchor   ${v.statisticsMatch === null ? "not recorded" : v.statisticsMatch ? "yes" : "NO"}\n` +
+            `transaction               ${v.fabricTransactionId ?? "—"}`;
+        } else {
+          $("onChain").textContent = `Could not verify (${verified.status}).`;
+        }
+      }
+
+      const actions = [
+        ["Stakeholders", [
+          ["Look up farm", () => call("GET", "/stakeholders/farm-001")],
+          ["Suspend farm", () => call("POST", "/stakeholders/farm-001/suspend", { identity: "regulator" })],
+          ["Reactivate farm", () => call("POST", "/stakeholders/farm-001/reactivate", { identity: "regulator" })]
+        ]],
+        ["Batch", [
+          ["Create", () => call("POST", "/batches", {
+            body: { batchId: batchField.value, origin: "Green Pastures Dairy", location: "Bega NSW" }
+          })],
+          ["Process", () => call("POST", `/batches/${batch()}/events`, {
+            body: { eventType: "PROCESSING", location: "Bega Processing Plant" }
+          })],
+          ["Ship", () => call("POST", `/batches/${batch()}/events`, {
+            body: { eventType: "TRANSPORT", location: "Hume Highway" }
+          })],
+          ["Deliver", () => call("POST", `/batches/${batch()}/events`, {
+            body: { eventType: "DELIVERY", location: "Sydney Depot" }
+          })],
+          ["Recall", () => call("POST", `/batches/${batch()}/recall`, {
+            identity: "regulator", body: { reason: "Investigation opened" }
+          })],
+          ["Get", () => call("GET", `/batches/${batch()}`)],
+          ["History", () => call("GET", `/batches/${batch()}/history`)],
+          ["All in transit", () => call("GET", "/batches?status=IN_TRANSIT")]
+        ]],
+        ["Temperature", [
+          ["Show evidence", showEvidence],
+          ["Clear breach", () => call("POST", `/temperature/batches/${batch()}/resolve-breach`, {
+            identity: "regulator", body: { reason: "Cold store repaired and stock rechecked" }
+          })]
+        ]],
+        ["Consumer", [
+          ["Public lookup", () => call("GET", `/public/batches/${batch()}`, { identity: null })]
+        ]]
+      ];
+
+      $("actions").innerHTML = actions
+        .map(([name, items], group) =>
+          `<div class="group"><span class="name">${name}</span>` +
+          items
+            .map((item, index) => `<button data-group="${group}" data-index="${index}">${item[0]}</button>`)
+            .join("") +
+          `</div>`
+        )
+        .join("");
+
+      $("actions").addEventListener("click", (event) => {
+        const button = event.target.closest("button");
+        if (button) {
+          actions[Number(button.dataset.group)][1][Number(button.dataset.index)][1]();
+        }
+      });
+
+      // Remembered so a refresh mid-demo does not lose your place.
+      identityField.addEventListener("change", () =>
+        localStorage.setItem("identity", identityField.value)
+      );
+      batchField.addEventListener("change", () => localStorage.setItem("batch", batchField.value));
+      batchField.value = localStorage.getItem("batch") ?? "BATCH-001";
+
+      // Only for the refusal demonstrations, which never touch temperature evidence: the sample
+      // reading files name BATCH-001 and BATCH-002, so those two stay as presets.
+      $("newBatch").addEventListener("click", () => {
+        batchField.value = `BATCH-${Math.floor(1000 + Math.random() * 9000)}`;
+        localStorage.setItem("batch", batchField.value);
+      });
+
+      $("setup").addEventListener("click", setUpDemo);
+      $("clear").addEventListener("click", () => { $("log").innerHTML = ""; });
+
+      loadIdentities();
+    </script>
+  </body>
+</html>

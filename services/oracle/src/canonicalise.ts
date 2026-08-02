@@ -1,3 +1,14 @@
+/**
+ * Puts readings into the one exact form the fingerprint is computed over: trimmed text, ISO
+ * timestamps, temperatures to three decimals, in a fixed order.
+ *
+ * Two runs over the same readings have to produce byte-identical output, or the hash means
+ * nothing.
+ */
+// Sorted with the storage package's comparator, the same one the hash uses, so the order this
+// produces and the order the fingerprint is built from can never disagree.
+import { compareTemperatureReadings } from "@fresh-milk/storage";
+
 export interface RawTemperatureReading {
   readonly batchId: string;
   readonly sensorId: string;
@@ -22,13 +33,7 @@ export function canonicaliseReadings(
       recordedAt: normaliseTimestamp(reading.recordedAt),
       celsius: normaliseTemperature(reading.celsius)
     }))
-    .sort(compareCanonicalReadings);
-}
-
-export function serialiseCanonicalReadings(
-  readings: readonly CanonicalTemperatureReading[]
-): string {
-  return JSON.stringify(readings);
+    .sort(compareTemperatureReadings);
 }
 
 function normaliseRequiredText(value: string, fieldName: string): string {
@@ -59,14 +64,3 @@ function normaliseTemperature(value: number): number {
   return Number(value.toFixed(3));
 }
 
-function compareCanonicalReadings(
-  left: CanonicalTemperatureReading,
-  right: CanonicalTemperatureReading
-): number {
-  return (
-    left.batchId.localeCompare(right.batchId) ||
-    left.recordedAt.localeCompare(right.recordedAt) ||
-    left.sensorId.localeCompare(right.sensorId) ||
-    left.celsius - right.celsius
-  );
-}

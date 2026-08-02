@@ -29,6 +29,10 @@ fabric/**/*.tar.gz
 fabric/**/*.tgz
 fabric/**/wallet/
 
+# How far the ledger event listener has read. Local runtime state, and safe to delete: the
+# listener replays from the start of the chain and applying an event twice changes nothing.
+*.checkpoint
+
 # SQLite runtime files
 *.sqlite
 *.sqlite3

@@ -45,8 +45,8 @@ down what is stored on-chain, was already addressed in the Task 2 design.
                            ▼                ▼
         ┌──────────────────────────┐  ┌─────────────────────┐
         │   Blockchain (Fabric)    │  │  Database (Postgres) │
-        │  the shared record book  │  │  full readings and   │
-        │  + the smart contracts   │  │  documents           │
+        │  the shared record book  │  │  the full temperature│
+        │  + the smart contracts   │  │  readings            │
         └───────────▲──────────────┘  └──────────▲──────────┘
                     │                            │
                     │ summary + fingerprint      │ full readings
@@ -83,8 +83,8 @@ none of them can secretly change.
 **Smart contract 2: Batch lifecycle.** Runs the milk's journey.
 
 - A batch moves in order: created, then processed, then in transit, then delivered.
-- Each step can only be done by the right company: a farm or processor creates it, a processor
-  processes it, logistics transports it, a retailer takes delivery.
+- Each step can only be done by the right company: a farm creates it, a processor processes it,
+  logistics transports it, a retailer takes delivery.
 - Steps cannot be skipped or done out of order.
 - A batch that has been recalled, or flagged for a temperature problem, cannot be delivered.
 - Anyone authorised can pull up the full history of a batch.
@@ -111,8 +111,7 @@ on a truck.
 **The database (PostgreSQL).** Holds the bulky and sensitive data that does not belong on a
 shared ledger.
 
-- Stores the full temperature readings and supporting documents.
-- Access is controlled through the backend.
+- Stores the full temperature readings.
 - Only the short summary and the fingerprint live on the blockchain.
 
 **The backend (front desk).** Ties the three parts together.

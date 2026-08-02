@@ -1,111 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { TemperatureComplianceContract } from "../dist/contracts/TemperatureComplianceContract.js";
+import { MemoryStub, context } from "./fabricStub.mjs";
 
 const VALID_HASH_A = "a".repeat(64);
 const VALID_HASH_B = "b".repeat(64);
-
-class MemoryStub {
-  state = new Map();
-  events = [];
-  txNumber = 1;
-  currentCertificateId = "";
-
-  stakeholders = new Map([
-    ["cert-oracle", { stakeholderId: "oracle-001", role: "ORACLE", active: true }],
-    ["cert-regulator", { stakeholderId: "regulator-001", role: "REGULATOR", active: true }],
-    ["cert-retailer", { stakeholderId: "retailer-001", role: "RETAILER", active: true }],
-    ["cert-suspended-oracle", { stakeholderId: "oracle-002", role: "ORACLE", active: false }]
-  ]);
-
-  createCompositeKey(objectType, attributes) {
-    return `${objectType}\u0000${attributes.join("\u0000")}\u0000`;
-  }
-
-  async getState(key) {
-    return this.state.get(key) ?? Buffer.alloc(0);
-  }
-
-  async putState(key, value) {
-    this.state.set(key, Buffer.from(value));
-  }
-
-  getTxID() {
-    return `tx-${this.txNumber}`;
-  }
-
-  getTxTimestamp() {
-    return {
-      seconds: 1_750_000_000 + this.txNumber,
-      nanos: 123_000_000
-    };
-  }
-
-  setEvent(name, payload) {
-    this.events.push({ name, payload: Buffer.from(payload) });
-  }
-
-  async invokeChaincode(chaincodeName, args) {
-    if (chaincodeName !== "stakeholder") {
-      return { status: 500, message: "Unexpected chaincode", payload: Buffer.alloc(0) };
-    }
-    if (args[0] !== "StakeholderRegistryContract:assertActiveRole") {
-      return { status: 500, message: "Unexpected transaction", payload: Buffer.alloc(0) };
-    }
-    if (args[1] !== this.currentCertificateId) {
-      return { status: 500, message: "Certificate mismatch", payload: Buffer.alloc(0) };
-    }
-
-    const stakeholder = this.stakeholders.get(this.currentCertificateId);
-    if (!stakeholder) {
-      return {
-        status: 500,
-        message: "The invoking certificate is not registered to a stakeholder.",
-        payload: Buffer.alloc(0)
-      };
-    }
-    if (!stakeholder.active) {
-      return {
-        status: 500,
-        message: `Stakeholder '${stakeholder.stakeholderId}' is suspended.`,
-        payload: Buffer.alloc(0)
-      };
-    }
-
-    const allowedRoles = JSON.parse(args[2]);
-    if (!allowedRoles.includes(stakeholder.role)) {
-      return {
-        status: 500,
-        message:
-          `Stakeholder '${stakeholder.stakeholderId}' has role '${stakeholder.role}', ` +
-          `but this operation requires one of: ${allowedRoles.join(", ")}.`,
-        payload: Buffer.alloc(0)
-      };
-    }
-
-    return {
-      status: 200,
-      message: "OK",
-      payload: Buffer.from(JSON.stringify(stakeholder))
-    };
-  }
-}
-
-function context(stub, certificateId) {
-  stub.currentCertificateId = certificateId;
-  return {
-    stub,
-    clientIdentity: {
-      getID: () => certificateId,
-      getMSPID: () => "SupplyChainMSP"
-    }
-  };
-}
 
 function batchRecord(batchId, status = "IN_TRANSIT") {
   return {
     batchId,
     status,
+    origin: "Green Pastures Dairy",
+    lastKnownLocation: "Hume Highway",
     createdByStakeholderId: "farm-001",
     createdTxId: "tx-create",
     createdAt: "2026-07-27T00:00:00.000Z",
@@ -152,14 +58,6 @@ test("ORACLE can anchor boundary-safe evidence and the contract derives COMPLIAN
   );
   assert.equal(batch.status, "IN_TRANSIT");
   assert.equal(stub.events.at(-1).name, "TemperatureEvidenceSubmitted");
-  assert.equal(
-    await contract.verifyEvidenceReference(ctx, "EVIDENCE-001", VALID_HASH_A),
-    true
-  );
-  assert.equal(
-    await contract.verifyEvidenceReference(ctx, "EVIDENCE-001", VALID_HASH_B),
-    false
-  );
 });
 
 test("unsafe evidence flags the batch and emits ColdChainBreach", async () => {
@@ -198,7 +96,7 @@ test("submission rejects the wrong role, suspended oracle, duplicates and invali
   const contract = new TemperatureComplianceContract();
   const stub = new MemoryStub();
   await seedBatch(stub, "BATCH-003");
-  await seedBatch(stub, "BATCH-004", "PROCESSED");
+  await seedBatch(stub, "BATCH-004", "RECALLED");
 
   await assert.rejects(
     contract.submitTemperatureEvidence(
@@ -255,8 +153,66 @@ test("submission rejects the wrong role, suspended oracle, duplicates and invali
       "ref-004",
       statistics(1, 4, 2.5)
     ),
-    /must be IN_TRANSIT/
+    /has been recalled/
   );
+});
+
+// The cold chain runs from the farm's tank to the retailer's fridge, so a breach has to be
+// recordable wherever the milk actually is, not only while it is on a truck.
+test("evidence is accepted at every stage and a breach returns the batch to where it happened", async () => {
+  for (const status of ["CREATED", "PROCESSED", "IN_TRANSIT", "DELIVERED"]) {
+    const contract = new TemperatureComplianceContract();
+    const stub = new MemoryStub();
+    await seedBatch(stub, "BATCH-STAGE", status);
+
+    await contract.submitTemperatureEvidence(
+      context(stub, "cert-oracle"),
+      "EVIDENCE-STAGE",
+      "BATCH-STAGE",
+      VALID_HASH_A,
+      "ref-stage",
+      // Unsafe, so the batch goes on hold from whichever stage it was at.
+      statistics(1, 9, 5.5)
+    );
+
+    const key = stub.createCompositeKey("batch", ["BATCH-STAGE"]);
+    const breached = JSON.parse((await stub.getState(key)).toString());
+    assert.equal(breached.status, "COLD_CHAIN_BREACH", `breach not recorded from ${status}`);
+    assert.equal(breached.statusBeforeBreach, status);
+
+    await contract.resolveTemperatureBreach(
+      context(stub, "cert-regulator"),
+      "BATCH-STAGE",
+      "Inspection completed."
+    );
+
+    const resolved = JSON.parse((await stub.getState(key)).toString());
+    // Not IN_TRANSIT unless that is genuinely where it was, otherwise clearing a breach at the
+    // farm would push the batch forward past processing.
+    assert.equal(resolved.status, status, `resolve did not restore ${status}`);
+    assert.equal(resolved.statusBeforeBreach, undefined);
+  }
+});
+
+test("a second unsafe reading during an open hold keeps the original stage", async () => {
+  const contract = new TemperatureComplianceContract();
+  const stub = new MemoryStub();
+  await seedBatch(stub, "BATCH-007", "PROCESSED");
+  const oracleContext = context(stub, "cert-oracle");
+
+  const unsafe = statistics(1, 9, 5.5);
+  await contract.submitTemperatureEvidence(
+    oracleContext, "EVIDENCE-007A", "BATCH-007", VALID_HASH_A, "ref-007a", unsafe
+  );
+  await contract.submitTemperatureEvidence(
+    oracleContext, "EVIDENCE-007B", "BATCH-007", VALID_HASH_B, "ref-007b", unsafe
+  );
+
+  const batch = JSON.parse(
+    (await stub.getState(stub.createCompositeKey("batch", ["BATCH-007"]))).toString()
+  );
+  assert.equal(batch.status, "COLD_CHAIN_BREACH");
+  assert.equal(batch.statusBeforeBreach, "PROCESSED");
 });
 
 test("statistics and hash validation reject malformed evidence", async () => {

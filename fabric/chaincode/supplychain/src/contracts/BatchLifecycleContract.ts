@@ -1,24 +1,65 @@
-import fabricContractApi from "fabric-contract-api";
-import type { Context } from "fabric-contract-api";
-import {
-  BATCH_STATUSES,
-  type Batch,
-  type BatchHistoryEntry,
-  type BatchStatus
-} from "../models/Batch.js";
+/**
+ * The batch state machine: created, processed, in transit, delivered, plus a regulator recall.
+ *
+ * Every transition is checked against the batch's current status before anything is written, and
+ * each step carries its own role rule. Temperature and cold-chain breaches belong to
+ * TemperatureComplianceContract, not to this one.
+ */
+
+// Value import, not "import type": @Transaction identifies the ctx parameter by comparing its
+// emitted runtime type against Context, so an erased type import makes Fabric expect an extra
+// argument on every transaction.
+import { Context, Contract, Info, Returns, Transaction } from "fabric-contract-api";
+import { BATCH_STATUSES, type Batch, type BatchHistoryEntry, type BatchStatus } from "../models/Batch.js";
 import { batchKey } from "../utils/ledgerKeys.js";
 import {
+  getBatchRecord,
+  isBatchStatus,
+  parseBatch,
+  putBatch,
+  requireValue
+} from "../utils/batchStore.js";
+import {
   assertActiveRole,
+  getInvokingStakeholder,
   type StakeholderRole,
   type StakeholderSummary
 } from "../utils/stakeholderClient.js";
 import { getTransactionMetadata } from "../utils/txContext.js";
 
-const { Contract, Info, Returns, Transaction } = fabricContractApi;
-
 interface HistoryTimestamp {
-  readonly seconds: number | string | { toString(): string };
+  readonly seconds: { toString(): string };
   readonly nanos: number;
+}
+
+interface HistoryEntry {
+  readonly txId: string;
+  readonly timestamp: HistoryTimestamp;
+  readonly isDelete: boolean;
+  readonly value: Uint8Array;
+}
+
+// Both queries walk a Fabric iterator to exhaustion and must close it either way.
+async function drain<TEntry, TResult>(
+  iterator: { next(): Promise<{ done?: boolean; value?: TEntry }>; close(): Promise<void> },
+  take: (entry: TEntry) => TResult | undefined
+): Promise<TResult[]> {
+  const collected: TResult[] = [];
+  try {
+    for (;;) {
+      const result = await iterator.next();
+      if (result.done) {
+        break;
+      }
+      const mapped = result.value === undefined ? undefined : take(result.value);
+      if (mapped !== undefined) {
+        collected.push(mapped);
+      }
+    }
+  } finally {
+    await iterator.close();
+  }
+  return collected;
 }
 
 // One transaction per lifecycle step rather than a single generic advance, so each step
@@ -29,9 +70,19 @@ interface HistoryTimestamp {
 })
 export class BatchLifecycleContract extends Contract {
   @Transaction()
-  public async createBatch(ctx: Context, batchId: string): Promise<void> {
-    const stakeholder = await assertActiveRole(ctx, ["FARM", "PROCESSOR"]);
+  public async createBatch(
+    ctx: Context,
+    batchId: string,
+    origin: string,
+    location: string
+  ): Promise<void> {
+    // Only a farm. Milk enters the chain at its source, and `origin` is written once here and
+    // never changed, so letting a later party create the batch would let it state its own
+    // provenance. The processor's step is recordProcessingEvent.
+    const stakeholder = await assertActiveRole(ctx, ["FARM"]);
     const normalisedBatchId = requireValue(batchId, "Batch ID");
+    const normalisedOrigin = requireValue(origin, "Origin");
+    const normalisedLocation = requireValue(location, "Location");
     const key = batchKey(ctx, normalisedBatchId);
     if ((await ctx.stub.getState(key)).length > 0) {
       throw new Error(`Batch '${normalisedBatchId}' already exists.`);
@@ -41,6 +92,8 @@ export class BatchLifecycleContract extends Contract {
     const batch: Batch = {
       batchId: normalisedBatchId,
       status: "CREATED",
+      origin: normalisedOrigin,
+      lastKnownLocation: normalisedLocation,
       createdByStakeholderId: stakeholder.stakeholderId,
       createdTxId: metadata.txId,
       createdAt: metadata.timestamp,
@@ -54,15 +107,28 @@ export class BatchLifecycleContract extends Contract {
   }
 
   @Transaction()
-  public async recordProcessingEvent(ctx: Context, batchId: string): Promise<void> {
-    await this.transitionBatch(ctx, batchId, ["PROCESSOR"], "CREATED", "PROCESSED", "BatchProcessed");
-  }
-
-  @Transaction()
-  public async startTransport(ctx: Context, batchId: string): Promise<void> {
+  public async recordProcessingEvent(
+    ctx: Context,
+    batchId: string,
+    location: string
+  ): Promise<void> {
     await this.transitionBatch(
       ctx,
       batchId,
+      location,
+      ["PROCESSOR"],
+      "CREATED",
+      "PROCESSED",
+      "BatchProcessed"
+    );
+  }
+
+  @Transaction()
+  public async startTransport(ctx: Context, batchId: string, location: string): Promise<void> {
+    await this.transitionBatch(
+      ctx,
+      batchId,
+      location,
       ["LOGISTICS"],
       "PROCESSED",
       "IN_TRANSIT",
@@ -71,10 +137,11 @@ export class BatchLifecycleContract extends Contract {
   }
 
   @Transaction()
-  public async recordDelivery(ctx: Context, batchId: string): Promise<void> {
+  public async recordDelivery(ctx: Context, batchId: string, location: string): Promise<void> {
     await this.transitionBatch(
       ctx,
       batchId,
+      location,
       ["RETAILER"],
       "IN_TRANSIT",
       "DELIVERED",
@@ -115,40 +182,31 @@ export class BatchLifecycleContract extends Contract {
   @Transaction(false)
   @Returns("string")
   public async getBatch(ctx: Context, batchId: string): Promise<string> {
+    await getInvokingStakeholder(ctx);
     return JSON.stringify(await getBatchRecord(ctx, requireValue(batchId, "Batch ID")));
   }
 
   @Transaction(false)
   @Returns("string")
   public async getBatchHistory(ctx: Context, batchId: string): Promise<string> {
+    await getInvokingStakeholder(ctx);
     const normalisedBatchId = requireValue(batchId, "Batch ID");
     await getBatchRecord(ctx, normalisedBatchId);
 
-    const iterator = await ctx.stub.getHistoryForKey(batchKey(ctx, normalisedBatchId));
-    const history: BatchHistoryEntry[] = [];
-    try {
-      while (true) {
-        const result = await iterator.next();
-        if (result.done) {
-          break;
-        }
-        if (!result.value) {
-          continue;
-        }
-
-        const isDelete = result.value.isDelete;
-        const batch = isDelete ? null : parseBatch(result.value.value, normalisedBatchId);
-        history.push({
-          txId: result.value.txId,
-          timestamp: fabricTimestampToIso(result.value.timestamp as HistoryTimestamp),
+    const history = await drain<HistoryEntry, BatchHistoryEntry>(
+      await ctx.stub.getHistoryForKey(batchKey(ctx, normalisedBatchId)),
+      (entry) => {
+        const isDelete = entry.isDelete;
+        const batch = isDelete ? null : parseBatch(entry.value, normalisedBatchId);
+        return {
+          txId: entry.txId,
+          timestamp: fabricTimestampToIso(entry.timestamp),
           isDelete,
           submittedByStakeholderId: batch?.lastUpdatedByStakeholderId ?? null,
           batch
-        });
+        };
       }
-    } finally {
-      await iterator.close();
-    }
+    );
 
     return JSON.stringify(history);
   }
@@ -156,6 +214,7 @@ export class BatchLifecycleContract extends Contract {
   @Transaction(false)
   @Returns("string")
   public async queryBatchesByStatus(ctx: Context, status: string): Promise<string> {
+    await getInvokingStakeholder(ctx);
     const normalisedStatus = requireValue(status, "Batch status").toUpperCase();
     if (!isBatchStatus(normalisedStatus)) {
       throw new Error(
@@ -163,27 +222,10 @@ export class BatchLifecycleContract extends Contract {
       );
     }
 
-    const iterator = await ctx.stub.getQueryResult(
-      JSON.stringify({
-        selector: {
-          status: normalisedStatus
-        }
-      })
+    const batches = await drain(
+      await ctx.stub.getQueryResult(JSON.stringify({ selector: { status: normalisedStatus } })),
+      (entry) => (entry.value ? parseBatch(entry.value) : undefined)
     );
-    const batches: Batch[] = [];
-    try {
-      while (true) {
-        const result = await iterator.next();
-        if (result.done) {
-          break;
-        }
-        if (result.value?.value) {
-          batches.push(parseBatch(result.value.value));
-        }
-      }
-    } finally {
-      await iterator.close();
-    }
 
     batches.sort((left, right) => left.batchId.localeCompare(right.batchId));
     return JSON.stringify(batches);
@@ -192,6 +234,7 @@ export class BatchLifecycleContract extends Contract {
   private async transitionBatch(
     ctx: Context,
     batchId: string,
+    location: string,
     allowedRoles: readonly StakeholderRole[],
     expectedStatus: BatchStatus,
     nextStatus: BatchStatus,
@@ -199,6 +242,7 @@ export class BatchLifecycleContract extends Contract {
   ): Promise<void> {
     const stakeholder = await assertActiveRole(ctx, allowedRoles);
     const normalisedBatchId = requireValue(batchId, "Batch ID");
+    const normalisedLocation = requireValue(location, "Location");
     const batch = await getBatchRecord(ctx, normalisedBatchId);
     if (batch.status !== expectedStatus) {
       throw new Error(
@@ -211,6 +255,7 @@ export class BatchLifecycleContract extends Contract {
     const updatedBatch: Batch = {
       ...batch,
       status: nextStatus,
+      lastKnownLocation: normalisedLocation,
       lastUpdatedByStakeholderId: stakeholder.stakeholderId,
       lastUpdatedTxId: metadata.txId,
       lastUpdatedAt: metadata.timestamp
@@ -221,71 +266,6 @@ export class BatchLifecycleContract extends Contract {
       previousStatus: batch.status
     });
   }
-}
-
-function requireValue(value: string, fieldName: string): string {
-  const normalised = value.trim();
-  if (!normalised) {
-    throw new Error(`${fieldName} must not be empty.`);
-  }
-  return normalised;
-}
-
-function isBatchStatus(value: string): value is BatchStatus {
-  return BATCH_STATUSES.includes(value as BatchStatus);
-}
-
-async function getBatchRecord(ctx: Context, batchId: string): Promise<Batch> {
-  const value = await ctx.stub.getState(batchKey(ctx, batchId));
-  if (value.length === 0) {
-    throw new Error(`Batch '${batchId}' does not exist.`);
-  }
-  return parseBatch(value, batchId);
-}
-
-function parseBatch(value: Uint8Array, expectedBatchId?: string): Batch {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(Buffer.from(value).toString());
-  } catch {
-    throw new Error(
-      expectedBatchId
-        ? `Batch '${expectedBatchId}' contains invalid ledger data.`
-        : "A batch query returned invalid ledger data."
-    );
-  }
-
-  if (!isBatch(parsed) || (expectedBatchId && parsed.batchId !== expectedBatchId)) {
-    throw new Error(
-      expectedBatchId
-        ? `Batch '${expectedBatchId}' contains invalid ledger data.`
-        : "A batch query returned invalid ledger data."
-    );
-  }
-  return parsed;
-}
-
-function isBatch(value: unknown): value is Batch {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const candidate = value as Partial<Batch>;
-  return (
-    typeof candidate.batchId === "string" &&
-    candidate.batchId.length > 0 &&
-    typeof candidate.status === "string" &&
-    isBatchStatus(candidate.status) &&
-    typeof candidate.createdByStakeholderId === "string" &&
-    typeof candidate.createdTxId === "string" &&
-    typeof candidate.createdAt === "string" &&
-    typeof candidate.lastUpdatedByStakeholderId === "string" &&
-    typeof candidate.lastUpdatedTxId === "string" &&
-    typeof candidate.lastUpdatedAt === "string"
-  );
-}
-
-async function putBatch(ctx: Context, batch: Batch): Promise<void> {
-  await ctx.stub.putState(batchKey(ctx, batch.batchId), Buffer.from(JSON.stringify(batch)));
 }
 
 function emitLifecycleEvent(

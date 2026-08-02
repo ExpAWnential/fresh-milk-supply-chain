@@ -1,3 +1,10 @@
+/**
+ * The fingerprint the whole tamper-evidence story rests on: readings reduced to one exact
+ * canonical form, then SHA-256 over it.
+ *
+ * The oracle, the verification endpoint and the tamper demo all hash through here, so none of them
+ * can disagree about what the fingerprint covers.
+ */
 import { createHash } from "node:crypto";
 
 export interface HashableTemperatureReading {
@@ -6,11 +13,25 @@ export interface HashableTemperatureReading {
   readonly celsius: number;
 }
 
-interface CanonicalTemperatureReading {
+export interface CanonicalTemperatureReading {
   readonly batchId: string;
   readonly sensorId: string;
   readonly recordedAt: string;
   readonly celsius: number;
+}
+
+// The order readings are put in before hashing. Exported because the oracle sorts too, and two
+// copies of this rule could drift into producing different fingerprints for the same readings.
+export function compareTemperatureReadings(
+  left: CanonicalTemperatureReading,
+  right: CanonicalTemperatureReading
+): number {
+  return (
+    left.batchId.localeCompare(right.batchId) ||
+    left.recordedAt.localeCompare(right.recordedAt) ||
+    left.sensorId.localeCompare(right.sensorId) ||
+    left.celsius - right.celsius
+  );
 }
 
 function requireText(value: string, label: string): string {
@@ -53,13 +74,7 @@ export function canonicaliseTemperatureReadings(
 
   const canonicalReadings = readings
     .map((reading) => normaliseReading(normalisedBatchId, reading))
-    .sort(
-      (left, right) =>
-        left.batchId.localeCompare(right.batchId) ||
-        left.recordedAt.localeCompare(right.recordedAt) ||
-        left.sensorId.localeCompare(right.sensorId) ||
-        left.celsius - right.celsius
-    );
+    .sort(compareTemperatureReadings);
 
   return JSON.stringify(canonicalReadings);
 }
