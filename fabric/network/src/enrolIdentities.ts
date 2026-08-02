@@ -5,7 +5,12 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { reportFailure, runCommand } from "./commands.js";
-import { buildDirectory, testNetworkPath, assertTestNetworkAvailable } from "./config.js";
+import {
+  buildDirectory,
+  fabricSamplesPath,
+  networkPath,
+  assertNetworkAvailable
+} from "./config.js";
 
 // The registry models six roles but the test network is generated with two users per organisation,
 // so two roles would otherwise share a certificate with another. cryptogen can extend a network
@@ -15,8 +20,8 @@ const USERS_PER_ORGANISATION = 2;
 
 const organisations = ["org1", "org2"] as const;
 
-const organizationsPath = join(testNetworkPath, "organizations");
-const cryptogen = join(testNetworkPath, "..", "bin", "cryptogen");
+const organizationsPath = join(networkPath, "organizations");
+const cryptogen = join(fabricSamplesPath, "bin", "cryptogen");
 
 // Rewritten from the network's own template rather than kept as a copy here, so this cannot drift
 // away from the configuration the rest of the network was generated from.
@@ -35,7 +40,7 @@ async function usersOf(organisation: string): Promise<string[]> {
 }
 
 async function main(): Promise<void> {
-  assertTestNetworkAvailable();
+  assertNetworkAvailable();
   await mkdir(buildDirectory, { recursive: true });
 
   for (const organisation of organisations) {
@@ -52,7 +57,7 @@ async function main(): Promise<void> {
 
     const before = await usersOf(organisation);
     await runCommand(cryptogen, ["extend", `--input=${organizationsPath}`, `--config=${staged}`], {
-      cwd: testNetworkPath
+      cwd: networkPath
     });
 
     const after = await usersOf(organisation);

@@ -1,0 +1,7 @@
+# Everything listed here is produced by a network run. The templates that generate it are committed.
+organizations/peerOrganizations/
+organizations/ordererOrganizations/
+channel-artifacts/
+system-genesis-block/
+*.tar.gz
+log.txt

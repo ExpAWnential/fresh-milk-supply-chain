@@ -1,6 +1,6 @@
 /**
- * Where Fabric's test network lives and what this project deploys onto it. One place for the
- * paths, channel and chaincode list that all four network scripts share.
+ * Where the network lives and what this project deploys onto it. One place for the paths, channel
+ * and chaincode list that all the network scripts share.
  */
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -24,10 +24,15 @@ const fabricDirectory = resolve(networkPackageDirectory, "..");
 // container. Staging a clean copy keeps the two package managers out of each other's way.
 export const buildDirectory = join(networkPackageDirectory, "build");
 
-// The PoC builds on Fabric's test-network instead of a hand-rolled topology. It already provides
-// the two organisations the design calls for, with Org1 acting as the regulator.
-export const testNetworkPath =
-  process.env.FABRIC_TEST_NETWORK_PATH ?? join(homedir(), "fabric-samples", "test-network");
+// The network is kept in the repository rather than used from fabric-samples, so its topology is
+// version controlled and every teammate brings up the same one.
+export const networkPath =
+  process.env.FABRIC_NETWORK_PATH ?? join(fabricDirectory, "milk-network");
+
+// Only the binaries and Fabric's default core.yaml still come from the sample distribution. The
+// network scripts read this through FABRIC_SAMPLES_HOME, which they inherit from this process.
+export const fabricSamplesPath =
+  process.env.FABRIC_SAMPLES_HOME ?? join(homedir(), "fabric-samples");
 
 export const channelName = process.env.FABRIC_CHANNEL_NAME ?? "milkchannel";
 
@@ -49,13 +54,20 @@ export const chaincodes: readonly ChaincodeDefinition[] = [
   }
 ];
 
-export function assertTestNetworkAvailable(): void {
-  if (existsSync(join(testNetworkPath, "network.sh"))) {
-    return;
+export function assertNetworkAvailable(): void {
+  if (!existsSync(join(networkPath, "network.sh"))) {
+    throw new Error(
+      `Could not find the network at ${networkPath}. It is part of this repository, so this ` +
+        `usually means the working tree is incomplete.`
+    );
   }
 
-  throw new Error(
-    `Could not find Fabric's test-network at ${testNetworkPath}. Install it using the command ` +
-      `in docs/setup.md, or set FABRIC_TEST_NETWORK_PATH to where it lives.`
-  );
+  // Checked here rather than letting the peer CLI fail forty seconds into a deploy with an error
+  // that names neither the missing file nor the directory it was looked for in.
+  if (!existsSync(join(fabricSamplesPath, "bin", "peer"))) {
+    throw new Error(
+      `Could not find Fabric's binaries at ${fabricSamplesPath}. Install them using the command ` +
+        `in docs/setup.md, or set FABRIC_SAMPLES_HOME to where fabric-samples lives.`
+    );
+  }
 }

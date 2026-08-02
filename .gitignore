@@ -18,9 +18,13 @@ coverage/
 *.p12
 *.pfx
 
-# Hyperledger Fabric generated artifacts
+# Hyperledger Fabric generated artifacts.
+# Only the generated certificate trees are ignored, not the whole organizations directory: the
+# cryptogen templates that produce them are committed and live alongside. Git cannot re-include a
+# file whose parent directory is excluded, so excluding the parent would silently lose them.
 fabric/**/crypto-config/
-fabric/**/organizations/
+fabric/**/organizations/peerOrganizations/
+fabric/**/organizations/ordererOrganizations/
 fabric/**/channel-artifacts/
 fabric/**/system-genesis-block/
 fabric/**/*.block

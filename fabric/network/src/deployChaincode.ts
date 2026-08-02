@@ -6,11 +6,11 @@ import { cp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { reportFailure, runCommand } from "./commands.js";
 import {
-  assertTestNetworkAvailable,
+  assertNetworkAvailable,
   buildDirectory,
   chaincodes,
   channelName,
-  testNetworkPath,
+  networkPath,
   type ChaincodeDefinition
 } from "./config.js";
 
@@ -51,7 +51,7 @@ try {
     );
   }
 
-  assertTestNetworkAvailable();
+  assertNetworkAvailable();
 
   for (const chaincode of selected) {
     await runCommand("pnpm", ["--filter", chaincode.packageName, "build"], {
@@ -79,7 +79,7 @@ try {
         "-ccs",
         sequence
       ],
-      { cwd: testNetworkPath }
+      { cwd: networkPath }
     );
   }
 
