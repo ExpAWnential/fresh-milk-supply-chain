@@ -314,7 +314,7 @@ chaincodeInvoke() {
     # written into a block as invalid, and without waiting for the commit event the CLI reports the
     # broadcast's status 200 for a transaction that was thrown away.
     peer chaincode invoke -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com \
-      -C $CHANNEL_NAME -n ${CC_NAME} -c ${CC_INVOKE_CONSTRUCTOR} --waitForEvent \
+      -C $CHANNEL_NAME -n ${CC_NAME} -c "${CC_INVOKE_CONSTRUCTOR}" --waitForEvent \
       --tls --cafile "$ORDERER_CA" "${PEER_CONN_PARMS[@]}" >&log.txt
     res=$?
     { set +x; } 2>/dev/null
@@ -344,7 +344,7 @@ chaincodeQuery() {
     sleep $DELAY
     infoln "Attempting to Query peer0.${ORG}, Retry after $DELAY seconds."
     set -x
-    peer chaincode query -C $CHANNEL_NAME -n ${CC_NAME} -c ${CC_QUERY_CONSTRUCTOR} >&log.txt
+    peer chaincode query -C $CHANNEL_NAME -n ${CC_NAME} -c "${CC_QUERY_CONSTRUCTOR}" >&log.txt
     res=$?
     { set +x; } 2>/dev/null
     let rc=$res

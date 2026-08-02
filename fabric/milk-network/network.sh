@@ -339,7 +339,7 @@ function invokeChaincode() {
 
   setGlobals $ORG
 
-  chaincodeInvoke $ORG $CHANNEL_NAME $CC_NAME $CC_INVOKE_CONSTRUCTOR
+  chaincodeInvoke $ORG $CHANNEL_NAME $CC_NAME "$CC_INVOKE_CONSTRUCTOR" "$CC_ENDORSING_ORGS"
 
 }
 
@@ -353,7 +353,7 @@ function queryChaincode() {
 
   setGlobals $ORG
 
-  chaincodeQuery $ORG $CHANNEL_NAME $CC_NAME $CC_QUERY_CONSTRUCTOR
+  chaincodeQuery $ORG $CHANNEL_NAME $CC_NAME "$CC_QUERY_CONSTRUCTOR"
 
 }
 
@@ -522,6 +522,12 @@ while [[ $# -ge 1 ]] ; do
     ;;
   -ccic )
     CC_INVOKE_CONSTRUCTOR="$2"
+    shift
+    ;;
+  # Which organisations to collect endorsements from. Defaults to all of them; naming a subset is
+  # how an endorsement policy is proved to reject an incomplete set.
+  -ccorgs )
+    CC_ENDORSING_ORGS="$2"
     shift
     ;;
   -ccqc )
