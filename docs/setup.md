@@ -25,17 +25,16 @@ curl -sSL https://raw.githubusercontent.com/hyperledger/fabric/main/scripts/inst
 
 ## 3. Start the blockchain
 
-We build on Fabric's `test-network`. `-s couchdb` gives the searchable database the
-project relies on for traceability queries.
+The network is part of this repository, under `fabric/milk-network`. One command brings up all
+six organisations and creates the channel. Every peer runs CouchDB, which the traceability
+queries need.
 
 ```bash
-cd ~/fabric-samples/test-network
-./network.sh up -s couchdb
-./network.sh createChannel -c milkchannel
+pnpm fabric:start
 ```
 
-Check it is running with `docker ps`. You should see `orderer`, two `peer0` and two
-`couchdb` containers.
+Check it with `docker ps`. You should see thirteen containers: one orderer, and a `peer0` and a
+`couchdb` for each of the six companies.
 
 ## 4. Start the off-chain database
 
@@ -79,21 +78,18 @@ It prints the anchored hash and the recomputed values before and after the chang
 ## Stopping
 
 ```bash
-cd ~/fabric-samples/test-network && ./network.sh down   # blockchain (wipes ledger data)
+pnpm fabric:stop                                         # blockchain (wipes ledger data)
 pnpm db:stop                                             # database
 ```
 
-## Enrolling an identity for every role
+## Organisations
 
-```bash
-pnpm fabric:enrol-identities
-```
+Each of the six companies is its own organisation, with its own certificate authority, peer and
+database, defined under `fabric/milk-network`. Bringing the network up generates a certificate for
+each, so there is no separate enrolment step.
 
-The test network is generated with two users per organisation, four in all, and the registry has
-six roles. This issues the two missing certificates from the organisation CA already on disk, so
-each role signs as itself instead of two of them borrowing another's identity. Certificates
-already in use are left alone and the peers accept the new ones without a restart, so it is safe
-to run at any time and does nothing on a second run.
+Only Fabric's binaries and its default `core.yaml` come from `~/fabric-samples`. Set
+`FABRIC_SAMPLES_HOME` if yours is installed somewhere else.
 
 ## Deploying the project chaincode
 

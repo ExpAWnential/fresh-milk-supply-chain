@@ -15,14 +15,19 @@ altered unnoticed, and a shopper can look up a carton without holding any blockc
 - **An oracle.** Reads sensor data, stores the readings off-chain and anchors a fingerprint of
   them on the ledger.
 - **PostgreSQL.** Holds the bulky readings. Only the fingerprint and a summary go on-chain.
-- **Network automation.** Scripts to start the network, issue identities and deploy the chaincode.
+- **The network itself.** Six organisations, one per company, defined in this repository rather
+  than borrowed from Fabric's samples, with scripts to bring them up and deploy the chaincode.
 
 There is no graphical interface. The brief allows REST endpoints and a scripted demo instead.
 
 ## Getting started
 
-You need Docker running, Node 22, pnpm, and Hyperledger Fabric's binaries and test network in
-`~/fabric-samples`. `docs/setup.md` covers installing those and the tampering demo in full.
+You need Docker running with at least 8 GB of memory, Node 22, pnpm, and Hyperledger Fabric's
+binaries in `~/fabric-samples`. The network itself is in this repository; only the binaries come
+from there. `docs/setup.md` covers installing them and the tampering demo in full.
+
+The first deploy builds each chaincode once per organisation, so expect it to take several
+minutes.
 
 Run these in order, from the repository root.
 
@@ -30,8 +35,7 @@ Run these in order, from the repository root.
 pnpm install                      # dependencies
 pnpm build                        # compile every package
 
-pnpm fabric:start                 # bring up the Fabric network
-pnpm fabric:enrol-identities      # issue a certificate for each of the six roles
+pnpm fabric:start                 # bring up the six-organisation Fabric network
 pnpm fabric:deploy-chaincode      # install and commit both chaincodes
 
 pnpm db:start                     # off-chain PostgreSQL
@@ -51,15 +55,31 @@ curl -X POST http://localhost:3000/stakeholders/bootstrap \
 From there the regulator registers the other companies, and `pnpm oracle:dev` reads a readings
 file and anchors it. `pnpm fabric:stop` and `pnpm db:stop` shut everything down.
 
-## Identities
+## Organisations and identities
 
-Each of the six roles signs with its own certificate, so every step of a batch's journey is
-authorised by a different company and the registry's role checks are doing real work.
+Each of the six companies is its own Fabric organisation, with its own certificate authority, peer
+and database. No company's authority can issue an identity for another, and the regulator does not
+share one with the farm and oracle it regulates.
+
+| Company | Organisation | Peer |
+| --- | --- | --- |
+| regulator | `RegulatorMSP` | localhost:7051 |
+| farm | `FarmMSP` | localhost:8051 |
+| processor | `ProcessorMSP` | localhost:9051 |
+| logistics | `LogisticsMSP` | localhost:10051 |
+| retailer | `RetailerMSP` | localhost:11051 |
+| oracle | `OracleMSP` | localhost:12051 |
+
+Every transaction needs a majority of those six to run the contract independently and agree, and
+temperature evidence additionally requires the regulator's own peer to be one of them. Four
+organisations satisfy the majority on their own, so without that second rule the other five could
+record a cold-chain verdict the regulator never saw.
 
 Requests say who they are with an `x-demo-identity` header, one of `regulator`, `farm`,
 `processor`, `logistics`, `retailer` or `oracle`. That is a demo convenience: the header only
 chooses which certificate signs, and the contracts make every decision from the certificate Fabric
-verified, never from anything the request claims about itself.
+verified, never from anything the request claims about itself. In a real deployment each company
+would run its own backend holding only its own certificate, and the header would not exist.
 
 ## Other commands
 
@@ -105,7 +125,7 @@ has not.
   origin recorded at creation is never changed afterwards.
 - Batch lifecycle transitions must be validated on-chain.
 - Invalid or out-of-order events must be rejected.
-- Only `ORACLE` may submit temperature evidence.
+- Only `ORACLE` may submit temperature evidence, and the regulator's own peer must endorse it.
 - Raw temperature readings must remain off-chain in PostgreSQL.
 - The oracle must canonicalise readings, calculate statistics and compute a SHA-256 hash.
 - Only the hash, off-chain reference, statistics and compliance outcome are stored on-chain.

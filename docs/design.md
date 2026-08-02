@@ -67,8 +67,10 @@ go onto the blockchain where the smart contracts check them.
 **The blockchain (Hyperledger Fabric).** A shared record book the companies keep together and
 none of them can secretly change.
 
-- Runs with two organisations: a regulator side, and a supply-chain side holding the farm,
-  processor, logistics, retailer and sensor.
+- Runs with six organisations, one per company, so no company's certificate authority can issue
+  an identity for another and the regulator does not share one with those it regulates.
+- A majority of the six must run a transaction and agree before it is written, and cold-chain
+  evidence additionally requires the regulator's own peer to be among them.
 - Every entry is signed by the company that made it, so who did what and when is always clear.
 
 **Smart contract 1: Stakeholder.** Controls who is in the system and what they can do.

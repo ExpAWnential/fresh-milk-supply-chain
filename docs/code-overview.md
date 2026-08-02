@@ -72,8 +72,8 @@ Three details worth understanding:
 
 **The chicken-and-egg problem** (`bootstrapRegulator`, line 100). Registering anyone requires an
 existing regulator, but a fresh ledger has none. So there is a one-shot function that creates the
-very first regulator. It is guarded two ways: you must belong to the regulator organisation
-(`Org1MSP`), and a flag on the ledger means it can only ever run once.
+very first regulator. It is guarded two ways: you must belong to the regulator's own organisation
+(`RegulatorMSP`), and a flag on the ledger means it can only ever run once.
 
 **The lockout guard** (lines 409-437). The registry keeps a counter of active regulators. If you
 try to suspend or demote the last one, it refuses. Otherwise the system would brick itself with
