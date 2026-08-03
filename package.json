@@ -20,6 +20,8 @@
     "db:reset": "pnpm --filter @fresh-milk/storage db:reset",
     "backend:dev": "pnpm --filter @fresh-milk/backend dev",
     "oracle:dev": "pnpm --filter @fresh-milk/oracle dev",
+    "sensor:keygen": "pnpm --filter @fresh-milk/sensor keygen",
+    "sensor:sign": "pnpm --filter @fresh-milk/sensor sign",
     "demo:tamper": "pnpm --filter @fresh-milk/storage demo:tamper"
   },
   "engines": {

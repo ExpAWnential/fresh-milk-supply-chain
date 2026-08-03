@@ -1,14 +1,13 @@
 {
-  "name": "@fresh-milk/oracle",
+  "name": "@fresh-milk/sensor",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
-    "dev": "tsx src/index.ts",
-    "test": "node --import tsx --test \"test/**/*.test.ts\""
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "keygen": "tsx src/signReadings.ts keygen",
+    "sign": "tsx src/signReadings.ts sign"
   },
   "dependencies": {
     "@fresh-milk/storage": "workspace:*"

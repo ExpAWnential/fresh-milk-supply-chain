@@ -5,16 +5,8 @@
  * instead of filling defaults that would make a broken or altered run look valid.
  */
 import { readFile } from "node:fs/promises";
+import { SIGNED_READING_COLUMNS } from "@fresh-milk/storage";
 import { RawTemperatureReading } from "./canonicalise.js";
-
-export const REQUIRED_HEADERS = [
-  "batchId",
-  "sensorId",
-  "sequence",
-  "recordedAt",
-  "celsius",
-  "signature"
-] as const;
 
 /** Reads a signed sensor CSV file and rejects it if any required row data is incomplete. */
 export async function readTemperatureReadingsCsv(
@@ -76,7 +68,7 @@ export function parseTemperatureReadingsCsv(csv: string): readonly RawTemperatur
 }
 
 function assertRequiredHeaders(headers: readonly string[]): void {
-  for (const requiredHeader of REQUIRED_HEADERS) {
+  for (const requiredHeader of SIGNED_READING_COLUMNS) {
     if (!headers.includes(requiredHeader)) {
       throw new Error(`CSV is missing required header: ${requiredHeader}`);
     }

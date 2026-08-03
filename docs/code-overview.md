@@ -53,14 +53,16 @@ could bypass them, they are in the ledger itself.
 2. **Backend** (`services/backend/`) an Express API. It is a translator: HTTP in, blockchain
    transactions out. One codebase, run six times with a different `ORGANISATION`, so each company's
    process holds only its own private key.
-3. **Oracle** (`services/oracle/`) stands in for the temperature logger on a truck. Reads a CSV of
+3. **Oracle** (`services/oracle/`) carries readings from outside the network onto it. Reads a CSV of
    readings, each one already signed by the sensor, and refuses the whole file if any signature
-   fails or a reading has been removed. `src/signReadings.ts` plays the sensor: it holds the
-   private key and signs the sample data, which is why the oracle can relay readings it cannot
-   forge.
-4. **Storage** (`services/storage/`) PostgreSQL. Two databases: the oracle's holds the thousands
+   fails or a reading has been removed.
+4. **Sensor** (`services/sensor/`) stands in for the temperature logger on the truck. It holds the
+   private key and signs the sample data. It is a separate package so the oracle cannot reach that
+   key: the oracle receives a file it did not produce and has no signing code, which is why it can
+   relay readings it cannot forge. Only the regulator registers the matching public key on Fabric.
+5. **Storage** (`services/storage/`) PostgreSQL. Two databases: the oracle's holds the thousands
    of raw readings, the regulator's holds the archive of verdicts built from the chain's events.
-5. **Network scripts** (`fabric/network/`) start Docker, issue certificates, deploy the chaincode.
+6. **Network scripts** (`fabric/network/`) start Docker, issue certificates, deploy the chaincode.
 
 It is a pnpm monorepo, all TypeScript, so each folder is its own package that the others can
 import.

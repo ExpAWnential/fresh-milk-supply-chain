@@ -1,22 +1,22 @@
 /**
- * Acts as a sensor-side process by generating Ed25519 keys and signing CSV readings.
+ * Stands in for a cold-chain temperature logger: generates its Ed25519 keys and signs CSV readings.
  *
- * Only the public key is registered on Fabric. The private key remains with this sensor-side tool,
- * which lets the oracle verify a reading without being able to forge a changed measurement.
+ * It is a separate package because the private key must never be reachable by the oracle. The oracle
+ * receives a signed file it did not produce, and has no code that could sign a changed measurement.
+ * Only the public key leaves here, and only the regulator can register it on Fabric.
  */
 import { generateKeyPairSync } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { signReading, type SignableReading } from "@fresh-milk/storage";
-import { REQUIRED_HEADERS } from "./csvReader.js";
+import { SIGNED_READING_COLUMNS, signReading, type SignableReading } from "@fresh-milk/storage";
 
-// Both src and dist sit one level below the oracle package root.
+// Both src and dist sit one level below the sensor package root.
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const keyDirectory = join(packageRoot, "data", "demo-sensor");
+const keyDirectory = join(packageRoot, "data");
 
-// Reuse the reader's schema so signed output remains valid input.
-const SIGNED_HEADER = REQUIRED_HEADERS.join(",");
+// The shared column list, so signed output stays valid input to the oracle's reader.
+const SIGNED_HEADER = SIGNED_READING_COLUMNS.join(",");
 
 // These IDs must match the sensor keys registered through the browser client.
 const DEMO_SENSORS = ["SENSOR-001", "SENSOR-002"];

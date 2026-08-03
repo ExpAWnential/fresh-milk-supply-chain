@@ -4,4 +4,5 @@ packages:
   - "fabric/chaincode/supplychain"
   - "services/backend"
   - "services/oracle"
+  - "services/sensor"
   - "services/storage"
