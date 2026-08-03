@@ -18,6 +18,11 @@ coverage/
 *.p12
 *.pfx
 
+# The one exception. This is a self-signed organisation generated for the tests, so that reading a
+# certificate and key off disk can be exercised on a clean checkout rather than only after the
+# network has been brought up. It grants nothing: no peer, channel or registry has ever heard of it.
+!services/backend/test/fixtures/wallet/**
+
 # Hyperledger Fabric generated artifacts.
 # Only the generated certificate trees are ignored, not the whole organizations directory: the
 # cryptogen templates that produce them are committed and live alongside. Git cannot re-include a
