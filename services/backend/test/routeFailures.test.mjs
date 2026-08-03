@@ -14,6 +14,13 @@ test("every endpoint passes the contract's refusal back to the caller", async ()
       ["POST", "/stakeholders/f1/suspend"],
       ["POST", "/stakeholders/f1/reactivate"],
       ["GET", "/stakeholders/f1"],
+      [
+        "POST",
+        "/sensors",
+        { sensorId: "SENSOR-001", publicKey: "MCowBQYDK2Vw", algorithm: "ed25519" }
+      ],
+      ["POST", "/sensors/SENSOR-001/revoke"],
+      ["GET", "/sensors/SENSOR-001"],
       ["POST", "/batches", { batchId: "b1", origin: "o", location: "l" }],
       ["POST", "/batches/b1/events", { eventType: "DELIVERY", location: "l" }],
       ["POST", "/batches/b1/recall", { reason: "why" }],
@@ -93,6 +100,14 @@ test("missing required fields are refused before the ledger is reached", async (
     const requests = [
       ["POST", "/stakeholders/bootstrap", {}, /stakeholderId/],
       ["PATCH", "/stakeholders/f1/role", {}, /role/],
+      ["POST", "/sensors", {}, /sensorId/],
+      ["POST", "/sensors", { sensorId: "SENSOR-001" }, /publicKey/],
+      [
+        "POST",
+        "/sensors",
+        { sensorId: "SENSOR-001", publicKey: "MCowBQYDK2Vw" },
+        /algorithm/
+      ],
       ["POST", "/batches", {}, /batchId/],
       ["POST", "/batches/b1/events", {}, /eventType/],
       ["POST", "/batches/b1/recall", {}, /reason/],

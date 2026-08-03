@@ -26,14 +26,19 @@ const evidenceSubmitted = (overrides = {}) =>
 
 function recordingRepository(recordVerdict) {
   const verdicts = [];
+  const signatureChecks = [];
   return {
     verdicts,
+    signatureChecks,
     repository: {
       async recordVerdict(verdict) {
         verdicts.push(verdict);
         if (recordVerdict) {
           recordVerdict(verdict);
         }
+      },
+      async recordSignatureCheck(evidenceId, outcome) {
+        signatureChecks.push({ evidenceId, outcome });
       },
       async listVerdictsForBatch() {
         return [];
@@ -49,7 +54,7 @@ test("the contract's verdict is archived exactly as the event reported it", asyn
 
   const applied = await applyComplianceEvent(evidenceSubmitted(), repository);
 
-  assert.equal(applied, true);
+  assert.equal(applied?.evidenceId, "EV-1");
   assert.deepEqual(verdicts, [
     {
       evidenceId: "EV-1",
@@ -83,7 +88,7 @@ test("a cold-chain breach verdict is archived like any other", async () => {
     repository
   );
 
-  assert.equal(applied, true);
+  assert.equal(applied?.evidenceId, "EV-2");
   assert.equal(verdicts[0].evidenceId, "EV-2");
   assert.equal(verdicts[0].eventName, "ColdChainBreach");
   assert.equal(verdicts[0].fabricTransactionId, "tx-10");
@@ -96,7 +101,7 @@ test("events the listener has no business with are left alone", async () => {
   // taken, and that stays on the record.
   for (const name of ["ColdChainBreachResolved", "BatchCreated", "BatchDelivered"]) {
     const applied = await applyComplianceEvent(event(name, { batchId: "B-1" }), repository);
-    assert.equal(applied, false, name);
+    assert.equal(applied, undefined, name);
   }
   assert.equal(verdicts.length, 0);
 });
@@ -128,7 +133,7 @@ test("an event that cannot be read is skipped rather than archived", async () =>
   ];
 
   for (const bad of unreadable) {
-    assert.equal(await applyComplianceEvent(bad, repository), false);
+    assert.equal(await applyComplianceEvent(bad, repository), undefined);
   }
   assert.equal(verdicts.length, 0);
 });
@@ -183,6 +188,7 @@ test("a failed archive write stops the stream instead of checkpointing past it",
 test("an event is checkpointed only after it has been archived", async () => {
   const order = [];
   const repository = {
+    async recordSignatureCheck() {},
     async recordVerdict() {
       order.push("archived");
     },
@@ -199,4 +205,90 @@ test("an event is checkpointed only after it has been archived", async () => {
   });
 
   assert.deepEqual(order, ["archived", "checkpointed"]);
+});
+
+// ---------------------------------------------------------------------------------------------
+// The regulator checking signatures itself, as each verdict lands, rather than when asked.
+// ---------------------------------------------------------------------------------------------
+
+// A failed archive write stops the stream, on purpose. A signature result must not, and the two
+// reasons are different: the verdict is already archived by the time this runs, and a forged
+// reading is a finding about the evidence rather than a hole in the archive. Stopping would let one
+// dishonest submission halt the archiving of every verdict after it.
+test("a forged reading is recorded and the stream carries on", async () => {
+  const { verdicts, signatureChecks, repository } = recordingRepository();
+
+  await consumeComplianceEvents(
+    [
+      evidenceSubmitted({ evidenceId: "EV-FORGED" }),
+      evidenceSubmitted({ evidenceId: "EV-FINE" })
+    ],
+    {
+      verdictRepository: repository,
+      checkSignatures: async (evidenceId) => (evidenceId === "EV-FORGED" ? "FAILED" : "PASSED")
+    }
+  );
+
+  assert.deepEqual(signatureChecks, [
+    { evidenceId: "EV-FORGED", outcome: "FAILED" },
+    { evidenceId: "EV-FINE", outcome: "PASSED" }
+  ]);
+  assert.equal(verdicts.length, 2, "the later verdict was still archived");
+});
+
+// The oracle being unreachable must not take the regulator's archive down with it. UNKNOWN says
+// "not checked", which is honestly different from "checked and forged".
+test("an unreachable oracle records UNKNOWN and still archives the verdict", async () => {
+  const { verdicts, signatureChecks, repository } = recordingRepository();
+  const checkpointed = [];
+
+  await consumeComplianceEvents([evidenceSubmitted()], {
+    verdictRepository: repository,
+    checkSignatures: async () => {
+      throw new Error("14 UNAVAILABLE: no connection established");
+    },
+    checkpoint: async (event) => checkpointed.push(event.eventName)
+  });
+
+  assert.deepEqual(signatureChecks, [{ evidenceId: "EV-1", outcome: "UNKNOWN" }]);
+  assert.equal(verdicts.length, 1);
+  assert.deepEqual(checkpointed, ["TemperatureEvidenceSubmitted"], "and the cursor still moved");
+});
+
+// The row already defaults to UNKNOWN, so a later look can still settle it. Losing the archive over
+// a failed status update would be the worse trade.
+test("a failure recording the check does not stop the stream either", async () => {
+  const { verdicts, repository } = recordingRepository();
+  repository.recordSignatureCheck = async () => {
+    throw new Error("connection terminated unexpectedly");
+  };
+
+  await consumeComplianceEvents(
+    [evidenceSubmitted({ evidenceId: "EV-1" }), evidenceSubmitted({ evidenceId: "EV-2" })],
+    { verdictRepository: repository, checkSignatures: async () => "PASSED" }
+  );
+
+  assert.equal(verdicts.length, 2);
+});
+
+// Events the archive ignores have no evidence to check, so nothing should be attempted for them.
+test("only archived verdicts are checked", async () => {
+  const { signatureChecks, repository } = recordingRepository();
+
+  await consumeComplianceEvents(
+    [event("BatchCreated", { batchId: "B-1" }), evidenceSubmitted()],
+    { verdictRepository: repository, checkSignatures: async () => "PASSED" }
+  );
+
+  assert.deepEqual(signatureChecks, [{ evidenceId: "EV-1", outcome: "PASSED" }]);
+});
+
+// A company with no archive keeps the listener it always had.
+test("a listener with no checker behaves exactly as before", async () => {
+  const { verdicts, signatureChecks, repository } = recordingRepository();
+
+  await consumeComplianceEvents([evidenceSubmitted()], { verdictRepository: repository });
+
+  assert.equal(verdicts.length, 1);
+  assert.deepEqual(signatureChecks, []);
 });

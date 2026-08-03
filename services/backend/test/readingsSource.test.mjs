@@ -8,7 +8,15 @@ import {
 import { EvidenceVerificationError } from "../dist/services/evidenceVerification.js";
 import { repositoryStub, storedEvidence } from "./harness.mjs";
 
-const READINGS = [{ sensorId: "S-1", recordedAt: "2026-07-30T00:00:00.000Z", celsius: 2 }];
+const READINGS = [
+  {
+    sensorId: "S-1",
+    sequence: 1,
+    recordedAt: "2026-07-30T00:00:00.000Z",
+    celsius: 2,
+    signature: "c2lnbmF0dXJl"
+  }
+];
 
 function stubFetch(respond) {
   const urls = [];
@@ -108,10 +116,17 @@ test("a holder answering with readings of the wrong shape raises rather than cra
   const malformed = [
     { readings: "trust me" },
     "not even an array",
-    [{ sensorId: "S-1", recordedAt: "2026-07-30T00:00:00.000Z", celsius: "4.500" }],
+    [{ ...READINGS[0], celsius: "4.500" }],
     [{ sensorId: "S-1", celsius: 4.5 }],
-    [{ sensorId: 1, recordedAt: "2026-07-30T00:00:00.000Z", celsius: 4.5 }],
-    [{ sensorId: "S-1", recordedAt: "2026-07-30T00:00:00.000Z", celsius: Number.NaN }],
+    [{ ...READINGS[0], sensorId: 1 }],
+    [{ ...READINGS[0], celsius: Number.NaN }],
+    // A holder that simply left the signature off. Accepting it would leave the check with nothing
+    // to verify and report "verified" for readings nobody ever signed, which is the exact failure
+    // the signatures exist to prevent.
+    [{ sensorId: "S-1", recordedAt: "2026-07-30T00:00:00.000Z", celsius: 2, sequence: 1 }],
+    [{ ...READINGS[0], signature: "" }],
+    [{ ...READINGS[0], sequence: undefined }],
+    [{ ...READINGS[0], sequence: 1.5 }],
     [null]
   ];
 

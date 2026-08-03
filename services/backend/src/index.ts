@@ -8,6 +8,8 @@ import { createPool, createTemperatureRepository, createVerdictRepository } from
 import { createApp } from "./app.js";
 import { config } from "./config.js";
 import { createAnchoredEvidenceReader } from "./fabric/anchoredEvidence.js";
+import { createSensorKeyReader } from "./fabric/sensorKeys.js";
+import { checkEvidenceSignatures } from "./services/evidenceVerification.js";
 import { deriveCertificateId } from "./fabric/certificateId.js";
 import { createLedgerEventStream, type LedgerEventStream } from "./fabric/gateway.js";
 import { connectAs } from "./fabric/connection.js";
@@ -48,16 +50,23 @@ const readingsOrigin = process.env.ORACLE_BACKEND_URL ?? originOf(readingsHolder
 // transaction, so failing here is better than starting up and refusing everything.
 const certificateId = await deriveCertificateId(identity);
 
+// Named so the event listener can reuse exactly what the verify route uses, rather than building a
+// second, subtly different way of reaching the same two sources.
+const verificationSources = {
+  anchoredEvidenceReader: createAnchoredEvidenceReader(identity),
+  sensorKeyReader: createSensorKeyReader(identity),
+  readingsSource: temperatureRepository
+    ? localReadingsSource(temperatureRepository)
+    : remoteReadingsSource(readingsOrigin)
+};
+
 const app = createApp({
   identity,
   certificateId,
   connect: connectAs(identity),
   temperatureRepository,
   verdictRepository,
-  anchoredEvidenceReader: createAnchoredEvidenceReader(identity),
-  readingsSource: temperatureRepository
-    ? localReadingsSource(temperatureRepository)
-    : remoteReadingsSource(readingsOrigin)
+  ...verificationSources
 });
 
 const server = app.listen(identity.backendPort, () => {
@@ -100,6 +109,11 @@ if (verdictRepository) {
 
     await consumeComplianceEvents(stream.events, {
       verdictRepository,
+      // The regulator checks the sensor signatures itself, as each verdict arrives, rather than
+      // waiting for somebody to ask. It fetches the readings from whoever holds them and the
+      // sensor's key off the ledger with its own certificate, so the party being checked supplies
+      // neither half of the comparison.
+      checkSignatures: (evidenceId) => checkEvidenceSignatures(evidenceId, verificationSources),
       checkpoint: (event) => stream.checkpoint(event)
     });
   })();

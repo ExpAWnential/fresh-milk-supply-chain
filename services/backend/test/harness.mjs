@@ -78,7 +78,13 @@ export function repositoryStub(overrides = {}) {
     getEvidence: async () => storedEvidence(),
     listEvidenceForBatch: async () => [storedEvidence()],
     getReadings: async () => [
-      { sensorId: "S-1", recordedAt: "2026-07-30T00:00:00.000Z", celsius: 2 }
+      {
+        sensorId: "S-1",
+        sequence: 1,
+        recordedAt: "2026-07-30T00:00:00.000Z",
+        celsius: 2,
+        signature: "c2lnbmF0dXJl"
+      }
     ],
     ...overrides
   };
@@ -102,6 +108,9 @@ export async function withServer({ ledger, ...dependencies }, run) {
     certificateId: "x509::CN=User1::CN=ca",
     connect: stub.connect,
     anchoredEvidenceReader: { getAnchoredEvidence: async () => undefined },
+    // Unreadable by default, which reports signaturesMatch as null. Tests that care about the
+    // signature check supply their own; the rest are about the hash and the statistics.
+    sensorKeyReader: { getSensorKey: async () => undefined },
     // Mirrors what index.ts wires up: a company that holds the readings checks its own copy, and
     // one that does not fetches them from whoever does.
     readingsSource: dependencies.temperatureRepository

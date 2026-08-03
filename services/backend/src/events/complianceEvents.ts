@@ -5,7 +5,12 @@
  * The oracle's opinion of the same readings lives in the oracle's own database and is never
  * copied here, which is what makes the two comparable.
  */
-import type { ComplianceEventName, LedgerComplianceVerdict, VerdictRepository } from "@fresh-milk/storage";
+import type {
+  ArchivedVerdict,
+  ComplianceEventName,
+  SignatureCheck,
+  VerdictRepository
+} from "@fresh-milk/storage";
 
 // The shape this consumer needs from a chaincode event, so it can be exercised without a network.
 export interface LedgerEvent {
@@ -20,6 +25,10 @@ export interface ComplianceEventDependencies<TEvent extends LedgerEvent = Ledger
   // Records that an event has been dealt with, so a restart resumes after it instead of at the
   // start of the chain. Omitted where resuming does not matter.
   readonly checkpoint?: (event: TEvent) => Promise<void>;
+  // Checks the sensor signatures behind a verdict the moment it arrives, so a forged reading is
+  // found in seconds by the party whose job it is to notice, rather than whenever somebody happens
+  // to click verify. Omitted by a company that keeps no archive.
+  readonly checkSignatures?: (evidenceId: string) => Promise<SignatureCheck>;
 }
 
 // The contract announces its verdict under a different name depending on which way it went, and
@@ -30,23 +39,26 @@ const VERDICT_EVENTS: ReadonlySet<string> = new Set<ComplianceEventName>([
   "ColdChainBreach"
 ]);
 
+// Returns what it archived, or undefined for an event it had no business with. The verdict rather
+// than a bare boolean, because the caller needs the evidence ID out of the same payload and
+// re-parsing it there would mean two independent notions of whether an event can be read.
 export async function applyComplianceEvent(
   event: LedgerEvent,
   verdictRepository: VerdictRepository
-): Promise<boolean> {
+): Promise<ArchivedVerdict | undefined> {
   if (!VERDICT_EVENTS.has(event.eventName)) {
-    return false;
+    return undefined;
   }
 
   const verdict = parseVerdict(event);
   if (!verdict) {
     // A malformed event is not worth stopping the stream for, and there is nothing to archive.
     console.error(`Ignored a ${event.eventName} event that could not be read.`);
-    return false;
+    return undefined;
   }
 
   await verdictRepository.recordVerdict(verdict);
-  return true;
+  return verdict;
 }
 
 // Runs until the stream ends, which happens when the caller closes it. Applying an event twice
@@ -62,8 +74,9 @@ export async function consumeComplianceEvents<TEvent extends LedgerEvent>(
   dependencies: ComplianceEventDependencies<TEvent>
 ): Promise<void> {
   for await (const event of events) {
+    let archived: ArchivedVerdict | undefined;
     try {
-      await applyComplianceEvent(event, dependencies.verdictRepository);
+      archived = await applyComplianceEvent(event, dependencies.verdictRepository);
     } catch (error) {
       throw new Error(
         `Could not archive a ${event.eventName} event, so the listener stopped rather than ` +
@@ -72,16 +85,57 @@ export async function consumeComplianceEvents<TEvent extends LedgerEvent>(
       );
     }
 
+    if (archived) {
+      await checkArchivedSignatures(archived.evidenceId, dependencies);
+    }
+
     // Only after the write succeeded. Checkpointing first would have the same effect as carrying
     // on after a failure.
     await dependencies.checkpoint?.(event);
   }
 }
 
+/**
+ * Deliberately outside the rule above.
+ *
+ * A failed archive write stops the stream, because the checkpoint is a single cursor and moving it
+ * past an unarchived verdict loses that verdict forever. Neither thing is true here. The verdict is
+ * already safely archived by the time this runs, and a signature result is a *finding* about the
+ * evidence rather than a gap in the archive.
+ *
+ * So nothing here may throw. A forged reading must not halt the archiving of every later verdict,
+ * and the oracle being unreachable must not take the regulator's archive down with it. Both are
+ * recorded and the stream carries on: FAILED for something we checked and did not like, UNKNOWN for
+ * something we could not check at all.
+ */
+async function checkArchivedSignatures<TEvent extends LedgerEvent>(
+  evidenceId: string,
+  dependencies: ComplianceEventDependencies<TEvent>
+): Promise<void> {
+  if (!dependencies.checkSignatures) {
+    return;
+  }
+
+  let outcome: SignatureCheck;
+  try {
+    outcome = await dependencies.checkSignatures(evidenceId);
+  } catch {
+    outcome = "UNKNOWN";
+  }
+
+  try {
+    await dependencies.verdictRepository.recordSignatureCheck(evidenceId, outcome);
+  } catch (error) {
+    // The column already defaults to UNKNOWN, so the row still says the check has not landed and a
+    // later look can settle it. Losing the whole archive over this would be the worse trade.
+    console.error(`Could not record the signature check for ${evidenceId}.`, error);
+  }
+}
+
 // Every field the archive stores is required and checked here. A payload that reached the insert
 // missing one would fail a NOT NULL constraint, and that throw would leave the event
 // uncheckpointed, so the same broken event would be retried on every restart forever.
-function parseVerdict(event: LedgerEvent): LedgerComplianceVerdict | undefined {
+function parseVerdict(event: LedgerEvent): ArchivedVerdict | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(Buffer.from(event.payload).toString());

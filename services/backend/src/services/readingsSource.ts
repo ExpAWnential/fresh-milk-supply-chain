@@ -70,7 +70,14 @@ function isReading(value: unknown): value is StoredTemperatureReading {
     typeof candidate.sensorId === "string" &&
     typeof candidate.recordedAt === "string" &&
     typeof candidate.celsius === "number" &&
-    Number.isFinite(candidate.celsius)
+    Number.isFinite(candidate.celsius) &&
+    // Checked here rather than trusted later. A holder that dropped these two would leave the
+    // signature check with nothing to work on, and silently returning "verified" for readings that
+    // carried no signature is precisely the failure this whole change exists to prevent.
+    typeof candidate.sequence === "number" &&
+    Number.isSafeInteger(candidate.sequence) &&
+    typeof candidate.signature === "string" &&
+    candidate.signature.length > 0
   );
 }
 

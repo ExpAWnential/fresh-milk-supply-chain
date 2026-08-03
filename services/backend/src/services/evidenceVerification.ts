@@ -15,7 +15,10 @@
  */
 import {
   calculateTemperatureStatistics,
+  sensorPublicKey,
   sha256TemperatureReadings,
+  verifyReadingSignature,
+  type SignatureCheck,
   type StoredTemperatureReading,
   type TemperatureStatistics
 } from "@fresh-milk/storage";
@@ -36,6 +39,30 @@ export interface AnchoredEvidenceReader {
   getAnchoredEvidence(evidenceId: string): Promise<AnchoredEvidence | undefined>;
 }
 
+export interface RegisteredSensorKey {
+  readonly publicKey: string;
+  readonly active: boolean;
+}
+
+export type SignatureIssue =
+  // A reading does not match the signature beside it: somebody altered it after the sensor
+  // recorded it. This is the only one of these that is an accusation.
+  | "FORGED"
+  // No regulator ever vouched for this sensor, so there is nothing to check against.
+  | "SENSOR_NOT_REGISTERED"
+  // The regulator has since disowned this sensor. Its signatures may still be mathematically
+  // valid; they are simply no longer accepted.
+  | "SENSOR_REVOKED"
+  // One evidence record names one sensor, so readings from two of them never belonged together.
+  | "MIXED_SENSORS";
+
+// Read off the ledger with this company's own certificate, never taken from the party holding the
+// readings. Checking a holder's data against a key the same holder supplied would prove nothing.
+// Undefined means the ledger positively has no key for that sensor.
+export interface SensorKeyReader {
+  getSensorKey(sensorId: string): Promise<RegisteredSensorKey | undefined>;
+}
+
 export interface SourcedReadings {
   readonly readings: readonly StoredTemperatureReading[];
   // What the holder's own record claims the fingerprint is. Only a company that holds the row can
@@ -54,6 +81,7 @@ export interface EvidenceVerificationDependencies {
   // Required. Comparing a holder's hash against that same holder's readings proves nothing,
   // because both move together when a row is altered. The anchor has to come off the ledger.
   readonly anchoredEvidenceReader: AnchoredEvidenceReader;
+  readonly sensorKeyReader: SensorKeyReader;
 }
 
 export interface EvidenceVerificationResult {
@@ -76,6 +104,20 @@ export interface EvidenceVerificationResult {
   readonly statisticsMatch: boolean | null;
   readonly anchoredStatistics: TemperatureStatistics | null;
   readonly recomputedStatistics: TemperatureStatistics;
+  // Whether every reading still carries a signature the registered sensor could have produced. The
+  // hash above says the readings are unchanged since they were anchored; this says they were true
+  // when they arrived, which the oracle computing its own hash could never establish.
+  // Null when no key could be read, never true: an unreachable ledger has to look different from a
+  // verified one, or a dishonest oracle need only make the lookup fail.
+  readonly signaturesMatch: boolean | null;
+  // Which readings failed their own signature, by sequence number, so a report names the row rather
+  // than the batch. Empty when the readings are fine, and also when the problem is not with any
+  // individual signature: see below.
+  readonly signatureFailures: readonly number[];
+  // Why the signatures were not accepted, when they were not. A revoked sensor is not a forged
+  // reading, and reporting one as the other accuses a company of something it did not do. Null when
+  // there is nothing wrong or nothing could be checked.
+  readonly signatureIssue: SignatureIssue | null;
   // Null when the anchored record carries no transaction ID. Reported as missing rather than
   // filled in from the database, so this field always means what it says.
   readonly fabricTransactionId: string | null;
@@ -135,6 +177,10 @@ export async function verifyTemperatureEvidence(
   const anchoredStatistics = fabricEvidence.statistics ?? null;
   const recomputedStatistics = calculateTemperatureStatistics(readings);
 
+  // Left until after the two comparisons above so a company with no reachable ledger key still
+  // gets the hash and statistics answers rather than nothing at all.
+  const signatures = await checkSignatures(fabricEvidence.batchId, readings, dependencies);
+
   return {
     evidenceId: normalisedEvidenceId,
     batchId: fabricEvidence.batchId,
@@ -148,9 +194,95 @@ export async function verifyTemperatureEvidence(
       : null,
     anchoredStatistics,
     recomputedStatistics,
+    ...signatures,
     // Only ever the ledger's. Falling back to the database's copy would hand an auditor a
     // transaction ID from the very record they are checking, under a field that says otherwise.
     fabricTransactionId: fabricEvidence.fabricTransactionId ?? null
+  };
+}
+
+/**
+ * The signature verdict on its own, for a caller that wants only that: the regulator's event
+ * listener, checking each verdict as it lands rather than waiting to be asked.
+ *
+ * Anything that stops the check finishing is UNKNOWN, never FAILED. FAILED is an accusation about
+ * a company's evidence and it has to be earned by actually checking; an oracle that is simply down
+ * has not been shown to have done anything wrong. The two are separate columns in the archive for
+ * the same reason.
+ */
+export async function checkEvidenceSignatures(
+  evidenceId: string,
+  dependencies: EvidenceVerificationDependencies
+): Promise<SignatureCheck> {
+  let result: EvidenceVerificationResult;
+  try {
+    result = await verifyTemperatureEvidence(evidenceId, dependencies);
+  } catch {
+    return "UNKNOWN";
+  }
+
+  if (result.signaturesMatch === null) {
+    return "UNKNOWN";
+  }
+  return result.signaturesMatch ? "PASSED" : "FAILED";
+}
+
+/**
+ * Checks each reading against the key the regulator registered for its sensor.
+ *
+ * This is the half the oracle cannot fake. It can recompute a hash over anything it stores, and it
+ * can summarise those readings however it likes, but it holds no sensor private key, so a reading
+ * it altered cannot be made to fit the signature beside it. Running the check here, in a company
+ * that does not hold the readings, is what turns that from something the oracle claims into
+ * something anyone can confirm.
+ *
+ * Everything unresolvable reports null rather than false or true. False would accuse a holder on
+ * the strength of a ledger we could not read, and true would let a dishonest oracle pass simply by
+ * making the lookup fail.
+ */
+async function checkSignatures(
+  batchId: string,
+  readings: readonly StoredTemperatureReading[],
+  dependencies: EvidenceVerificationDependencies
+): Promise<
+  Pick<
+    EvidenceVerificationResult,
+    "signaturesMatch" | "signatureFailures" | "signatureIssue"
+  >
+> {
+  const sensorIds = [...new Set(readings.map((reading) => reading.sensorId))];
+  if (sensorIds.length !== 1) {
+    return { signaturesMatch: false, signatureFailures: [], signatureIssue: "MIXED_SENSORS" };
+  }
+
+  let sensorKey: RegisteredSensorKey | undefined;
+  try {
+    sensorKey = await dependencies.sensorKeyReader.getSensorKey(sensorIds[0]);
+  } catch {
+    return { signaturesMatch: null, signatureFailures: [], signatureIssue: null };
+  }
+
+  // Neither of these is a forged reading, and neither is reported as one. A sensor nobody vouched
+  // for cannot be checked at all; a revoked one may still carry perfectly valid signatures that are
+  // simply no longer accepted. Listing every reading as failed under either would accuse a company
+  // of tampering it never did.
+  if (!sensorKey) {
+    return { signaturesMatch: false, signatureFailures: [], signatureIssue: "SENSOR_NOT_REGISTERED" };
+  }
+  if (!sensorKey.active) {
+    return { signaturesMatch: false, signatureFailures: [], signatureIssue: "SENSOR_REVOKED" };
+  }
+
+  // Parsed once for the whole run rather than per reading.
+  const publicKey = sensorPublicKey(sensorKey.publicKey);
+  const failures = readings
+    .filter((reading) => !verifyReadingSignature({ ...reading, batchId }, reading.signature, publicKey))
+    .map((reading) => reading.sequence);
+
+  return {
+    signaturesMatch: failures.length === 0,
+    signatureFailures: failures,
+    signatureIssue: failures.length === 0 ? null : "FORGED"
   };
 }
 

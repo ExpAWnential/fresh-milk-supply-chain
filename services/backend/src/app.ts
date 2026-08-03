@@ -12,6 +12,7 @@ import { ORGANISATIONS, originOf, type Organisation } from "./organisations.js";
 import { createBatchRouter } from "./routes/batches.js";
 import { createIdentityRouter } from "./routes/identity.js";
 import { createPublicRouter } from "./routes/public.js";
+import { createSensorRouter } from "./routes/sensors.js";
 import { createStakeholderRouter } from "./routes/stakeholders.js";
 import { createVerdictRouter } from "./routes/verdicts.js";
 import {
@@ -94,6 +95,7 @@ export function createApp(dependencies: AppDependencies): Express {
 
   app.use(createIdentityRouter(dependencies));
   app.use("/stakeholders", createStakeholderRouter(dependencies.connect));
+  app.use("/sensors", createSensorRouter(dependencies.connect));
   app.use("/batches", createBatchRouter(dependencies.connect));
   app.use("/temperature", createTemperatureRouter(dependencies));
   app.use("/verdicts", createVerdictRouter(dependencies.connect, dependencies.verdictRepository));

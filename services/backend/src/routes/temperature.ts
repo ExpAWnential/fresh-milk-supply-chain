@@ -13,6 +13,7 @@ import { ReadingsUnavailableError } from "../services/readingsSource.js";
 import {
   EvidenceVerificationError,
   type AnchoredEvidenceReader,
+  type SensorKeyReader,
   type ReadingsSource,
   verifyTemperatureEvidence
 } from "../services/evidenceVerification.js";
@@ -24,6 +25,7 @@ export interface TemperatureRouterDependencies {
   // Reads the anchored hash off the ledger as this company. Required: a verification that cannot
   // consult the anchor would be comparing the readings against themselves, which proves nothing.
   readonly anchoredEvidenceReader: AnchoredEvidenceReader;
+  readonly sensorKeyReader: SensorKeyReader;
   // Where this company gets the readings. Every company can verify, database or not.
   readonly readingsSource: ReadingsSource;
 }
@@ -32,6 +34,7 @@ export function createTemperatureRouter({
   connect,
   temperatureRepository,
   anchoredEvidenceReader,
+  sensorKeyReader,
   readingsSource
 }: TemperatureRouterDependencies): Router {
   const temperature = bindLedger(connect, config.supplychainChaincodeName, TEMPERATURE_CONTRACT);
@@ -159,7 +162,8 @@ export function createTemperatureRouter({
       // holds them, so the comparison is between two records no single party controls.
       const result = await verifyTemperatureEvidence(req.params.evidenceId, {
         readingsSource,
-        anchoredEvidenceReader
+        anchoredEvidenceReader,
+        sensorKeyReader
       });
       res.json(result);
     } catch (error) {
