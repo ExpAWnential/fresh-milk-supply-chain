@@ -33,9 +33,7 @@ function signedRun(privateKey = SENSOR.privateKey): RawTemperatureReading[] {
 
 const registered = (overrides: Partial<SensorPublicKey> = {}): SensorKeyLookup => {
   const record: SensorPublicKey = {
-    sensorId: "SENSOR-002",
     publicKey: SENSOR.publicKey,
-    algorithm: "ed25519",
     active: true,
     ...overrides
   };
@@ -44,8 +42,10 @@ const registered = (overrides: Partial<SensorPublicKey> = {}): SensorKeyLookup =
 
 const notRegistered: SensorKeyLookup = async () => undefined;
 
-const verify = (readings: readonly RawTemperatureReading[], lookup: SensorKeyLookup = registered()) =>
-  verifyReadings(canonicaliseReadings(readings), lookup);
+const verify = (
+  readings: readonly RawTemperatureReading[],
+  lookup: SensorKeyLookup = registered()
+) => verifyReadings(canonicaliseReadings(readings), lookup);
 
 describe("verifying a signed run of readings", () => {
   it("accepts readings the registered sensor actually signed", async () => {
@@ -84,7 +84,10 @@ describe("verifying a signed run of readings", () => {
   it("refuses a run with the same reading twice", async () => {
     const readings = signedRun();
 
-    await assert.rejects(verify([readings[0], readings[1], readings[1]]), /reported reading 2 more than once/);
+    await assert.rejects(
+      verify([readings[0], readings[1], readings[1]]),
+      /reported reading 2 more than once/
+    );
   });
 
   it("refuses readings signed by a key the ledger does not vouch for", async () => {

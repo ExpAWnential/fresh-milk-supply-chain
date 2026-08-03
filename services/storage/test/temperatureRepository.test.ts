@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { Pool, PoolClient, QueryResult } from "pg";
+import { Pool, QueryResult } from "pg";
 import {
   createTemperatureRepository,
   StoredTemperatureEvidence,
@@ -21,10 +21,10 @@ class FakeClient {
     this.queries.push({ text, values });
 
     if (text.includes("INSERT INTO temperature_evidence")) {
-      return { rows: [], rowCount: this.evidenceUpsertWrites ? 1 : 0 } as QueryResult;
+      return { rows: [], rowCount: this.evidenceUpsertWrites ? 1 : 0 } as unknown as QueryResult;
     }
 
-    return { rows: [], rowCount: 0 } as QueryResult;
+    return { rows: [], rowCount: 0 } as unknown as QueryResult;
   }
 
   release(): void {
@@ -46,14 +46,20 @@ class FakePool {
     this.queries.push({ text, values });
 
     if (text.includes("FROM temperature_evidence")) {
-      return { rows: this.evidenceRows, rowCount: this.evidenceRows.length } as QueryResult;
+      return {
+        rows: this.evidenceRows,
+        rowCount: this.evidenceRows.length
+      } as unknown as QueryResult;
     }
 
     if (text.includes("FROM temperature_readings")) {
-      return { rows: this.readingRows, rowCount: this.readingRows.length } as QueryResult;
+      return {
+        rows: this.readingRows,
+        rowCount: this.readingRows.length
+      } as unknown as QueryResult;
     }
 
-    return { rows: [], rowCount: 0 } as QueryResult;
+    return { rows: [], rowCount: 0 } as unknown as QueryResult;
   }
 }
 

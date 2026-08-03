@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "dev": "tsx src/index.ts",
     "sensor:keygen": "tsx src/signReadings.ts keygen",
     "sensor:sign": "tsx src/signReadings.ts sign",
