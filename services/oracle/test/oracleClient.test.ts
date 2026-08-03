@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, it } from "node:test";
 import { AnchorError, readAnchoredEvidence, submitTemperatureEvidence } from "../src/oracleClient.js";
+
+const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const SUBMISSION = {
   evidenceId: "EV-1",
@@ -66,11 +71,15 @@ describe("anchoring evidence through the backend", () => {
     assert.match(requests[1].url, /\/temperature\/evidence\/EV-1$/);
   });
 
+  // Whether the transaction landed is what decides if a run can be retried: one that never landed
+  // can be repeated, one that did cannot, because the contract will not accept the same evidence
+  // twice.
   it("surfaces the backend's reason when the submission is refused, and reports it never landed", async () => {
     stubFetch([() => json({ error: "Batch 'BATCH-001' must be IN_TRANSIT" }, 400)]);
 
     await assert.rejects(submitTemperatureEvidence(SUBMISSION), (error: unknown) => {
       assert.ok(error instanceof AnchorError);
+      assert.equal(error.name, "AnchorError");
       assert.match(error.message, /must be IN_TRANSIT/);
       assert.equal(error.anchored, false);
       return true;
@@ -119,4 +128,51 @@ describe("anchoring evidence through the backend", () => {
 
     await assert.rejects(submitTemperatureEvidence(SUBMISSION), /504/);
   });
+
+  // JSON, but not the shape the backend sends when it has a reason. There is nothing to quote, so
+  // the status and the body have to stand in for one.
+  it("falls back to the status and body when the failure names no reason", async () => {
+    stubFetch([() => json({ detail: "no route to host" }, 502)]);
+
+    await assert.rejects(submitTemperatureEvidence(SUBMISSION), (error: Error) => {
+      assert.match(error.message, /502/);
+      assert.match(error.message, /no route to host/);
+      return true;
+    });
+  });
+
+  // The oracle's own backend is the only one holding the oracle's certificate, so it is the only
+  // one that can submit this. Every other company's would sign as itself and be refused.
+  it("talks to the oracle's own backend by default", async () => {
+    const requests = stubFetch([() => json({}, 201), () => json({ submittedTxId: "tx-1" })]);
+
+    await submitTemperatureEvidence(SUBMISSION);
+
+    assert.ok(requests[0].url.startsWith("http://localhost:3006/"), requests[0].url);
+  });
+
+  // The address is read once, when the module loads, so the override only has an effect on a
+  // process started with it set. Run as one for that reason. Hardcoding the port here would leave
+  // the variable with nothing reading it while the oracle quietly kept dialling 3006.
+  it("follows BACKEND_URL, which is read once when the module loads", () => {
+    const child = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "-e",
+        `globalThis.fetch = async (url) => { console.log(String(url)); process.exit(0); };
+         const { readAnchoredEvidence } = await import("./src/oracleClient.ts");
+         await readAnchoredEvidence("EV-1");`
+      ],
+      {
+        cwd: packageRoot,
+        encoding: "utf8",
+        env: { ...process.env, BACKEND_URL: "http://localhost:4006" }
+      }
+    );
+
+    assert.match(child.stdout, /^http:\/\/localhost:4006\/temperature\/evidence\/EV-1/m);
+  });
+
 });
