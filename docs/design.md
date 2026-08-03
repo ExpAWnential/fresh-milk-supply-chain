@@ -113,6 +113,22 @@ on a truck.
 - If a reading were later changed, the fingerprint would no longer match, which is how tampering
   is caught.
 
+The oracle is a courier rather than a witness, and the distinction is the whole point. Each reading
+arrives already signed by the sensor that measured it, numbered so a removed one leaves a gap, and
+the oracle refuses to submit a run where any signature fails. The public key it checks against was
+registered on the ledger by the regulator, so the oracle supplies neither half of the comparison.
+
+That check alone would prove nothing, because the oracle is the party it constrains and could
+simply not run it. So the signatures are **stored beside the readings**, and checked again by
+somebody else: the regulator does it automatically as each verdict arrives, and any company can do
+it on demand. Verification needs only the public key, so the sensor alone can produce a signature
+and anyone can check one.
+
+What this cannot do is make the chain **refuse** a forged reading. A peer would need the readings
+to check a signature, and anything sent to a peer is kept in a block forever, which is precisely
+what the off-chain store exists to avoid. So this is detection rather than prevention: a lie is
+found within seconds and can be proved by any party, but it is not blocked at submission.
+
 **The databases (PostgreSQL).** Hold the bulky data that does not belong on a shared ledger. There
 are two, because six competing companies sharing one would defeat the point of having a ledger.
 

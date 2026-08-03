@@ -54,7 +54,10 @@ could bypass them, they are in the ledger itself.
    transactions out. One codebase, run six times with a different `ORGANISATION`, so each company's
    process holds only its own private key.
 3. **Oracle** (`services/oracle/`) stands in for the temperature logger on a truck. Reads a CSV of
-   readings.
+   readings, each one already signed by the sensor, and refuses the whole file if any signature
+   fails or a reading has been removed. `src/signReadings.ts` plays the sensor: it holds the
+   private key and signs the sample data, which is why the oracle can relay readings it cannot
+   forge.
 4. **Storage** (`services/storage/`) PostgreSQL. Two databases: the oracle's holds the thousands
    of raw readings, the regulator's holds the archive of verdicts built from the chain's events.
 5. **Network scripts** (`fabric/network/`) start Docker, issue certificates, deploy the chaincode.
