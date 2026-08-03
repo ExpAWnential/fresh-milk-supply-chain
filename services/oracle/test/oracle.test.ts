@@ -68,7 +68,7 @@ BATCH-001,SENSOR-001,2026-07-14T08:00:00Z`),
     ]);
   });
 
-  it("calculates min, max, average and count", () => {
+  it("calculates min, max and count", () => {
     const readings = canonicaliseReadings([
       {
         batchId: "BATCH-001",
@@ -93,7 +93,6 @@ BATCH-001,SENSOR-001,2026-07-14T08:00:00Z`),
     assert.deepEqual(calculateStatistics(readings), {
       minCelsius: 3.2,
       maxCelsius: 3.6,
-      averageCelsius: 3.4,
       readingCount: 3
     });
   });
@@ -147,15 +146,15 @@ BATCH-001,SENSOR-001,2026-07-14T08:00:00Z`),
   // frozen-milk case must agree with TemperatureComplianceContract.
   it("applies the same 0-5C range as the on-chain contract", () => {
     assert.equal(
-      assessCompliance({ minCelsius: 0, maxCelsius: 5, averageCelsius: 2.5, readingCount: 2 }),
+      assessCompliance({ minCelsius: 0, maxCelsius: 5, readingCount: 2 }),
       "COMPLIANT"
     );
     assert.equal(
-      assessCompliance({ minCelsius: -0.1, maxCelsius: 3, averageCelsius: 1.5, readingCount: 2 }),
+      assessCompliance({ minCelsius: -0.1, maxCelsius: 3, readingCount: 2 }),
       "UNSAFE"
     );
     assert.equal(
-      assessCompliance({ minCelsius: 3, maxCelsius: 5.1, averageCelsius: 4, readingCount: 2 }),
+      assessCompliance({ minCelsius: 3, maxCelsius: 5.1, readingCount: 2 }),
       "UNSAFE"
     );
   });

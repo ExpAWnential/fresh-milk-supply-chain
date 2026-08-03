@@ -26,7 +26,7 @@ test("every endpoint passes the contract's refusal back to the caller", async ()
           evidenceId: "e1",
           evidenceHash: "a".repeat(64),
           offChainReference: "ref",
-          statistics: { minCelsius: 1, maxCelsius: 2, averageCelsius: 1.5, readingCount: 1 }
+          statistics: { minCelsius: 1, maxCelsius: 2, readingCount: 1 }
         }
       ],
       ["POST", "/temperature/batches/b1/resolve-breach", { reason: "cleared" }],

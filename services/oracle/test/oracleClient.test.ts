@@ -12,7 +12,7 @@ const SUBMISSION = {
   batchId: "BATCH-001",
   evidenceHash: "a".repeat(64),
   offChainReference: "postgres://temperature_evidence/EV-1",
-  statistics: { minCelsius: 1, maxCelsius: 4, averageCelsius: 2, readingCount: 3 }
+  statistics: { minCelsius: 1, maxCelsius: 4, readingCount: 3 }
 };
 
 const realFetch = globalThis.fetch;

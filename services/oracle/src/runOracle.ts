@@ -81,7 +81,6 @@ export async function runOracle(
       evidenceHash,
       minCelsius: statistics.minCelsius,
       maxCelsius: statistics.maxCelsius,
-      averageCelsius: statistics.averageCelsius,
       readingCount: statistics.readingCount,
       complianceOutcome: assessCompliance(statistics),
       submissionStatus: "PENDING",

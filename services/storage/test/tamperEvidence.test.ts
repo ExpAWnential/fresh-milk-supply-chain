@@ -45,7 +45,6 @@ const anchoredEvidence = (overrides: Record<string, unknown> = {}) => ({
   evidenceHash: sha256TemperatureReadings("B-1", READINGS),
   minCelsius: 2,
   maxCelsius: 3,
-  averageCelsius: 2.5,
   readingCount: 2,
   complianceOutcome: "COMPLIANT" as const,
   submissionStatus: "ANCHORED" as const,

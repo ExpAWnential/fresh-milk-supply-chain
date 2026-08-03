@@ -319,7 +319,7 @@
           $("onChain").textContent =
             `hash        ${v.anchoredHash}\n` +
             `recomputed  ${v.recomputedHash}\n\n` +
-            (statistics ? `min ${statistics.minCelsius}   max ${statistics.maxCelsius}   avg ${statistics.averageCelsius}\n\n` : "") +
+            (statistics ? `min ${statistics.minCelsius}   max ${statistics.maxCelsius}\n\n` : "") +
             `readings match anchor     ${v.match ? "yes" : "NO — tampered"}\n` +
             `statistics match anchor   ${v.statisticsMatch === null ? "not recorded" : v.statisticsMatch ? "yes" : "NO"}\n` +
             // Null whenever the checker is not the company holding the readings, which is every

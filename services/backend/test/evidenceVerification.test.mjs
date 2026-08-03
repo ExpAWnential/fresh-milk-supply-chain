@@ -35,7 +35,6 @@ function fetchedFromTheHolder(readings = originalReadings) {
 const honestStatistics = {
   minCelsius: 3.2,
   maxCelsius: 3.5,
-  averageCelsius: 3.35,
   readingCount: 2
 };
 
@@ -86,7 +85,6 @@ test("an honest reading set with a flattering summary is caught", async () => {
     anchoredEvidenceReader: ledgerHolding(hashOfThoseReadings, "tx-on-ledger", {
       minCelsius: 3.2,
       maxCelsius: 3.5,
-      averageCelsius: 3.35,
       readingCount: 2
     })
   });

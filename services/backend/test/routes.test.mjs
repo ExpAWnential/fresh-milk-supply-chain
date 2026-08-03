@@ -164,7 +164,7 @@ test("temperature endpoints never send a compliance outcome to the contract", as
       evidenceId: "EV-1",
       evidenceHash: "a".repeat(64),
       offChainReference: "postgres://evidence/EV-1",
-      statistics: { minCelsius: 1, maxCelsius: 4, averageCelsius: 2, readingCount: 3 },
+      statistics: { minCelsius: 1, maxCelsius: 4, readingCount: 3 },
       complianceOutcome: "COMPLIANT"
     });
     assert.equal(submitted.status, 201);

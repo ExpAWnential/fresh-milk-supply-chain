@@ -177,7 +177,7 @@ test("temperature evidence is refused for an unknown batch and read back only wh
       "MISSING",
       "a".repeat(64),
       "ref",
-      JSON.stringify({ minCelsius: 1, maxCelsius: 4, averageCelsius: 2, readingCount: 3 })
+      JSON.stringify({ minCelsius: 1, maxCelsius: 4, readingCount: 3 })
     ),
     /Batch 'MISSING' does not exist/
   );
@@ -196,7 +196,7 @@ test("evidence fields are validated before anything is written", async () => {
   const temperature = new TemperatureComplianceContract();
   const stub = new MemoryStub();
   await batchInTransit(stub);
-  const stats = JSON.stringify({ minCelsius: 1, maxCelsius: 4, averageCelsius: 2, readingCount: 3 });
+  const stats = JSON.stringify({ minCelsius: 1, maxCelsius: 4, readingCount: 3 });
   const oracle = () => as(stub, "cert-oracle");
 
   const cases = [
@@ -207,8 +207,8 @@ test("evidence fields are validated before anything is written", async () => {
     ["EV-1", "B-1", "a".repeat(64), "  ", stats, /Off-chain reference must not be empty/],
     ["EV-1", "B-1", "a".repeat(64), "ref", "not json", /must be valid JSON/],
     ["EV-1", "B-1", "a".repeat(64), "ref", "[1,2]", /must be a JSON object/],
-    ["EV-1", "B-1", "a".repeat(64), "ref", JSON.stringify({ minCelsius: 1, maxCelsius: 4, averageCelsius: 2, readingCount: 0 }), /positive integer/],
-    ["EV-1", "B-1", "a".repeat(64), "ref", JSON.stringify({ minCelsius: "cold", maxCelsius: 4, averageCelsius: 2, readingCount: 3 }), /finite number/]
+    ["EV-1", "B-1", "a".repeat(64), "ref", JSON.stringify({ minCelsius: 1, maxCelsius: 4, readingCount: 0 }), /positive integer/],
+    ["EV-1", "B-1", "a".repeat(64), "ref", JSON.stringify({ minCelsius: "cold", maxCelsius: 4, readingCount: 3 }), /finite number/]
   ];
 
   for (const [evidenceId, batchId, hash, reference, statistics, expected] of cases) {
@@ -231,7 +231,7 @@ test("an uppercase hash is stored in lower case so comparisons cannot drift", as
       "B-1",
       "A".repeat(64),
       "ref",
-      JSON.stringify({ minCelsius: 1, maxCelsius: 4, averageCelsius: 2, readingCount: 3 })
+      JSON.stringify({ minCelsius: 1, maxCelsius: 4, readingCount: 3 })
     )
   );
 
@@ -258,7 +258,7 @@ test("a breach can only be cleared once, and only from a breached batch", async 
       "B-1",
       "b".repeat(64),
       "ref",
-      JSON.stringify({ minCelsius: 1, maxCelsius: 9, averageCelsius: 5, readingCount: 3 })
+      JSON.stringify({ minCelsius: 1, maxCelsius: 9, readingCount: 3 })
     )
   );
 
@@ -287,7 +287,7 @@ test("the same evidence cannot be anchored twice", async () => {
       "B-1",
       "c".repeat(64),
       "ref",
-      JSON.stringify({ minCelsius: 1, maxCelsius: 4, averageCelsius: 2, readingCount: 3 })
+      JSON.stringify({ minCelsius: 1, maxCelsius: 4, readingCount: 3 })
     );
 
   await transact(stub, "cert-oracle", submit);

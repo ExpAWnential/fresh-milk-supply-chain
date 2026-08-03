@@ -22,7 +22,6 @@ export interface StoredTemperatureEvidence {
   readonly evidenceHash: string;
   readonly minCelsius: number;
   readonly maxCelsius: number;
-  readonly averageCelsius: number;
   readonly readingCount: number;
   readonly complianceOutcome: ComplianceOutcome;
   readonly submissionStatus: SubmissionStatus;
@@ -51,7 +50,6 @@ interface EvidenceRow {
   readonly evidence_hash: string;
   readonly min_celsius: string | number;
   readonly max_celsius: string | number;
-  readonly average_celsius: string | number;
   readonly reading_count: number;
   readonly compliance_outcome: ComplianceOutcome;
   readonly submission_status: SubmissionStatus;
@@ -127,7 +125,6 @@ export function createTemperatureRepository(pool: Pool): TemperatureRepository {
                  evidence_hash,
                  min_celsius,
                  max_celsius,
-                 average_celsius,
                  reading_count,
                  compliance_outcome,
                  submission_status,
@@ -150,7 +147,6 @@ export function createTemperatureRepository(pool: Pool): TemperatureRepository {
                  evidence_hash,
                  min_celsius,
                  max_celsius,
-                 average_celsius,
                  reading_count,
                  compliance_outcome,
                  submission_status,
@@ -214,20 +210,18 @@ async function upsertEvidence(
         evidence_hash,
         min_celsius,
         max_celsius,
-        average_celsius,
         reading_count,
         compliance_outcome,
         submission_status,
         fabric_transaction_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (evidence_id) DO UPDATE SET
         batch_id = EXCLUDED.batch_id,
         sensor_id = EXCLUDED.sensor_id,
         evidence_hash = EXCLUDED.evidence_hash,
         min_celsius = EXCLUDED.min_celsius,
         max_celsius = EXCLUDED.max_celsius,
-        average_celsius = EXCLUDED.average_celsius,
         reading_count = EXCLUDED.reading_count,
         compliance_outcome = EXCLUDED.compliance_outcome,
         submission_status = EXCLUDED.submission_status,
@@ -241,7 +235,6 @@ async function upsertEvidence(
       evidence.evidenceHash,
       evidence.minCelsius,
       evidence.maxCelsius,
-      evidence.averageCelsius,
       evidence.readingCount,
       evidence.complianceOutcome,
       evidence.submissionStatus,
@@ -281,7 +274,6 @@ function mapEvidenceRow(row: EvidenceRow): StoredTemperatureEvidence {
     evidenceHash: row.evidence_hash,
     minCelsius: Number(row.min_celsius),
     maxCelsius: Number(row.max_celsius),
-    averageCelsius: Number(row.average_celsius),
     readingCount: row.reading_count,
     complianceOutcome: row.compliance_outcome,
     submissionStatus: row.submission_status,

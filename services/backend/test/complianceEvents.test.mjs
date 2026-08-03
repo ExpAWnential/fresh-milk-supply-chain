@@ -75,7 +75,7 @@ test("a cold-chain breach verdict is archived like any other", async () => {
       batchId: "B-1",
       evidenceHash: "b".repeat(64),
       complianceOutcome: "UNSAFE",
-      statistics: { minCelsius: 1, maxCelsius: 9, averageCelsius: 5, readingCount: 3 },
+      statistics: { minCelsius: 1, maxCelsius: 9, readingCount: 3 },
       submittedByStakeholderId: "oracle-001",
       txId: "tx-10",
       timestamp: "2026-07-30T01:00:00.000Z"

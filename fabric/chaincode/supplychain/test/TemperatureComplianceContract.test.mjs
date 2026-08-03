@@ -26,8 +26,8 @@ async function seedBatch(stub, batchId, status = "IN_TRANSIT") {
   await stub.putState(key, Buffer.from(JSON.stringify(batchRecord(batchId, status))));
 }
 
-function statistics(minCelsius, maxCelsius, averageCelsius, readingCount = 3) {
-  return JSON.stringify({ minCelsius, maxCelsius, averageCelsius, readingCount });
+function statistics(minCelsius, maxCelsius, readingCount = 3) {
+  return JSON.stringify({ minCelsius, maxCelsius, readingCount });
 }
 
 test("ORACLE can anchor boundary-safe evidence and the contract derives COMPLIANT", async () => {
@@ -42,7 +42,7 @@ test("ORACLE can anchor boundary-safe evidence and the contract derives COMPLIAN
     "BATCH-001",
     VALID_HASH_A.toUpperCase(),
     "postgres://temperature/EVIDENCE-001",
-    statistics(0, 5, 2.5)
+    statistics(0, 5)
   );
 
   const evidence = JSON.parse(
@@ -72,7 +72,7 @@ test("unsafe evidence flags the batch and emits ColdChainBreach", async () => {
     "BATCH-002",
     VALID_HASH_B,
     "postgres://temperature/EVIDENCE-002",
-    statistics(-0.2, 5.4, 2.1)
+    statistics(-0.2, 5.4)
   );
 
   const evidence = JSON.parse(
@@ -105,7 +105,7 @@ test("submission rejects the wrong role, suspended oracle, duplicates and invali
       "BATCH-003",
       VALID_HASH_A,
       "ref-003",
-      statistics(1, 4, 2.5)
+      statistics(1, 4)
     ),
     /requires one of: ORACLE/
   );
@@ -117,7 +117,7 @@ test("submission rejects the wrong role, suspended oracle, duplicates and invali
       "BATCH-003",
       VALID_HASH_A,
       "ref-003",
-      statistics(1, 4, 2.5)
+      statistics(1, 4)
     ),
     /is suspended/
   );
@@ -129,7 +129,7 @@ test("submission rejects the wrong role, suspended oracle, duplicates and invali
     "BATCH-003",
     VALID_HASH_A,
     "ref-003",
-    statistics(1, 4, 2.5)
+    statistics(1, 4)
   );
 
   await assert.rejects(
@@ -139,7 +139,7 @@ test("submission rejects the wrong role, suspended oracle, duplicates and invali
       "BATCH-003",
       VALID_HASH_B,
       "ref-duplicate",
-      statistics(1, 4, 2.5)
+      statistics(1, 4)
     ),
     /already exists/
   );
@@ -151,7 +151,7 @@ test("submission rejects the wrong role, suspended oracle, duplicates and invali
       "BATCH-004",
       VALID_HASH_B,
       "ref-004",
-      statistics(1, 4, 2.5)
+      statistics(1, 4)
     ),
     /has been recalled/
   );
@@ -172,7 +172,7 @@ test("evidence is accepted at every stage and a breach returns the batch to wher
       VALID_HASH_A,
       "ref-stage",
       // Unsafe, so the batch goes on hold from whichever stage it was at.
-      statistics(1, 9, 5.5)
+      statistics(1, 9)
     );
 
     const key = stub.createCompositeKey("batch", ["BATCH-STAGE"]);
@@ -200,7 +200,7 @@ test("a second unsafe reading during an open hold keeps the original stage", asy
   await seedBatch(stub, "BATCH-007", "PROCESSED");
   const oracleContext = context(stub, "cert-oracle");
 
-  const unsafe = statistics(1, 9, 5.5);
+  const unsafe = statistics(1, 9);
   await contract.submitTemperatureEvidence(
     oracleContext, "EVIDENCE-007A", "BATCH-007", VALID_HASH_A, "ref-007a", unsafe
   );
@@ -228,7 +228,7 @@ test("statistics and hash validation reject malformed evidence", async () => {
       "BATCH-005",
       "not-a-hash",
       "ref-005",
-      statistics(1, 4, 2.5)
+      statistics(1, 4)
     ),
     /64-character hexadecimal SHA-256/
   );
@@ -240,21 +240,9 @@ test("statistics and hash validation reject malformed evidence", async () => {
       "BATCH-005",
       VALID_HASH_A,
       "ref-005",
-      statistics(4, 2, 3)
+      statistics(4, 2)
     ),
     /minCelsius.*must not exceed/
-  );
-
-  await assert.rejects(
-    contract.submitTemperatureEvidence(
-      ctx,
-      "EVIDENCE-005",
-      "BATCH-005",
-      VALID_HASH_A,
-      "ref-005",
-      statistics(1, 4, 9)
-    ),
-    /averageCelsius.*between/
   );
 });
 
@@ -269,7 +257,7 @@ test("only a REGULATOR can resolve a breach and the batch returns to IN_TRANSIT"
     "BATCH-006",
     VALID_HASH_A,
     "ref-006",
-    statistics(1, 5.1, 3)
+    statistics(1, 5.1)
   );
 
   await assert.rejects(

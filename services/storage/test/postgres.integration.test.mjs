@@ -65,7 +65,6 @@ test(
           evidenceHash,
           minCelsius: 2.1,
           maxCelsius: 4.7,
-          averageCelsius: 3.4,
           readingCount: readings.length,
           complianceOutcome: "COMPLIANT",
           submissionStatus: "PENDING",
@@ -96,7 +95,6 @@ test(
           evidenceHash,
           minCelsius: 2.1,
           maxCelsius: 4.7,
-          averageCelsius: 3.4,
           readingCount: readings.length,
           complianceOutcome: "COMPLIANT",
           submissionStatus: "ANCHORED",
@@ -279,7 +277,6 @@ test(
       evidenceHash: sha256TemperatureReadings(batchId, readings),
       minCelsius: 2.1,
       maxCelsius: 3.2,
-      averageCelsius: 2.65,
       readingCount: readings.length,
       complianceOutcome: "COMPLIANT",
       submissionStatus: "PENDING",
@@ -302,8 +299,7 @@ test(
           ...evidence,
           evidenceHash: sha256TemperatureReadings(batchId, rewritten),
           minCelsius: 98,
-          maxCelsius: 99,
-          averageCelsius: 98.5
+          maxCelsius: 99
         },
         rewritten
       );
@@ -353,7 +349,6 @@ test(
           evidenceHash: anchoredHash,
           minCelsius: 2,
           maxCelsius: 3,
-          averageCelsius: 2.5,
           readingCount: readings.length,
           complianceOutcome: "COMPLIANT",
           submissionStatus: "PENDING",

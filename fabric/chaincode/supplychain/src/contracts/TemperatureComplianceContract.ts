@@ -210,7 +210,6 @@ function parseStatistics(value: string): TemperatureStatistics {
   const candidate = parsed as Partial<TemperatureStatistics>;
   const minCelsius = requireFiniteNumber(candidate.minCelsius, "minCelsius");
   const maxCelsius = requireFiniteNumber(candidate.maxCelsius, "maxCelsius");
-  const averageCelsius = requireFiniteNumber(candidate.averageCelsius, "averageCelsius");
   const readingCount = candidate.readingCount;
 
   if (
@@ -223,16 +222,10 @@ function parseStatistics(value: string): TemperatureStatistics {
   if (minCelsius > maxCelsius) {
     throw new Error("Temperature statistic 'minCelsius' must not exceed 'maxCelsius'.");
   }
-  if (averageCelsius < minCelsius || averageCelsius > maxCelsius) {
-    throw new Error(
-      "Temperature statistic 'averageCelsius' must be between 'minCelsius' and 'maxCelsius'."
-    );
-  }
 
   return {
     minCelsius,
     maxCelsius,
-    averageCelsius,
     readingCount
   };
 }

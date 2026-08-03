@@ -133,7 +133,7 @@ by all members. So:
    fingerprint for identical data.
 2. It runs SHA-256 over that. You get a 64-character fingerprint that changes completely if any
    single reading changes by 0.001°C.
-3. **Full readings go into PostgreSQL. Only the fingerprint, a min/max/average summary, and a
+3. **Full readings go into PostgreSQL. Only the fingerprint, a min/max summary, and a
    pointer go onto the chain.**
 
 Now the tamper demo works: fetch the readings from the company that holds them, hash them again,

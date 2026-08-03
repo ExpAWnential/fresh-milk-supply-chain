@@ -163,7 +163,6 @@ function statisticsAgree(
   return (
     anchored.minCelsius === recomputed.minCelsius &&
     anchored.maxCelsius === recomputed.maxCelsius &&
-    anchored.averageCelsius === recomputed.averageCelsius &&
     anchored.readingCount === recomputed.readingCount
   );
 }

@@ -6,10 +6,10 @@ import { calculateTemperatureStatistics } from "../src/evidenceStatistics.js";
 // the anchored copy was honest. The two sides compare exactly, with no tolerance, so anything that
 // makes the same readings summarise differently twice reports a lie where there was none.
 describe("summarising a set of readings", () => {
-  it("reports the range, the mean and how many readings there were", () => {
+  it("reports the range and how many readings there were", () => {
     assert.deepEqual(
       calculateTemperatureStatistics([{ celsius: 1 }, { celsius: 5 }, { celsius: 3 }]),
-      { minCelsius: 1, maxCelsius: 5, averageCelsius: 3, readingCount: 3 }
+      { minCelsius: 1, maxCelsius: 5, readingCount: 3 }
     );
   });
 
@@ -17,7 +17,6 @@ describe("summarising a set of readings", () => {
     assert.deepEqual(calculateTemperatureStatistics([{ celsius: 2.5 }]), {
       minCelsius: 2.5,
       maxCelsius: 2.5,
-      averageCelsius: 2.5,
       readingCount: 1
     });
   });
@@ -28,32 +27,21 @@ describe("summarising a set of readings", () => {
     assert.deepEqual(calculateTemperatureStatistics([{ celsius: -1.5 }, { celsius: 4 }]), {
       minCelsius: -1.5,
       maxCelsius: 4,
-      averageCelsius: 1.25,
       readingCount: 2
     });
   });
 
-  // Three decimals, matching what the canonical form of a reading carries. Without the rounding the
-  // mean of three readings is a repeating binary fraction, and the two sides of the comparison
-  // would have to agree on floating point noise.
-  it("rounds the mean to three decimals so both sides of a check agree exactly", () => {
-    const statistics = calculateTemperatureStatistics([
-      { celsius: 1 },
-      { celsius: 2 },
-      { celsius: 2 }
-    ]);
+  it("keeps a rounded reading a number rather than a fixed-width string", () => {
+    const statistics = calculateTemperatureStatistics([{ celsius: 2.5 }, { celsius: 3 }]);
 
-    assert.equal(statistics.averageCelsius, 1.667);
+    // Strict equality, so toFixed's "2.500" fails here: it reads the same and compares as unequal.
+    assert.equal(statistics.minCelsius, 2.5);
   });
 
-  it("keeps the rounded mean a number rather than a fixed-width string", () => {
-    const statistics = calculateTemperatureStatistics([{ celsius: 2 }, { celsius: 3 }]);
-
-    // Strict equality, so toFixed's "2.50" fails here: it reads the same and compares as unequal.
-    assert.equal(statistics.averageCelsius, 2.5);
-  });
-
-  it("rounds the range as well, so an anchored minimum matches a recomputed one", () => {
+  // Three decimals, matching what the canonical form of a reading carries, so an anchored minimum
+  // matches a recomputed one exactly rather than the two sides having to agree on floating point
+  // noise.
+  it("rounds the range to three decimals", () => {
     const statistics = calculateTemperatureStatistics([
       { celsius: 1.00049 },
       { celsius: 4.99951 }

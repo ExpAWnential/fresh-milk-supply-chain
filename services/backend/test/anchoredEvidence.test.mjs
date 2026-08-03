@@ -25,7 +25,7 @@ const encode = (value) => Buffer.from(JSON.stringify(value));
 test("the anchored hash and transaction come off the ledger as the calling identity", async () => {
   // The statistics come across too, because verification checks them against the readings and the
   // hash cannot stand in for that.
-  const statistics = { minCelsius: 1, maxCelsius: 4, averageCelsius: 2.5, readingCount: 3 };
+  const statistics = { minCelsius: 1, maxCelsius: 4, readingCount: 3 };
   const { state, connect } = stubGateway(() =>
     encode({ batchId: "MILK-001", evidenceHash: "a".repeat(64), submittedTxId: "tx-9", statistics })
   );

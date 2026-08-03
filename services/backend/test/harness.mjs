@@ -65,7 +65,6 @@ export function storedEvidence(overrides = {}) {
     evidenceHash: "a".repeat(64),
     minCelsius: 1,
     maxCelsius: 2,
-    averageCelsius: 1.5,
     readingCount: 1,
     complianceOutcome: "COMPLIANT",
     submissionStatus: "ANCHORED",

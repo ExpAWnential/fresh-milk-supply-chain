@@ -9,7 +9,6 @@ export type ComplianceOutcome = "COMPLIANT" | "UNSAFE";
 export interface TemperatureStatistics {
   readonly minCelsius: number;
   readonly maxCelsius: number;
-  readonly averageCelsius: number;
   readonly readingCount: number;
 }
 

@@ -106,7 +106,7 @@ none of them can secretly change.
 **The sensor feed (oracle) and off-chain computation.** Stands in for the temperature loggers
 on a truck.
 
-- Reads a batch of readings and works out the minimum, maximum and average.
+- Reads a batch of readings and works out the minimum and maximum.
 - Produces a fingerprint of the exact readings.
 - Saves the full readings in the database, and sends only the summary and the fingerprint to the
   blockchain.
