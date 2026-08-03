@@ -8,6 +8,10 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter @fresh-milk/storage build && pnpm -r test",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "fabric:start": "pnpm --filter @fresh-milk/fabric-network start",
     "fabric:stop": "pnpm --filter @fresh-milk/fabric-network stop",
     "fabric:deploy-chaincode": "pnpm --filter @fresh-milk/fabric-network deploy-chaincode",
@@ -23,8 +27,14 @@
   },
   "packageManager": "pnpm@9.0.0",
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^20.14.0",
+    "eslint": "^10.8.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.9.0",
+    "prettier": "^3.9.6",
     "tsx": "^4.15.0",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.66.0"
   }
 }
