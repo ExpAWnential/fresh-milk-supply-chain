@@ -1,3 +1,4 @@
+# Verifies formatting, lint rules, types and behaviour for every proposed or merged change.
 name: CI
 
 on:

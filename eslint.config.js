@@ -1,3 +1,4 @@
+/** Applies shared JavaScript and TypeScript checks without duplicating Prettier's formatting rules. */
 import js from "@eslint/js";
 import globals from "globals";
 import tseslint from "typescript-eslint";
@@ -24,6 +25,6 @@ export default defineConfig([
     extends: [js.configs.recommended, tseslint.configs.recommended],
     languageOptions: { globals: globals.node }
   },
-  // Last, so ESLint never argues with Prettier about formatting.
+  // Keep this last so formatting rules cannot override Prettier.
   prettier
 ]);
