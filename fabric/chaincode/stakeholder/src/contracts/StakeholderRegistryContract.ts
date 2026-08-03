@@ -11,6 +11,10 @@
 // argument on every transaction.
 import { Context, Contract, Info, Returns, Transaction } from "fabric-contract-api";
 import {
+  SensorKey,
+  SensorKeyAlgorithm
+} from "../models/SensorKey.js";
+import {
   Stakeholder,
   StakeholderRole
 } from "../models/Stakeholder.js";
@@ -22,6 +26,7 @@ import {
 
 const STAKEHOLDER_KEY_PREFIX = "stakeholder";
 const CERTIFICATE_KEY_PREFIX = "certificate";
+const SENSOR_KEY_PREFIX = "sensorKey";
 
 // these two ledger values make first time setup safe and ensure the system always
 // has at least one active regulator who can manage the registry
@@ -40,6 +45,15 @@ const VALID_ROLES: ReadonlySet<string> = new Set<StakeholderRole>([
   "RETAILER",
   "ORACLE"
 ]);
+
+// Named rather than left open so the field records what a verifier should do with the key, instead
+// of being a label nobody checks. Adding one here means every verifier has to learn it too.
+const VALID_ALGORITHMS: ReadonlySet<string> = new Set<SensorKeyAlgorithm>(["ed25519"]);
+
+// An Ed25519 public key in DER SPKI form. Checked here because a key that cannot be a key is a
+// typo, and finding that out now is better than every signature silently failing to verify later
+// against a record the regulator believes it registered correctly.
+const ED25519_SPKI_BYTES = 44;
 
 // other contracts only need this small result to make an access decision
 // They do not need the stakeholders full certificate or audit information
@@ -67,6 +81,36 @@ function parseRole(value: string): StakeholderRole {
     );
   }
   return role as StakeholderRole;
+}
+
+function parseAlgorithm(value: string): SensorKeyAlgorithm {
+  const algorithm = requireValue(value, "Algorithm").toLowerCase();
+  if (!VALID_ALGORITHMS.has(algorithm)) {
+    throw new Error(
+      `Invalid signature algorithm '${value}'. Expected one of: ` +
+        `${[...VALID_ALGORITHMS].join(", ")}.`
+    );
+  }
+  return algorithm as SensorKeyAlgorithm;
+}
+
+// Round trips through base64 rather than pattern matching, because Buffer.from ignores characters
+// outside the alphabet: a key with a typo in it decodes to something shorter instead of failing,
+// and would be stored looking perfectly valid.
+function parsePublicKey(value: string): string {
+  const publicKey = requireValue(value, "Public key");
+  const decoded = Buffer.from(publicKey, "base64");
+
+  if (decoded.toString("base64") !== publicKey) {
+    throw new Error("The public key must be base64 with no stray characters.");
+  }
+  if (decoded.length !== ED25519_SPKI_BYTES) {
+    throw new Error(
+      `An ed25519 public key must be ${ED25519_SPKI_BYTES} bytes in DER SPKI form, ` +
+        `but this one is ${decoded.length}.`
+    );
+  }
+  return publicKey;
 }
 
 // chaincode arguments arrive as strings, so other contracts send allowed roles
@@ -244,6 +288,81 @@ export class StakeholderRegistryContract extends Contract {
     return JSON.stringify(await this.getStakeholderRecord(ctx, stakeholderId));
   }
 
+  // Vouch for a sensor's public key. This is what lets anyone check that a temperature reading
+  // really came from the device that measured it: the oracle relays readings it cannot forge,
+  // because it never holds the matching private half.
+  @Transaction()
+  public async registerSensorKey(
+    ctx: Context,
+    sensorId: string,
+    publicKey: string,
+    algorithm: string
+  ): Promise<void> {
+    const regulator = await this.requireActiveRegulator(ctx);
+
+    const id = requireValue(sensorId, "Sensor ID");
+    const key = parsePublicKey(publicKey);
+    const parsedAlgorithm = parseAlgorithm(algorithm);
+    const metadata = getTransactionMetadata(ctx);
+
+    const sensorKeyLedgerKey = this.sensorKeyKey(ctx, id);
+    // Read before write, like putNewStakeholder. Silently replacing a key would let one bad
+    // registration retire every signature made under the old one with no trace.
+    if ((await ctx.stub.getState(sensorKeyLedgerKey)).length > 0) {
+      throw new Error(`Sensor '${id}' already has a registered key.`);
+    }
+
+    const sensorKey: SensorKey = {
+      sensorId: id,
+      publicKey: key,
+      algorithm: parsedAlgorithm,
+      active: true,
+      registeredByStakeholderId: regulator.stakeholderId,
+      registeredTxId: metadata.txId,
+      registeredAt: metadata.timestamp,
+      updatedByStakeholderId: regulator.stakeholderId,
+      updatedTxId: metadata.txId,
+      updatedAt: metadata.timestamp
+    };
+
+    await this.putSensorKey(ctx, sensorKey);
+    this.emitEvent(ctx, "SensorKeyRegistered", sensorKey);
+  }
+
+  // Disown a sensor whose key can no longer be trusted. The record stays so that readings signed
+  // before the revocation can still be told apart from readings signed after it.
+  @Transaction()
+  public async revokeSensorKey(ctx: Context, sensorId: string): Promise<void> {
+    const regulator = await this.requireActiveRegulator(ctx);
+
+    const sensorKey = await this.getSensorKeyRecord(ctx, sensorId);
+    if (!sensorKey.active) {
+      throw new Error(`Sensor '${sensorKey.sensorId}' is already revoked.`);
+    }
+
+    const metadata = getTransactionMetadata(ctx);
+    const revoked: SensorKey = {
+      ...sensorKey,
+      active: false,
+      updatedByStakeholderId: regulator.stakeholderId,
+      updatedTxId: metadata.txId,
+      updatedAt: metadata.timestamp
+    };
+
+    await this.putSensorKey(ctx, revoked);
+    this.emitEvent(ctx, "SensorKeyRevoked", revoked);
+  }
+
+  // Gated like every other registry read, so this is readable by any registered participant rather
+  // than by the public. Only the public half is here, so what it grants is the ability to check a
+  // signature, never to make one.
+  @Transaction(false)
+  @Returns("string")
+  public async getSensorKey(ctx: Context, sensorId: string): Promise<string> {
+    await this.requireActiveStakeholder(ctx);
+    return JSON.stringify(await this.getSensorKeyRecord(ctx, sensorId));
+  }
+
   // The batch and temperature contracts call this before protected actions
   // It acts like a security guard: registered + active + correct role means allowed
   @Transaction(false)
@@ -292,6 +411,26 @@ export class StakeholderRegistryContract extends Contract {
 
   private certificateKey(ctx: Context, certificateId: string): string {
     return ctx.stub.createCompositeKey(CERTIFICATE_KEY_PREFIX, [certificateId]);
+  }
+
+  private sensorKeyKey(ctx: Context, sensorId: string): string {
+    return ctx.stub.createCompositeKey(SENSOR_KEY_PREFIX, [sensorId]);
+  }
+
+  private async putSensorKey(ctx: Context, sensorKey: SensorKey): Promise<void> {
+    await ctx.stub.putState(
+      this.sensorKeyKey(ctx, sensorKey.sensorId),
+      Buffer.from(JSON.stringify(sensorKey))
+    );
+  }
+
+  private async getSensorKeyRecord(ctx: Context, sensorId: string): Promise<SensorKey> {
+    const id = requireValue(sensorId, "Sensor ID");
+    const stored = await ctx.stub.getState(this.sensorKeyKey(ctx, id));
+    if (stored.length === 0) {
+      throw new Error(`Sensor '${id}' has no registered key.`);
+    }
+    return JSON.parse(stored.toString()) as SensorKey;
   }
 
   // Create a new active stakeholder and record who created it and when
@@ -438,7 +577,9 @@ export class StakeholderRegistryContract extends Contract {
   }
 
   // Notify the backend when stakeholder information changes
-  private emitEvent(ctx: Context, name: string, stakeholder: Stakeholder): void {
-    ctx.stub.setEvent(name, Buffer.from(JSON.stringify(stakeholder)));
+  // Whole record as JSON, whatever kind of record it is. Fabric keeps only the last event of a
+  // transaction, so there is exactly one of these per write.
+  private emitEvent(ctx: Context, name: string, record: Stakeholder | SensorKey): void {
+    ctx.stub.setEvent(name, Buffer.from(JSON.stringify(record)));
   }
 }

@@ -215,3 +215,119 @@ test("the final active regulator cannot be suspended or lose its role", async ()
     /final active regulator/
   );
 });
+
+// A real Ed25519 public key in DER SPKI form. Generated once and pasted rather than produced at
+// test time, so the validation is exercised against the exact shape the signing script emits.
+const SENSOR_PUBLIC_KEY = "MCowBQYDK2VwAyEAGb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDpp7XFKhwuk=";
+
+// Registering a sensor's public key is what makes the oracle a courier rather than a witness: it
+// relays readings it cannot forge, because it never holds the private half. That attestation is
+// the regulator's to make, which is why it lives in this contract at all.
+test("only an active regulator can vouch for a sensor's key", async () => {
+  const contract = new StakeholderRegistryContract();
+  const stub = new MemoryStub();
+  const regulatorContext = context(stub, "cert-regulator", REGULATOR_MSP_ID);
+
+  await contract.bootstrapRegulator(regulatorContext, "regulator-001");
+  await contract.registerStakeholder(regulatorContext, "farm-001", "FARM", "cert-farm");
+
+  await contract.registerSensorKey(
+    regulatorContext,
+    "SENSOR-001",
+    SENSOR_PUBLIC_KEY,
+    "ed25519"
+  );
+
+  const stored = JSON.parse(await contract.getSensorKey(regulatorContext, "SENSOR-001"));
+  assert.equal(stored.publicKey, SENSOR_PUBLIC_KEY);
+  assert.equal(stored.algorithm, "ed25519");
+  assert.equal(stored.active, true);
+  assert.equal(stored.registeredByStakeholderId, "regulator-001");
+  assert.equal(stub.events.at(-1).name, "SensorKeyRegistered");
+
+  // A company that is not the regulator has no business attesting to whose sensor is whose.
+  await expectReject(
+    contract.registerSensorKey(
+      context(stub, "cert-farm"),
+      "SENSOR-002",
+      SENSOR_PUBLIC_KEY,
+      "ed25519"
+    ),
+    /Only an active REGULATOR/
+  );
+
+  // Any registered participant may read it. The key is public: it can check a signature and never
+  // produce one, so withholding it would only stop honest parties verifying.
+  const asFarm = JSON.parse(await contract.getSensorKey(context(stub, "cert-farm"), "SENSOR-001"));
+  assert.equal(asFarm.publicKey, SENSOR_PUBLIC_KEY);
+
+  await expectReject(
+    contract.getSensorKey(context(stub, "cert-stranger"), "SENSOR-001"),
+    /not registered to a stakeholder/
+  );
+});
+
+// Silently replacing a key would retire every signature made under the old one with no trace, so
+// a second registration has to be refused rather than overwrite.
+test("a sensor key cannot be quietly replaced, and a bad key is refused outright", async () => {
+  const contract = new StakeholderRegistryContract();
+  const stub = new MemoryStub();
+  const regulatorContext = context(stub, "cert-regulator", REGULATOR_MSP_ID);
+
+  await contract.bootstrapRegulator(regulatorContext, "regulator-001");
+  await contract.registerSensorKey(regulatorContext, "SENSOR-001", SENSOR_PUBLIC_KEY, "ed25519");
+
+  await expectReject(
+    contract.registerSensorKey(regulatorContext, "SENSOR-001", SENSOR_PUBLIC_KEY, "ed25519"),
+    /already has a registered key/
+  );
+
+  // Buffer.from ignores characters outside the base64 alphabet, so a typo decodes to something
+  // shorter instead of failing. Without the round-trip check these would all store happily and
+  // then fail to verify anything, months later, against a record the regulator believes is right.
+  await expectReject(
+    contract.registerSensorKey(regulatorContext, "SENSOR-BAD", "not a key at all!", "ed25519"),
+    /base64 with no stray characters/
+  );
+  await expectReject(
+    contract.registerSensorKey(regulatorContext, "SENSOR-BAD", "c2hvcnQ=", "ed25519"),
+    /must be 44 bytes in DER SPKI form/
+  );
+  await expectReject(
+    contract.registerSensorKey(regulatorContext, "SENSOR-BAD", SENSOR_PUBLIC_KEY, "rsa"),
+    /Invalid signature algorithm/
+  );
+  await expectReject(
+    contract.registerSensorKey(regulatorContext, "  ", SENSOR_PUBLIC_KEY, "ed25519"),
+    /Sensor ID must not be empty/
+  );
+});
+
+// A compromised sensor has to be disownable. The record stays rather than being deleted, so
+// readings signed before the revocation can still be told apart from readings signed after it.
+test("a regulator can revoke a sensor key, and the record survives revocation", async () => {
+  const contract = new StakeholderRegistryContract();
+  const stub = new MemoryStub();
+  const regulatorContext = context(stub, "cert-regulator", REGULATOR_MSP_ID);
+
+  await contract.bootstrapRegulator(regulatorContext, "regulator-001");
+  await contract.registerSensorKey(regulatorContext, "SENSOR-001", SENSOR_PUBLIC_KEY, "ed25519");
+
+  // The stub reuses one transaction ID until it is moved on. Advancing it here is what makes the
+  // audit assertion below mean anything, since otherwise both stamps would match by default.
+  stub.txNumber = 2;
+  await contract.revokeSensorKey(regulatorContext, "SENSOR-001");
+
+  const revoked = JSON.parse(await contract.getSensorKey(regulatorContext, "SENSOR-001"));
+  assert.equal(revoked.active, false);
+  assert.equal(revoked.publicKey, SENSOR_PUBLIC_KEY, "the key itself is kept, only disowned");
+  assert.equal(revoked.registeredTxId, "tx-1", "who first vouched for it is still on the record");
+  assert.equal(revoked.updatedTxId, "tx-2", "and the revocation is stamped separately");
+  assert.equal(stub.events.at(-1).name, "SensorKeyRevoked");
+
+  await expectReject(contract.revokeSensorKey(regulatorContext, "SENSOR-001"), /already revoked/);
+  await expectReject(
+    contract.getSensorKey(regulatorContext, "SENSOR-404"),
+    /Sensor 'SENSOR-404' has no registered key/
+  );
+});
