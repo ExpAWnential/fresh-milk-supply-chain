@@ -56,6 +56,17 @@ test("audit metadata is rejected when Fabric supplies an unusable timestamp or I
   assert.throws(() => getTransactionMetadata(context({ txId: "   " })), /empty transaction ID/);
 });
 
+// Each part is a whole number, so the first check passes, and only building the date shows that
+// the value is outside the range one can represent. Left through, it would write "Invalid Date"
+// into an audit trail.
+test("a timestamp beyond what a date can hold is refused, not written as an invalid one", () => {
+  assert.throws(() => getTransactionMetadata(context({ seconds: 1e15 })), /invalid transaction timestamp/);
+  assert.throws(
+    () => getTransactionMetadata(context({ seconds: -1e15 })),
+    /invalid transaction timestamp/
+  );
+});
+
 test("audit metadata converts Fabric's seconds and nanoseconds to an ISO timestamp", () => {
   const metadata = getTransactionMetadata(context({ seconds: 1_750_000_000, nanos: 123_000_000 }));
   assert.equal(metadata.txId, "tx-1");
@@ -70,6 +81,11 @@ test("an authorisation answer the registry did not properly give is never truste
     [{ status: 200, payload: Buffer.alloc(0) }, /empty authorisation response/],
     [{ status: 200, payload: Buffer.from("not json") }, /invalid authorisation response/],
     [{ status: 200, payload: Buffer.from(JSON.stringify({ role: "FARM" })) }, /incomplete authorisation response/],
+    // Valid JSON, but not a record. It would otherwise be read field by field off a number or a
+    // null, and an authorisation answer is the last thing to be lenient about.
+    [{ status: 200, payload: Buffer.from("null") }, /incomplete authorisation response/],
+    [{ status: 200, payload: Buffer.from("42") }, /incomplete authorisation response/],
+    [{ status: 200, payload: Buffer.from('"FARM"') }, /incomplete authorisation response/],
     [
       { status: 200, payload: Buffer.from(JSON.stringify({ stakeholderId: "f", role: "WIZARD", active: true })) },
       /incomplete authorisation response/

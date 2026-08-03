@@ -1,0 +1,221 @@
+# Copyright IBM Corp. All Rights Reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# Defines the consortium members, channel policies and Raft orderers for the local milk network.
+# Organisation names and MSP IDs must match the cryptogen, Compose and script settings.
+
+---
+Organizations:
+  - &OrdererOrg
+    Name: OrdererOrg
+    ID: OrdererMSP
+    MSPDir: ../organizations/ordererOrganizations/example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('OrdererMSP.member')"
+      Writers:
+        Type: Signature
+        Rule: "OR('OrdererMSP.member')"
+      Admins:
+        Type: Signature
+        Rule: "OR('OrdererMSP.admin')"
+    OrdererEndpoints:
+      - orderer.example.com:7050
+  - &Regulator
+    Name: RegulatorMSP
+    ID: RegulatorMSP
+    MSPDir: ../organizations/peerOrganizations/regulator.example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('RegulatorMSP.admin', 'RegulatorMSP.peer', 'RegulatorMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('RegulatorMSP.admin', 'RegulatorMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('RegulatorMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('RegulatorMSP.peer')"
+
+  - &Farm
+    Name: FarmMSP
+    ID: FarmMSP
+    MSPDir: ../organizations/peerOrganizations/farm.example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('FarmMSP.admin', 'FarmMSP.peer', 'FarmMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('FarmMSP.admin', 'FarmMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('FarmMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('FarmMSP.peer')"
+
+  - &Processor
+    Name: ProcessorMSP
+    ID: ProcessorMSP
+    MSPDir: ../organizations/peerOrganizations/processor.example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('ProcessorMSP.admin', 'ProcessorMSP.peer', 'ProcessorMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('ProcessorMSP.admin', 'ProcessorMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('ProcessorMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('ProcessorMSP.peer')"
+
+  - &Logistics
+    Name: LogisticsMSP
+    ID: LogisticsMSP
+    MSPDir: ../organizations/peerOrganizations/logistics.example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('LogisticsMSP.admin', 'LogisticsMSP.peer', 'LogisticsMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('LogisticsMSP.admin', 'LogisticsMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('LogisticsMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('LogisticsMSP.peer')"
+
+  - &Retailer
+    Name: RetailerMSP
+    ID: RetailerMSP
+    MSPDir: ../organizations/peerOrganizations/retailer.example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('RetailerMSP.admin', 'RetailerMSP.peer', 'RetailerMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('RetailerMSP.admin', 'RetailerMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('RetailerMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('RetailerMSP.peer')"
+
+  - &Oracle
+    Name: OracleMSP
+    ID: OracleMSP
+    MSPDir: ../organizations/peerOrganizations/oracle.example.com/msp
+    Policies:
+      Readers:
+        Type: Signature
+        Rule: "OR('OracleMSP.admin', 'OracleMSP.peer', 'OracleMSP.client')"
+      Writers:
+        Type: Signature
+        Rule: "OR('OracleMSP.admin', 'OracleMSP.client')"
+      Admins:
+        Type: Signature
+        Rule: "OR('OracleMSP.admin')"
+      Endorsement:
+        Type: Signature
+        Rule: "OR('OracleMSP.peer')"
+
+# Every node must support these versions before joining the channel.
+Capabilities:
+  Channel: &ChannelCapabilities
+    V2_0: true
+  Orderer: &OrdererCapabilities
+    V2_0: true
+  Application: &ApplicationCapabilities
+    V2_5: true
+Application: &ApplicationDefaults
+  Organizations:
+  Policies:
+    Readers:
+      Type: ImplicitMeta
+      Rule: "ANY Readers"
+    Writers:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+    Admins:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Admins"
+    LifecycleEndorsement:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Endorsement"
+    Endorsement:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Endorsement"
+  Capabilities:
+    <<: *ApplicationCapabilities
+Orderer: &OrdererDefaults
+  Addresses:
+    - orderer.example.com:7050
+  BatchTimeout: 2s
+  BatchSize:
+    MaxMessageCount: 10
+    AbsoluteMaxBytes: 99 MB
+    PreferredMaxBytes: 512 KB
+  Organizations:
+  Policies:
+    Readers:
+      Type: ImplicitMeta
+      Rule: "ANY Readers"
+    Writers:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+    Admins:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Admins"
+    BlockValidation:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+Channel: &ChannelDefaults
+  Policies:
+    Readers:
+      Type: ImplicitMeta
+      Rule: "ANY Readers"
+    Writers:
+      Type: ImplicitMeta
+      Rule: "ANY Writers"
+    Admins:
+      Type: ImplicitMeta
+      Rule: "MAJORITY Admins"
+  Capabilities:
+    <<: *ChannelCapabilities
+Profiles:
+  ChannelUsingRaft:
+    <<: *ChannelDefaults
+    Orderer:
+      <<: *OrdererDefaults
+      OrdererType: etcdraft
+      EtcdRaft:
+        Consenters:
+          - Host: orderer.example.com
+            Port: 7050
+            ClientTLSCert: ../organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls/server.crt
+            ServerTLSCert: ../organizations/ordererOrganizations/example.com/orderers/orderer.example.com/tls/server.crt
+      Organizations:
+        - *OrdererOrg
+      Capabilities: *OrdererCapabilities
+    Application:
+      <<: *ApplicationDefaults
+      Organizations:
+        - *Regulator
+        - *Farm
+        - *Processor
+        - *Logistics
+        - *Retailer
+        - *Oracle
+      Capabilities: *ApplicationCapabilities

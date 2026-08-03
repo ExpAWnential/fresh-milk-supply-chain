@@ -8,6 +8,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx src/index.ts",
+    "sensor:keygen": "tsx src/signReadings.ts keygen",
+    "sensor:sign": "tsx src/signReadings.ts sign",
     "test": "node --import tsx --test \"test/**/*.test.ts\""
   },
   "dependencies": {

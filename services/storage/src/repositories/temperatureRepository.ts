@@ -1,8 +1,8 @@
 /**
- * Every read and write of the off-chain temperature tables. SQL lives only here.
+ * Stores the oracle's raw readings and tracks whether their evidence was anchored on Fabric.
  *
- * Written so a failed run can be repeated safely, and so an anchored row is never overwritten: its
- * readings are the baseline the ledger's hash is checked against.
+ * Pending attempts may be retried, but readings behind an existing anchor are immutable because the
+ * ledger hash describes that exact baseline. Replacing them would break the audit trail.
  */
 import { Pool, PoolClient, QueryResult } from "pg";
 
@@ -11,8 +11,11 @@ export type SubmissionStatus = "PENDING" | "ANCHORED" | "FAILED";
 
 export interface StoredTemperatureReading {
   readonly sensorId: string;
+  // Retained so another organisation can verify sequence continuity and sensor signatures.
+  readonly sequence: number;
   readonly recordedAt: string;
   readonly celsius: number;
+  readonly signature: string;
 }
 
 export interface StoredTemperatureEvidence {
@@ -22,7 +25,6 @@ export interface StoredTemperatureEvidence {
   readonly evidenceHash: string;
   readonly minCelsius: number;
   readonly maxCelsius: number;
-  readonly averageCelsius: number;
   readonly readingCount: number;
   readonly complianceOutcome: ComplianceOutcome;
   readonly submissionStatus: SubmissionStatus;
@@ -35,14 +37,8 @@ export interface TemperatureRepository {
     readings: readonly StoredTemperatureReading[]
   ): Promise<void>;
   markAnchored(evidenceId: string, fabricTransactionId: string): Promise<void>;
+  // Called only after Fabric confirms that no anchor was committed.
   markFailed(evidenceId: string): Promise<void>;
-  // Applies what the ledger itself reported for this evidence. Reports whether a row was updated,
-  // so a caller can tell an evidence record it does not hold from one it has just corrected.
-  recordLedgerOutcome(
-    evidenceId: string,
-    complianceOutcome: ComplianceOutcome,
-    fabricTransactionId: string
-  ): Promise<boolean>;
   getEvidence(evidenceId: string): Promise<StoredTemperatureEvidence | undefined>;
   listEvidenceForBatch(batchId: string): Promise<readonly StoredTemperatureEvidence[]>;
   getReadings(evidenceId: string): Promise<readonly StoredTemperatureReading[]>;
@@ -55,7 +51,6 @@ interface EvidenceRow {
   readonly evidence_hash: string;
   readonly min_celsius: string | number;
   readonly max_celsius: string | number;
-  readonly average_celsius: string | number;
   readonly reading_count: number;
   readonly compliance_outcome: ComplianceOutcome;
   readonly submission_status: SubmissionStatus;
@@ -64,10 +59,16 @@ interface EvidenceRow {
 
 interface ReadingRow {
   readonly sensor_id: string;
+  readonly sequence: number;
   readonly recorded_at: Date | string;
   readonly celsius: string | number;
+  readonly signature: string;
 }
 
+/**
+ * Creates the oracle repository. Once Fabric anchoring metadata exists, retries cannot replace the
+ * readings covered by that anchor.
+ */
 export function createTemperatureRepository(pool: Pool): TemperatureRepository {
   return {
     async saveEvidence(
@@ -81,9 +82,7 @@ export function createTemperatureRepository(pool: Pool): TemperatureRepository {
       try {
         await client.query("BEGIN");
         const written = await upsertEvidence(client, evidence);
-        // An anchored row is left exactly as it stands. Its readings are what the hash on the
-        // ledger covers, so rewriting them would destroy the baseline tamper detection compares
-        // against. Any other row is replaced, which is what makes a failed run repeatable.
+        // Never replace anchored readings because Fabric's hash covers that exact baseline.
         if (written) {
           await client.query("DELETE FROM temperature_readings WHERE evidence_id = $1", [
             evidence.evidenceId
@@ -122,29 +121,6 @@ export function createTemperatureRepository(pool: Pool): TemperatureRepository {
       );
     },
 
-    async recordLedgerOutcome(
-      evidenceId: string,
-      complianceOutcome: ComplianceOutcome,
-      fabricTransactionId: string
-    ): Promise<boolean> {
-      // The event is proof the transaction committed, so the row is confirmed anchored at the same
-      // time. That also rescues a row the oracle left pending because it could not read the
-      // submission back. Writing the same event twice lands on the same values, so a replayed
-      // event changes nothing.
-      const result = await pool.query(
-        `
-          UPDATE temperature_evidence
-          SET compliance_outcome = $2,
-              submission_status = 'ANCHORED',
-              fabric_transaction_id = $3
-          WHERE evidence_id = $1
-        `,
-        [evidenceId, complianceOutcome, fabricTransactionId]
-      );
-
-      return (result.rowCount ?? 0) > 0;
-    },
-
     async getEvidence(evidenceId: string): Promise<StoredTemperatureEvidence | undefined> {
       const result = await pool.query<EvidenceRow>(
         `
@@ -154,7 +130,6 @@ export function createTemperatureRepository(pool: Pool): TemperatureRepository {
                  evidence_hash,
                  min_celsius,
                  max_celsius,
-                 average_celsius,
                  reading_count,
                  compliance_outcome,
                  submission_status,
@@ -177,7 +152,6 @@ export function createTemperatureRepository(pool: Pool): TemperatureRepository {
                  evidence_hash,
                  min_celsius,
                  max_celsius,
-                 average_celsius,
                  reading_count,
                  compliance_outcome,
                  submission_status,
@@ -196,8 +170,10 @@ export function createTemperatureRepository(pool: Pool): TemperatureRepository {
       const result = await pool.query<ReadingRow>(
         `
           SELECT sensor_id,
+                 sequence,
                  recorded_at,
-                 celsius
+                 celsius,
+                 signature
           FROM temperature_readings
           WHERE evidence_id = $1
           ORDER BY recorded_at ASC, sensor_id ASC, reading_id ASC
@@ -225,9 +201,7 @@ function validateEvidenceForReadings(
   }
 }
 
-// Reports whether the row was written. The evidence ID is derived from the readings, so a run that
-// failed part way through produces the same ID when it is repeated: without the upsert the retry
-// would die on the primary key and those readings could never be anchored.
+// Return whether the retryable upsert wrote a row. An existing anchored row is left untouched.
 async function upsertEvidence(
   client: PoolClient,
   evidence: StoredTemperatureEvidence
@@ -241,20 +215,18 @@ async function upsertEvidence(
         evidence_hash,
         min_celsius,
         max_celsius,
-        average_celsius,
         reading_count,
         compliance_outcome,
         submission_status,
         fabric_transaction_id
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (evidence_id) DO UPDATE SET
         batch_id = EXCLUDED.batch_id,
         sensor_id = EXCLUDED.sensor_id,
         evidence_hash = EXCLUDED.evidence_hash,
         min_celsius = EXCLUDED.min_celsius,
         max_celsius = EXCLUDED.max_celsius,
-        average_celsius = EXCLUDED.average_celsius,
         reading_count = EXCLUDED.reading_count,
         compliance_outcome = EXCLUDED.compliance_outcome,
         submission_status = EXCLUDED.submission_status,
@@ -268,7 +240,6 @@ async function upsertEvidence(
       evidence.evidenceHash,
       evidence.minCelsius,
       evidence.maxCelsius,
-      evidence.averageCelsius,
       evidence.readingCount,
       evidence.complianceOutcome,
       evidence.submissionStatus,
@@ -290,12 +261,21 @@ async function insertReadings(
         INSERT INTO temperature_readings (
           evidence_id,
           sensor_id,
+          sequence,
           recorded_at,
-          celsius
+          celsius,
+          signature
         )
-        VALUES ($1, $2, $3, $4)
+        VALUES ($1, $2, $3, $4, $5, $6)
       `,
-      [evidenceId, reading.sensorId, reading.recordedAt, reading.celsius]
+      [
+        evidenceId,
+        reading.sensorId,
+        reading.sequence,
+        reading.recordedAt,
+        reading.celsius,
+        reading.signature
+      ]
     );
   }
 }
@@ -308,7 +288,6 @@ function mapEvidenceRow(row: EvidenceRow): StoredTemperatureEvidence {
     evidenceHash: row.evidence_hash,
     minCelsius: Number(row.min_celsius),
     maxCelsius: Number(row.max_celsius),
-    averageCelsius: Number(row.average_celsius),
     readingCount: row.reading_count,
     complianceOutcome: row.compliance_outcome,
     submissionStatus: row.submission_status,
@@ -319,7 +298,9 @@ function mapEvidenceRow(row: EvidenceRow): StoredTemperatureEvidence {
 function mapReadingRow(row: ReadingRow): StoredTemperatureReading {
   return {
     sensorId: row.sensor_id,
+    sequence: row.sequence,
     recordedAt: row.recorded_at instanceof Date ? row.recorded_at.toISOString() : row.recorded_at,
-    celsius: Number(row.celsius)
+    celsius: Number(row.celsius),
+    signature: row.signature
   };
 }

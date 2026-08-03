@@ -8,16 +8,23 @@ const READINGS = [
   {
     batchId: "BATCH-001",
     sensorId: "SENSOR-001",
+    sequence: 1,
     recordedAt: "2026-07-14T08:00:00Z",
-    celsius: 3.2
+    celsius: 3.2,
+    signature: "c2lnbmF0dXJlLTE="
   },
   {
     batchId: "BATCH-001",
     sensorId: "SENSOR-001",
+    sequence: 2,
     recordedAt: "2026-07-14T08:15:00Z",
-    celsius: 3.6
+    celsius: 3.6,
+    signature: "c2lnbmF0dXJlLTI="
   }
 ];
+
+// Signature authenticity is covered separately. These tests focus on ordering and recovery.
+const acceptsSignedReadings = async () => {};
 
 function recordingRepository() {
   const calls: { name: string; args: readonly unknown[] }[] = [];
@@ -39,9 +46,6 @@ function recordingRepository() {
       async listEvidenceForBatch() {
         return [];
       },
-      async recordLedgerOutcome() {
-        return true;
-      },
       async getReadings() {
         return [];
       }
@@ -54,7 +58,7 @@ const anchorSucceeds = async () => ({
   complianceOutcome: "COMPLIANT" as const
 });
 
-// The ledger positively reports nothing anchored under this evidence ID.
+// Default to a confirmed missing anchor.
 const nothingAnchored = async () => undefined;
 
 describe("oracle run", () => {
@@ -63,6 +67,7 @@ describe("oracle run", () => {
 
     const result = await runOracle(READINGS, {
       repository,
+      verifyReadings: acceptsSignedReadings,
       anchor: anchorSucceeds,
       readAnchored: nothingAnchored
     });
@@ -71,7 +76,7 @@ describe("oracle run", () => {
       calls.map((call) => call.name),
       ["saveEvidence", "markAnchored"]
     );
-    // Written as PENDING first, so a failed submission is never mistaken for anchored evidence.
+    // Persist PENDING before attempting Fabric submission.
     const [saved] = calls[0].args as [Record<string, unknown>];
     assert.equal(saved.submissionStatus, "PENDING");
     assert.equal(saved.fabricTransactionId, null);
@@ -83,6 +88,7 @@ describe("oracle run", () => {
     const { repository } = recordingRepository();
     const result = await runOracle(READINGS, {
       repository,
+      verifyReadings: acceptsSignedReadings,
       anchor: anchorSucceeds,
       readAnchored: nothingAnchored
     });
@@ -92,15 +98,16 @@ describe("oracle run", () => {
       { sensorId: "SENSOR-001", recordedAt: "2026-07-14T08:15:00.000Z", celsius: 3.6 }
     ]);
     assert.equal(result.evidenceHash, expected);
-    // The identifier is derived from the content, so the same readings always produce the same one.
+    // The evidence ID is content-derived and deterministic.
     assert.equal(result.evidenceId, `EV-BATCH-001-${expected.slice(0, 8)}`);
   });
 
   it("reports the contract's outcome rather than its own", async () => {
     const { repository } = recordingRepository();
-    // These readings are within range, yet the contract is the one that decides.
+    // The result uses the contract's verdict even for safe readings.
     const result = await runOracle(READINGS, {
       repository,
+      verifyReadings: acceptsSignedReadings,
       readAnchored: nothingAnchored,
       anchor: async () => ({ submittedTxId: "tx-1", complianceOutcome: "UNSAFE" as const })
     });
@@ -113,6 +120,7 @@ describe("oracle run", () => {
     await assert.rejects(
       runOracle(READINGS, {
         repository,
+        verifyReadings: acceptsSignedReadings,
         readAnchored: nothingAnchored,
         anchor: async () => {
           throw new Error("batch must be IN_TRANSIT");
@@ -127,14 +135,14 @@ describe("oracle run", () => {
     );
   });
 
-  // Marking a committed transaction as failed would make verification report it as never
-  // anchored, and the deterministic evidence ID means it can never be submitted again.
+  // A post-commit client failure must remain recoverable from Fabric.
   it("leaves the row pending when the transaction landed but the follow-up did not", async () => {
     const { calls, repository } = recordingRepository();
 
     await assert.rejects(
       runOracle(READINGS, {
         repository,
+        verifyReadings: acceptsSignedReadings,
         readAnchored: nothingAnchored,
         anchor: async () => {
           throw new AnchorError("submitted but could not be read back", true);
@@ -155,6 +163,7 @@ describe("oracle run", () => {
     await assert.rejects(
       runOracle(READINGS, {
         repository,
+        verifyReadings: acceptsSignedReadings,
         readAnchored: nothingAnchored,
         anchor: async () => {
           throw new AnchorError("batch must be IN_TRANSIT", false);
@@ -169,13 +178,13 @@ describe("oracle run", () => {
     );
   });
 
-  // The evidence ID is derived from the readings, so the contract refuses a second submission.
-  // Adopting what is already there is the only way a half-finished run can ever complete.
+  // A retry adopts the existing record because the deterministic ID cannot be submitted twice.
   it("adopts the record already on the ledger when anchoring reports a failure", async () => {
     const { calls, repository } = recordingRepository();
 
     const result = await runOracle(READINGS, {
       repository,
+      verifyReadings: acceptsSignedReadings,
       readAnchored: async () => ({ submittedTxId: "tx-earlier", complianceOutcome: "UNSAFE" }),
       anchor: async () => {
         throw new AnchorError("evidence 'EV-1' has already been anchored", false);
@@ -183,7 +192,7 @@ describe("oracle run", () => {
     });
 
     assert.equal(result.fabricTransactionId, "tx-earlier");
-    // Reported by the contract, so the recovered run says what the ledger says.
+    // Recovery uses Fabric's verdict.
     assert.equal(result.complianceOutcome, "UNSAFE");
     assert.deepEqual(
       calls.map((call) => call.name),
@@ -197,6 +206,7 @@ describe("oracle run", () => {
     await assert.rejects(
       runOracle(READINGS, {
         repository,
+        verifyReadings: acceptsSignedReadings,
         readAnchored: async () => {
           throw new Error("peer unavailable");
         },
@@ -207,7 +217,7 @@ describe("oracle run", () => {
       /must be IN_TRANSIT/
     );
 
-    // Not knowing whether the transaction landed is not proof that it did not.
+    // Inconclusive state remains PENDING.
     assert.deepEqual(
       calls.map((call) => call.name),
       ["saveEvidence"]
@@ -220,19 +230,25 @@ describe("oracle run", () => {
     await assert.rejects(
       runOracle([...READINGS, { ...READINGS[0], batchId: "BATCH-002" }], {
         repository,
+        verifyReadings: acceptsSignedReadings,
         readAnchored: nothingAnchored,
         anchor: anchorSucceeds
       }),
       /must all belong to one batch/
     );
-    // Nothing is written, because a fingerprint spanning batches could never be verified.
+    // Mixed-batch input is rejected before persistence.
     assert.equal(calls.length, 0);
   });
 
   it("refuses an empty reading set", async () => {
     const { repository } = recordingRepository();
     await assert.rejects(
-      runOracle([], { repository, anchor: anchorSucceeds, readAnchored: nothingAnchored }),
+      runOracle([], {
+        repository,
+        verifyReadings: acceptsSignedReadings,
+        anchor: anchorSucceeds,
+        readAnchored: nothingAnchored
+      }),
       /must all belong to one batch/
     );
   });

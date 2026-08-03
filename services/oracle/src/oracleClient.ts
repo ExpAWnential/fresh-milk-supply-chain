@@ -1,10 +1,11 @@
 /**
- * The oracle's HTTP calls to the backend: submit evidence, and read an anchored record back.
+ * Provides the oracle's HTTP boundary to Fabric-backed operations.
  *
- * Its job is to report precisely what happened, in particular whether a failed submission still
- * reached the ledger, because that is what decides whether a run can be repaired.
+ * Submission failures are not assumed to mean rejection because a transaction may have committed
+ * before the response was lost. Callers can read the anchored record to resolve that uncertainty.
  */
 import type { TemperatureStatistics } from "@fresh-milk/storage";
+import type { SensorPublicKey } from "./verifyReadings.js";
 
 export interface TemperatureEvidenceSubmission {
   readonly evidenceId: string;
@@ -19,9 +20,7 @@ export interface AnchoredEvidence {
   readonly complianceOutcome: "COMPLIANT" | "UNSAFE";
 }
 
-// Whether the transaction reached the ledger before things went wrong. A submission that was
-// committed but could not be read back afterwards is not a failure to anchor, and must not be
-// recorded as one: the evidence is on the ledger and cannot be submitted again.
+// A failure after commit remains anchored because Fabric will reject resubmission of the same ID.
 export class AnchorError extends Error {
   public constructor(
     message: string,
@@ -32,12 +31,12 @@ export class AnchorError extends Error {
   }
 }
 
-const backendUrl = process.env.BACKEND_URL ?? "http://localhost:3000";
+// Only the oracle backend holds the certificate authorised to submit evidence.
+const backendUrl = process.env.BACKEND_URL ?? "http://localhost:3006";
 
-// The compliance outcome is deliberately absent from the submission. The oracle reports the
-// statistics and the contract decides, so the oracle cannot simply assert that unsafe milk passed.
-// It could still anchor a flattering summary of honest readings, which is why verification
-// recomputes the statistics from those readings rather than trusting the anchored copy.
+// Submit statistics, not a verdict. The contract derives compliance and verification recomputes
+// the statistics from the raw readings.
+/** Submits one evidence summary through the backend that owns the oracle's Fabric identity. */
 export async function submitTemperatureEvidence(
   submission: TemperatureEvidenceSubmission
 ): Promise<AnchoredEvidence> {
@@ -45,10 +44,7 @@ export async function submitTemperatureEvidence(
     `${backendUrl}/temperature/batches/${encodeURIComponent(submission.batchId)}/evidence`,
     {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-demo-identity": "oracle"
-      },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
         evidenceId: submission.evidenceId,
         evidenceHash: submission.evidenceHash,
@@ -62,9 +58,7 @@ export async function submitTemperatureEvidence(
     throw new AnchorError(await describeFailure(anchorResponse), false);
   }
 
-  // Read the anchored record back so the off-chain row can be linked to the real transaction,
-  // which also confirms the evidence is genuinely on the ledger.
-  // From here on the transaction is committed, so every failure reports anchored: true.
+  // Read back the committed record to capture its real transaction ID.
   let anchored: AnchoredEvidence | undefined;
   try {
     anchored = await readAnchoredEvidence(submission.evidenceId);
@@ -83,15 +77,15 @@ export async function submitTemperatureEvidence(
   return anchored;
 }
 
-// Undefined means the ledger positively has no such evidence, which the backend reports as a 404.
-// Every other failure throws, because being unable to tell must never be read as "never anchored":
-// that is the difference between a run that can be repaired and one recorded as failed forever.
+/**
+ * Reads back Fabric's committed evidence record. A confirmed 404 means no anchor exists, while
+ * transport and server failures remain inconclusive and are allowed to throw.
+ */
 export async function readAnchoredEvidence(
   evidenceId: string
 ): Promise<AnchoredEvidence | undefined> {
   const response = await fetch(
-    `${backendUrl}/temperature/evidence/${encodeURIComponent(evidenceId)}`,
-    { headers: { "x-demo-identity": "oracle" } }
+    `${backendUrl}/temperature/evidence/${encodeURIComponent(evidenceId)}`
   );
 
   if (response.status === 404) {
@@ -108,6 +102,28 @@ export async function readAnchoredEvidence(
   }
 
   return anchored;
+}
+
+/** Reads a regulator-attested sensor key from Fabric. Only a confirmed 404 returns undefined. */
+export async function readSensorPublicKey(
+  sensorId: string
+): Promise<SensorPublicKey | undefined> {
+  const response = await fetch(`${backendUrl}/sensors/${encodeURIComponent(sensorId)}`);
+
+  if (response.status === 404) {
+    return undefined;
+  }
+
+  if (!response.ok) {
+    throw new Error(await describeFailure(response));
+  }
+
+  const sensorKey = (await response.json()) as SensorPublicKey;
+  if (!sensorKey.publicKey) {
+    throw new Error(`The registered record for sensor '${sensorId}' carried no public key.`);
+  }
+
+  return sensorKey;
 }
 
 async function describeFailure(response: Response): Promise<string> {

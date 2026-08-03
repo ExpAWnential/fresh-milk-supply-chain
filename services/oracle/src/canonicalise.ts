@@ -1,59 +1,49 @@
 /**
- * Puts readings into the one exact form the fingerprint is computed over: trimmed text, ISO
- * timestamps, temperatures to three decimals, in a fixed order.
+ * Converts parsed sensor rows into the stable representation used by hashing and signatures.
  *
- * Two runs over the same readings have to produce byte-identical output, or the hash means
- * nothing.
+ * Text and timestamps are normalised, while the signed sequence and signature remain untouched.
+ * This keeps equivalent input consistent without changing the bytes whose authenticity is checked.
  */
-// Sorted with the storage package's comparator, the same one the hash uses, so the order this
-// produces and the order the fingerprint is built from can never disagree.
-import { compareTemperatureReadings } from "@fresh-milk/storage";
+import {
+  compareTemperatureReadings,
+  normaliseRecordedAt,
+  requireText,
+  roundCelsius
+} from "@fresh-milk/storage";
 
 export interface RawTemperatureReading {
   readonly batchId: string;
   readonly sensorId: string;
+  readonly sequence: number;
   readonly recordedAt: string;
   readonly celsius: number;
+  readonly signature: string;
 }
 
 export interface CanonicalTemperatureReading {
   readonly batchId: string;
   readonly sensorId: string;
+  readonly sequence: number;
   readonly recordedAt: string;
   readonly celsius: number;
+  readonly signature: string;
 }
 
+// Preserve signed sequence values and opaque signatures without normalising them.
+/** Normalises sensor rows while preserving the sequence and signature supplied by the sensor. */
 export function canonicaliseReadings(
   readings: readonly RawTemperatureReading[]
 ): readonly CanonicalTemperatureReading[] {
   return readings
     .map((reading) => ({
-      batchId: normaliseRequiredText(reading.batchId, "batchId"),
-      sensorId: normaliseRequiredText(reading.sensorId, "sensorId"),
-      recordedAt: normaliseTimestamp(reading.recordedAt),
-      celsius: normaliseTemperature(reading.celsius)
+      batchId: requireText(reading.batchId, "batchId"),
+      sensorId: requireText(reading.sensorId, "sensorId"),
+      sequence: reading.sequence,
+      recordedAt: normaliseRecordedAt(reading.recordedAt),
+      celsius: normaliseTemperature(reading.celsius),
+      signature: requireText(reading.signature, "signature")
     }))
     .sort(compareTemperatureReadings);
-}
-
-function normaliseRequiredText(value: string, fieldName: string): string {
-  const normalised = value.trim();
-
-  if (!normalised) {
-    throw new Error(`Missing required CSV field: ${fieldName}`);
-  }
-
-  return normalised;
-}
-
-function normaliseTimestamp(value: string): string {
-  const parsed = new Date(value.trim());
-
-  if (Number.isNaN(parsed.getTime())) {
-    throw new Error(`Invalid recordedAt timestamp: ${value}`);
-  }
-
-  return parsed.toISOString();
 }
 
 function normaliseTemperature(value: number): number {
@@ -61,6 +51,5 @@ function normaliseTemperature(value: number): number {
     throw new Error(`Invalid celsius value: ${value}`);
   }
 
-  return Number(value.toFixed(3));
+  return roundCelsius(value);
 }
-

@@ -18,9 +18,24 @@ coverage/
 *.p12
 *.pfx
 
-# Hyperledger Fabric generated artifacts
+# The one deliberate exception. This is a simulated sensor's key, used to sign the sample readings
+# that ship with the repository. It is committed so those signatures verify on a teammate's machine
+# rather than only on the one that generated them, and it protects nothing real. See the README
+# beside it.
+!services/oracle/data/demo-sensor/*.key
+
+# The one exception. This is a self-signed organisation generated for the tests, so that reading a
+# certificate and key off disk can be exercised on a clean checkout rather than only after the
+# network has been brought up. It grants nothing: no peer, channel or registry has ever heard of it.
+!services/backend/test/fixtures/wallet/**
+
+# Hyperledger Fabric generated artifacts.
+# Only the generated certificate trees are ignored, not the whole organizations directory: the
+# cryptogen templates that produce them are committed and live alongside. Git cannot re-include a
+# file whose parent directory is excluded, so excluding the parent would silently lose them.
 fabric/**/crypto-config/
-fabric/**/organizations/
+fabric/**/organizations/peerOrganizations/
+fabric/**/organizations/ordererOrganizations/
 fabric/**/channel-artifacts/
 fabric/**/system-genesis-block/
 fabric/**/*.block

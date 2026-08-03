@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, it } from "node:test";
 import { AnchorError, readAnchoredEvidence, submitTemperatureEvidence } from "../src/oracleClient.js";
+
+const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const SUBMISSION = {
   evidenceId: "EV-1",
   batchId: "BATCH-001",
   evidenceHash: "a".repeat(64),
   offChainReference: "postgres://temperature_evidence/EV-1",
-  statistics: { minCelsius: 1, maxCelsius: 4, averageCelsius: 2, readingCount: 3 }
+  statistics: { minCelsius: 1, maxCelsius: 4, readingCount: 3 }
 };
 
 const realFetch = globalThis.fetch;
@@ -41,11 +46,9 @@ describe("anchoring evidence through the backend", () => {
     assert.equal(anchored.complianceOutcome, "COMPLIANT");
 
     const [submit] = requests;
-    assert.match(submit.url, /\/temperature\/batches\/BATCH-001\/evidence$/);
-    assert.equal(
-      (submit.init?.headers as Record<string, string>)["x-demo-identity"],
-      "oracle"
-    );
+    // Submission goes through the backend that holds the oracle identity.
+    assert.match(submit.url, /^http:\/\/localhost:3006\/temperature\/batches\/BATCH-001\/evidence$/);
+    assert.deepEqual(Object.keys(submit.init?.headers ?? {}), ["content-type"]);
     const body = JSON.parse(String(submit.init?.body));
     assert.deepEqual(Object.keys(body).sort(), [
       "evidenceHash",
@@ -67,11 +70,13 @@ describe("anchoring evidence through the backend", () => {
     assert.match(requests[1].url, /\/temperature\/evidence\/EV-1$/);
   });
 
+  // Retry handling depends on whether Fabric committed the transaction.
   it("surfaces the backend's reason when the submission is refused, and reports it never landed", async () => {
     stubFetch([() => json({ error: "Batch 'BATCH-001' must be IN_TRANSIT" }, 400)]);
 
     await assert.rejects(submitTemperatureEvidence(SUBMISSION), (error: unknown) => {
       assert.ok(error instanceof AnchorError);
+      assert.equal(error.name, "AnchorError");
       assert.match(error.message, /must be IN_TRANSIT/);
       assert.equal(error.anchored, false);
       return true;
@@ -83,7 +88,7 @@ describe("anchoring evidence through the backend", () => {
 
     await assert.rejects(submitTemperatureEvidence(SUBMISSION), (error: unknown) => {
       assert.ok(error instanceof AnchorError);
-      // The caller must not record this as a failed anchor: the evidence is on the ledger.
+      // A committed transaction must not be marked as a failed anchor.
       assert.equal(error.anchored, true);
       return true;
     });
@@ -106,8 +111,7 @@ describe("anchoring evidence through the backend", () => {
     assert.equal(await readAnchoredEvidence("EV-1"), undefined);
   });
 
-  // Not being able to tell is not the same as nothing being anchored, and treating it that way is
-  // what would let a committed run be written off as failed.
+  // An inconclusive lookup is not evidence that no anchor exists.
   it("raises anything other than a plain not found", async () => {
     for (const status of [400, 500, 503]) {
       stubFetch([() => json({ error: "peer unavailable" }, status)]);
@@ -120,4 +124,45 @@ describe("anchoring evidence through the backend", () => {
 
     await assert.rejects(submitTemperatureEvidence(SUBMISSION), /504/);
   });
+
+  it("falls back to the status and body when the failure names no reason", async () => {
+    stubFetch([() => json({ detail: "no route to host" }, 502)]);
+
+    await assert.rejects(submitTemperatureEvidence(SUBMISSION), (error: Error) => {
+      assert.match(error.message, /502/);
+      assert.match(error.message, /no route to host/);
+      return true;
+    });
+  });
+
+  it("talks to the oracle's own backend by default", async () => {
+    const requests = stubFetch([() => json({}, 201), () => json({ submittedTxId: "tx-1" })]);
+
+    await submitTemperatureEvidence(SUBMISSION);
+
+    assert.ok(requests[0].url.startsWith("http://localhost:3006/"), requests[0].url);
+  });
+
+  // Use a child process because the backend address is read at module load time.
+  it("follows BACKEND_URL, which is read once when the module loads", () => {
+    const child = spawnSync(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "-e",
+        `globalThis.fetch = async (url) => { console.log(String(url)); process.exit(0); };
+         const { readAnchoredEvidence } = await import("./src/oracleClient.ts");
+         await readAnchoredEvidence("EV-1");`
+      ],
+      {
+        cwd: packageRoot,
+        encoding: "utf8",
+        env: { ...process.env, BACKEND_URL: "http://localhost:4006" }
+      }
+    );
+
+    assert.match(child.stdout, /^http:\/\/localhost:4006\/temperature\/evidence\/EV-1/m);
+  });
+
 });

@@ -1,37 +1,46 @@
 /**
- * HTTP for temperature evidence: submitting it, clearing a breach, reading a record back, and
- * verifying the stored readings against what the ledger anchored.
+ * Exposes the temperature evidence workflow through the backend API.
+ *
+ * These routes connect the oracle's off-chain readings with the on-chain evidence anchor. They also
+ * enforce ledger-backed read access, provide independent verification, and let the regulator resolve
+ * a breach without allowing the HTTP caller to choose the contract's compliance verdict.
  */
 import { Router } from "express";
-import type { Request as ExpressRequest } from "express";
 import type { TemperatureRepository } from "@fresh-milk/storage";
 import { config } from "../config.js";
 import { BATCH_CONTRACT, TEMPERATURE_CONTRACT } from "../fabric/contracts.js";
 import { bindLedger, requireString } from "../fabric/ledger.js";
-import { sendGatewayError, type GatewayConnector } from "../fabric/request.js";
+import { sendGatewayError, type GatewayConnector } from "../fabric/connection.js";
 import { describesMissingEvidence } from "../fabric/anchoredEvidence.js";
+import { ReadingsUnavailableError } from "../services/readingsSource.js";
 import {
   EvidenceVerificationError,
   type AnchoredEvidenceReader,
+  type SensorKeyReader,
+  type ReadingsSource,
   verifyTemperatureEvidence
 } from "../services/evidenceVerification.js";
 
 export interface TemperatureRouterDependencies {
   readonly connect: GatewayConnector;
+  // Present only for the oracle, which stores and publishes the raw readings.
   readonly temperatureRepository?: TemperatureRepository;
-  // Builds a reader that queries the ledger as whoever made the request, so the contract's own
-  // role check applies. Required: a verification that cannot consult the anchor would be
-  // comparing the database against itself, which proves nothing.
-  readonly readerForRequest: (request: ExpressRequest) => AnchoredEvidenceReader;
+  // Reads the trusted comparison values from Fabric as this organisation.
+  readonly anchoredEvidenceReader: AnchoredEvidenceReader;
+  readonly sensorKeyReader: SensorKeyReader;
+  // Reads locally for the oracle and remotely for every other organisation.
+  readonly readingsSource: ReadingsSource;
 }
 
 export function createTemperatureRouter({
   connect,
   temperatureRepository,
-  readerForRequest
+  anchoredEvidenceReader,
+  sensorKeyReader,
+  readingsSource
 }: TemperatureRouterDependencies): Router {
   const temperature = bindLedger(connect, config.supplychainChaincodeName, TEMPERATURE_CONTRACT);
-  // Reading a batch is how the evidence listing below borrows the contract's own authorisation.
+  // The evidence listing uses the batch contract's existing read authorisation.
   const batches = bindLedger(connect, config.supplychainChaincodeName, BATCH_CONTRACT);
   const router = Router();
 
@@ -45,10 +54,8 @@ export function createTemperatureRouter({
         throw new Error("'statistics' must be an object.");
       }
 
-      // The compliance outcome is deliberately not accepted from the caller. The contract
-      // derives it from these statistics itself.
+      // The contract derives compliance. The caller cannot submit its own verdict.
       await temperature.submit(
-        req,
         "submitTemperatureEvidence",
         evidenceId,
         req.params.batchId,
@@ -65,16 +72,14 @@ export function createTemperatureRouter({
   router.post("/batches/:batchId/resolve-breach", async (req, res) => {
     try {
       const reason = requireString(req.body?.reason, "reason");
-      await temperature.submit(req, "resolveTemperatureBreach", req.params.batchId, reason);
+      await temperature.submit("resolveTemperatureBreach", req.params.batchId, reason);
       res.json({ batchId: req.params.batchId, reason });
     } catch (error) {
       sendGatewayError(res, error);
     }
   });
 
-  // The evidence ID embeds a hash of the readings, so it cannot be guessed. Without this a
-  // regulator who sees a batch flip to COLD_CHAIN_BREACH has no way to reach the evidence that
-  // caused it. The batch is read from the ledger first, so the contract decides who may look.
+  // List off-chain evidence only after Fabric authorises this organisation to read the batch.
   router.get("/batches/:batchId/evidence", async (req, res) => {
     if (!temperatureRepository) {
       res.status(503).json({ error: "temperature storage is not configured" });
@@ -82,7 +87,7 @@ export function createTemperatureRouter({
     }
 
     try {
-      await batches.evaluateJson(req, "getBatch", req.params.batchId);
+      await batches.evaluateJson("getBatch", req.params.batchId);
       const evidence = await temperatureRepository.listEvidenceForBatch(req.params.batchId);
 
       res.json(
@@ -102,11 +107,9 @@ export function createTemperatureRouter({
   router.get("/evidence/:evidenceId", async (req, res) => {
     try {
       res.json(
-        await temperature.evaluateJson(req, "getTemperatureEvidence", req.params.evidenceId)
+        await temperature.evaluateJson("getTemperatureEvidence", req.params.evidenceId)
       );
     } catch (error) {
-      // Evidence the ledger has never seen answers 404, so a caller can tell that apart from a
-      // refusal by the status alone rather than matching on the contract's wording.
       if (describesMissingEvidence(error)) {
         res.status(404).json({ error: `Evidence '${req.params.evidenceId}' is not on the ledger.` });
         return;
@@ -115,9 +118,8 @@ export function createTemperatureRouter({
     }
   });
 
-  // The readings the fingerprint covers. Reading the evidence off the ledger first is how this
-  // borrows the contract's own authorisation rather than handing off-chain data to anyone who asks.
-  // Verification could previously prove a match but never show what had been matched.
+  // Publishes the raw readings used by other organisations. The preceding ledger read authorises
+  // this backend's identity, not the HTTP caller. See docs/design.md for that proof-of-concept limit.
   router.get("/evidence/:evidenceId/readings", async (req, res) => {
     if (!temperatureRepository) {
       res.status(503).json({ error: "temperature storage is not configured" });
@@ -125,7 +127,7 @@ export function createTemperatureRouter({
     }
 
     try {
-      await temperature.evaluateJson(req, "getTemperatureEvidence", req.params.evidenceId);
+      await temperature.evaluateJson("getTemperatureEvidence", req.params.evidenceId);
       res.json(await temperatureRepository.getReadings(req.params.evidenceId));
     } catch (error) {
       if (describesMissingEvidence(error)) {
@@ -136,34 +138,26 @@ export function createTemperatureRouter({
     }
   });
 
+  // Every organisation can verify, including those without their own readings database.
   router.get("/evidence/:evidenceId/verify", async (req, res) => {
-    if (!temperatureRepository) {
-      res.status(503).json({ error: "temperature storage is not configured" });
-      return;
-    }
-
-    // Resolved before the try below, so a missing or unknown identity header is reported the same
-    // way every other route reports it rather than falling through to an opaque 500.
-    let anchoredEvidenceReader: AnchoredEvidenceReader;
     try {
-      anchoredEvidenceReader = readerForRequest(req);
-    } catch (error) {
-      sendGatewayError(res, error);
-      return;
-    }
-
-    try {
-      // Verification reads the anchored hash as the caller, so the contract decides whether they
-      // are allowed to see it rather than this route trusting an unauthenticated request.
+      // Compare holder-supplied readings with values this organisation reads from Fabric.
       const result = await verifyTemperatureEvidence(req.params.evidenceId, {
-        temperatureRepository,
-        anchoredEvidenceReader
+        readingsSource,
+        anchoredEvidenceReader,
+        sensorKeyReader
       });
       res.json(result);
     } catch (error) {
       if (error instanceof EvidenceVerificationError) {
         const status = error.code === "EVIDENCE_NOT_FOUND" ? 404 : 409;
         res.status(status).json({ error: error.message, code: error.code });
+        return;
+      }
+
+      // Report failure by the remote readings holder separately from a local verification fault.
+      if (error instanceof ReadingsUnavailableError) {
+        res.status(502).json({ error: error.message, code: "READINGS_UNAVAILABLE" });
         return;
       }
 

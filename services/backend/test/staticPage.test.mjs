@@ -9,8 +9,7 @@ function unusableLedger() {
 async function get(path) {
   const app = createApp({
     connect: unusableLedger,
-    readAsRegulator: unusableLedger,
-    readerForRequest: () => ({ getAnchoredEvidence: async () => undefined })
+    anchoredEvidenceReader: { getAnchoredEvidence: async () => undefined }
   });
   const server = app.listen(0);
   try {

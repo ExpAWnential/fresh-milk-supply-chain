@@ -1,14 +1,22 @@
 /**
- * Reads sensor readings out of a CSV file.
+ * Parses a signed CSV export produced by a sensor-side process.
  *
- * Parsing only. Nothing here reshapes or judges a reading beyond checking that the columns are
- * present and the temperature is a number.
+ * Sensor identity, sequence and signature are required fields. The parser refuses incomplete rows
+ * instead of filling defaults that would make a broken or altered run look valid.
  */
 import { readFile } from "node:fs/promises";
 import { RawTemperatureReading } from "./canonicalise.js";
 
-const REQUIRED_HEADERS = ["batchId", "sensorId", "recordedAt", "celsius"] as const;
+export const REQUIRED_HEADERS = [
+  "batchId",
+  "sensorId",
+  "sequence",
+  "recordedAt",
+  "celsius",
+  "signature"
+] as const;
 
+/** Reads a signed sensor CSV file and rejects it if any required row data is incomplete. */
 export async function readTemperatureReadingsCsv(
   filePath: string
 ): Promise<readonly RawTemperatureReading[]> {
@@ -16,6 +24,7 @@ export async function readTemperatureReadingsCsv(
   return parseTemperatureReadingsCsv(csv);
 }
 
+/** Parses signed readings without inventing defaults for missing identity or signature fields. */
 export function parseTemperatureReadingsCsv(csv: string): readonly RawTemperatureReading[] {
   const lines = csv
     .split(/\r?\n/)
@@ -43,11 +52,21 @@ export function parseTemperatureReadingsCsv(csv: string): readonly RawTemperatur
       throw new Error(`CSV row ${index + 2} has invalid celsius value: ${row.celsius}`);
     }
 
+    const sequence = Number(row.sequence);
+    if (!Number.isSafeInteger(sequence) || sequence < 1) {
+      throw new Error(`CSV row ${index + 2} has invalid sequence value: ${row.sequence}`);
+    }
+    if (!row.signature) {
+      throw new Error(`CSV row ${index + 2} has no signature.`);
+    }
+
     return {
       batchId: row.batchId,
       sensorId: row.sensorId,
+      sequence,
       recordedAt: row.recordedAt,
-      celsius
+      celsius,
+      signature: row.signature
     };
   });
 }

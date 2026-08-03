@@ -17,6 +17,7 @@
     "test": "node --import tsx --test \"test/**/*.test.ts\" \"test/**/*.test.mjs\"",
     "db:start": "docker compose up -d",
     "db:stop": "docker compose down",
+    "db:reset": "docker compose down -v && docker compose up -d",
     "demo:tamper": "pnpm build && node dist/tamperEvidence.js",
     "test:integration": "pnpm build && RUN_POSTGRES_INTEGRATION=1 node --test test/postgres.integration.test.mjs"
   },

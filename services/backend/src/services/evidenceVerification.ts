@@ -1,25 +1,26 @@
 /**
- * The tamper check. Two comparisons against the stored readings, answering different questions.
+ * Performs independent checks that can reveal altered or unverifiable evidence.
  *
- * The hash asks whether the readings were edited after they were anchored. The statistics ask
- * whether the summary the contract passed judgement on ever described those readings, which the
- * hash cannot tell you because it does not cover that summary.
- *
- * Whether the readings changed and whether the database's own copy of the hash changed are
- * reported separately too, because those point at different culprits.
+ * Off-chain readings are compared with Fabric's hash and statistics, while sensor signatures are
+ * checked against the regulator-attested key. Each result remains separate so an unavailable source
+ * is reported as inconclusive instead of being mistaken for a successful match.
  */
 import {
   calculateTemperatureStatistics,
+  sensorPublicKey,
   sha256TemperatureReadings,
-  type TemperatureRepository,
+  verifyReadingSignature,
+  type SignatureCheck,
+  type StoredTemperatureReading,
   type TemperatureStatistics
 } from "@fresh-milk/storage";
 
 export interface AnchoredEvidence {
+  // The batch ID comes from Fabric because it is part of the fingerprint.
+  readonly batchId: string;
   readonly evidenceHash: string;
   readonly fabricTransactionId?: string | null;
-  // The summary the contract derived its verdict from. The hash covers the readings but not this,
-  // so without it there is no way to tell whether the verdict was reached from the real numbers.
+  // The contract judged this summary, so it is verified separately from the hash.
   readonly statistics?: TemperatureStatistics;
 }
 
@@ -27,34 +28,61 @@ export interface AnchoredEvidenceReader {
   getAnchoredEvidence(evidenceId: string): Promise<AnchoredEvidence | undefined>;
 }
 
+export interface RegisteredSensorKey {
+  readonly publicKey: string;
+  readonly active: boolean;
+}
+
+export type SignatureIssue =
+  // At least one reading does not match its sensor signature.
+  | "FORGED"
+  | "SENSOR_NOT_REGISTERED"
+  | "SENSOR_REVOKED"
+  | "MIXED_SENSORS";
+
+// The sensor key must come from Fabric, not from the party supplying the readings.
+export interface SensorKeyReader {
+  getSensorKey(sensorId: string): Promise<RegisteredSensorKey | undefined>;
+}
+
+export interface SourcedReadings {
+  readonly readings: readonly StoredTemperatureReading[];
+  // Available only when the verifier is also the database holder.
+  readonly declaredHash?: string;
+}
+
+// The oracle reads locally. Other organisations fetch the readings from the oracle.
+export interface ReadingsSource {
+  getReadings(evidenceId: string): Promise<SourcedReadings | undefined>;
+}
+
 export interface EvidenceVerificationDependencies {
-  readonly temperatureRepository: TemperatureRepository;
-  // Required. Comparing the stored hash against readings from that same database proves nothing,
-  // because both move together when a row is altered. The anchor has to come off the ledger.
+  readonly readingsSource: ReadingsSource;
+  // The trusted comparison value must come from Fabric, not the readings holder.
   readonly anchoredEvidenceReader: AnchoredEvidenceReader;
+  readonly sensorKeyReader: SensorKeyReader;
 }
 
 export interface EvidenceVerificationResult {
   readonly evidenceId: string;
   readonly batchId: string;
-  // Whether the stored readings still hash to what the ledger anchored.
   readonly match: boolean;
-  // Whether the database's own record of the hash also matches the ledger. A false here with a
-  // true above would mean the stored hash was altered rather than the readings.
-  readonly databaseHashMatchesAnchor: boolean;
+  // Null when the verifier cannot read the holder's stored hash.
+  readonly databaseHashMatchesAnchor: boolean | null;
   readonly anchoredHash: string;
-  readonly databaseHash: string;
+  readonly databaseHash: string | null;
   readonly recomputedHash: string;
-  // Whether the summary the contract judged actually describes the stored readings. A hash match
-  // with this false means nobody edited the readings, but the oracle's summary of them was wrong,
-  // so the verdict on the ledger was reached from numbers that were never true.
-  // Null when the anchored record carried no statistics to compare against.
+  // Null when the anchored record has no statistics to compare.
   readonly statisticsMatch: boolean | null;
   readonly anchoredStatistics: TemperatureStatistics | null;
   readonly recomputedStatistics: TemperatureStatistics;
-  readonly readingCount: number;
-  // Null when the anchored record carries no transaction ID. Reported as missing rather than
-  // filled in from the database, so this field always means what it says.
+  // Null means the signature check could not reach a verdict.
+  readonly signaturesMatch: boolean | null;
+  // Sequence numbers of readings with invalid signatures.
+  readonly signatureFailures: readonly number[];
+  // Distinguishes invalid signatures from sensor registration problems.
+  readonly signatureIssue: SignatureIssue | null;
+  // Always sourced from Fabric. Null when the anchor has no transaction ID.
   readonly fabricTransactionId: string | null;
 }
 
@@ -74,32 +102,23 @@ export class EvidenceVerificationError extends Error {
   }
 }
 
+/**
+ * Recomputes each independently checkable claim and preserves `null` where a source cannot provide
+ * a trustworthy answer. A missing answer is never reported as a match.
+ */
 export async function verifyTemperatureEvidence(
   evidenceId: string,
   dependencies: EvidenceVerificationDependencies
 ): Promise<EvidenceVerificationResult> {
   const normalisedEvidenceId = evidenceId.trim();
-  const evidence = await dependencies.temperatureRepository.getEvidence(normalisedEvidenceId);
-  if (!evidence) {
-    throw new EvidenceVerificationError(
-      "EVIDENCE_NOT_FOUND",
-      `Evidence '${normalisedEvidenceId}' does not exist.`
-    );
-  }
-  if (evidence.submissionStatus !== "ANCHORED" || !evidence.fabricTransactionId) {
-    throw new EvidenceVerificationError(
-      "EVIDENCE_NOT_ANCHORED",
-      `Evidence '${normalisedEvidenceId}' has not been anchored to Fabric.`
-    );
-  }
 
-  // The database read and the ledger read are independent, so neither waits on the other.
-  const [readings, fabricEvidence] = await Promise.all([
-    dependencies.temperatureRepository.getReadings(normalisedEvidenceId),
+  // Fetch the independent off-chain and on-chain records concurrently.
+  const [sourced, fabricEvidence] = await Promise.all([
+    dependencies.readingsSource.getReadings(normalisedEvidenceId),
     dependencies.anchoredEvidenceReader.getAnchoredEvidence(normalisedEvidenceId)
   ]);
 
-  if (readings.length === 0) {
+  if (!sourced || sourced.readings.length === 0) {
     throw new EvidenceVerificationError(
       "READINGS_NOT_FOUND",
       `Evidence '${normalisedEvidenceId}' has no off-chain readings.`
@@ -112,21 +131,23 @@ export async function verifyTemperatureEvidence(
     );
   }
 
+  const readings = sourced.readings;
   const anchoredHash = fabricEvidence.evidenceHash.toLowerCase();
-  const databaseHash = evidence.evidenceHash.toLowerCase();
-  const recomputedHash = sha256TemperatureReadings(evidence.batchId, readings);
+  const databaseHash = sourced.declaredHash?.toLowerCase() ?? null;
+  const recomputedHash = sha256TemperatureReadings(fabricEvidence.batchId, readings);
 
-  // The hash proves the readings were not edited after anchoring. It says nothing about whether
-  // the summary sent alongside it described those readings, and the summary is what the contract
-  // judged, so an oracle could store honest readings and anchor a flattering summary of them.
+  // Recompute the summary because it is not covered by the evidence hash.
   const anchoredStatistics = fabricEvidence.statistics ?? null;
   const recomputedStatistics = calculateTemperatureStatistics(readings);
 
+  // Signature lookup failure does not discard the completed hash and statistics checks.
+  const signatures = await checkSignatures(fabricEvidence.batchId, readings, dependencies);
+
   return {
     evidenceId: normalisedEvidenceId,
-    batchId: evidence.batchId,
+    batchId: fabricEvidence.batchId,
     match: recomputedHash === anchoredHash,
-    databaseHashMatchesAnchor: databaseHash === anchoredHash,
+    databaseHashMatchesAnchor: databaseHash === null ? null : databaseHash === anchoredHash,
     anchoredHash,
     databaseHash,
     recomputedHash,
@@ -135,15 +156,74 @@ export async function verifyTemperatureEvidence(
       : null,
     anchoredStatistics,
     recomputedStatistics,
-    readingCount: readings.length,
-    // Only ever the ledger's. Falling back to the database's copy would hand an auditor a
-    // transaction ID from the very record they are checking, under a field that says otherwise.
+    ...signatures,
     fabricTransactionId: fabricEvidence.fabricTransactionId ?? null
   };
 }
 
-// Both sides are produced by the storage package's calculator, which rounds to three decimals, so
-// they are directly comparable rather than needing a tolerance.
+/** Returns the regulator archive's three-state signature verdict for one evidence record. */
+export async function checkEvidenceSignatures(
+  evidenceId: string,
+  dependencies: EvidenceVerificationDependencies
+): Promise<SignatureCheck> {
+  let result: EvidenceVerificationResult;
+  try {
+    result = await verifyTemperatureEvidence(evidenceId, dependencies);
+  } catch {
+    return "UNKNOWN";
+  }
+
+  if (result.signaturesMatch === null) {
+    return "UNKNOWN";
+  }
+  return result.signaturesMatch ? "PASSED" : "FAILED";
+}
+
+/** Checks every reading against the sensor key registered on Fabric. */
+async function checkSignatures(
+  batchId: string,
+  readings: readonly StoredTemperatureReading[],
+  dependencies: EvidenceVerificationDependencies
+): Promise<
+  Pick<
+    EvidenceVerificationResult,
+    "signaturesMatch" | "signatureFailures" | "signatureIssue"
+  >
+> {
+  const sensorIds = [...new Set(readings.map((reading) => reading.sensorId))];
+  if (sensorIds.length !== 1) {
+    return { signaturesMatch: false, signatureFailures: [], signatureIssue: "MIXED_SENSORS" };
+  }
+
+  let sensorKey: RegisteredSensorKey | undefined;
+  try {
+    sensorKey = await dependencies.sensorKeyReader.getSensorKey(sensorIds[0]);
+  } catch {
+    return { signaturesMatch: null, signatureFailures: [], signatureIssue: null };
+  }
+
+  // Registration failures concern the sensor, not individual reading signatures.
+  if (!sensorKey) {
+    return { signaturesMatch: false, signatureFailures: [], signatureIssue: "SENSOR_NOT_REGISTERED" };
+  }
+  if (!sensorKey.active) {
+    return { signaturesMatch: false, signatureFailures: [], signatureIssue: "SENSOR_REVOKED" };
+  }
+
+  // Parse the shared key once for the complete reading set.
+  const publicKey = sensorPublicKey(sensorKey.publicKey);
+  const failures = readings
+    .filter((reading) => !verifyReadingSignature({ ...reading, batchId }, reading.signature, publicKey))
+    .map((reading) => reading.sequence);
+
+  return {
+    signaturesMatch: failures.length === 0,
+    signatureFailures: failures,
+    signatureIssue: failures.length === 0 ? null : "FORGED"
+  };
+}
+
+// Both values use the storage package's shared rounding rules.
 function statisticsAgree(
   anchored: TemperatureStatistics,
   recomputed: TemperatureStatistics
@@ -151,7 +231,6 @@ function statisticsAgree(
   return (
     anchored.minCelsius === recomputed.minCelsius &&
     anchored.maxCelsius === recomputed.maxCelsius &&
-    anchored.averageCelsius === recomputed.averageCelsius &&
     anchored.readingCount === recomputed.readingCount
   );
 }

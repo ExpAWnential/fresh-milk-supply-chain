@@ -1,12 +1,14 @@
 /**
- * HTTP for the batch lifecycle. Validates request fields and forwards each one to the contract,
- * which is where the transition rules and the role checks live.
+ * Maps batch lifecycle requests to the corresponding Fabric transactions.
+ *
+ * The backend validates the HTTP shape and selects a known transaction. Roles and legal state
+ * transitions remain contract decisions, so they cannot drift between organisations.
  */
 import { Router } from "express";
 import { config } from "../config.js";
 import { BATCH_CONTRACT } from "../fabric/contracts.js";
 import { bindLedger, requireString } from "../fabric/ledger.js";
-import { sendGatewayError, type GatewayConnector } from "../fabric/request.js";
+import { sendGatewayError, type GatewayConnector } from "../fabric/connection.js";
 
 // The lifecycle steps are separate transactions on the contract, so the request names the event
 // and the backend maps it rather than accepting a transaction name from the caller.
@@ -26,7 +28,7 @@ export function createBatchRouter(connect: GatewayConnector): Router {
       const origin = requireString(req.body?.origin, "origin");
       const location = requireString(req.body?.location, "location");
 
-      await batches.submit(req, "createBatch", batchId, origin, location);
+      await batches.submit("createBatch", batchId, origin, location);
       res.status(201).json({ batchId, origin, location, status: "CREATED" });
     } catch (error) {
       sendGatewayError(res, error);
@@ -39,7 +41,7 @@ export function createBatchRouter(connect: GatewayConnector): Router {
   router.get("/", async (req, res) => {
     try {
       const status = requireString(req.query?.status, "status");
-      res.json(await batches.evaluateJson(req, "queryBatchesByStatus", status));
+      res.json(await batches.evaluateJson("queryBatchesByStatus", status));
     } catch (error) {
       sendGatewayError(res, error);
     }
@@ -57,7 +59,7 @@ export function createBatchRouter(connect: GatewayConnector): Router {
       }
 
       const location = requireString(req.body?.location, "location");
-      await batches.submit(req, transactionName, req.params.batchId, location);
+      await batches.submit(transactionName, req.params.batchId, location);
       res.json({ batchId: req.params.batchId, eventType, location });
     } catch (error) {
       sendGatewayError(res, error);
@@ -67,7 +69,7 @@ export function createBatchRouter(connect: GatewayConnector): Router {
   router.post("/:batchId/recall", async (req, res) => {
     try {
       const reason = requireString(req.body?.reason, "reason");
-      await batches.submit(req, "recallBatch", req.params.batchId, reason);
+      await batches.submit("recallBatch", req.params.batchId, reason);
       res.json({ batchId: req.params.batchId, status: "RECALLED", reason });
     } catch (error) {
       sendGatewayError(res, error);
@@ -76,7 +78,7 @@ export function createBatchRouter(connect: GatewayConnector): Router {
 
   router.get("/:batchId", async (req, res) => {
     try {
-      res.json(await batches.evaluateJson(req, "getBatch", req.params.batchId));
+      res.json(await batches.evaluateJson("getBatch", req.params.batchId));
     } catch (error) {
       sendGatewayError(res, error);
     }
@@ -84,7 +86,7 @@ export function createBatchRouter(connect: GatewayConnector): Router {
 
   router.get("/:batchId/history", async (req, res) => {
     try {
-      res.json(await batches.evaluateJson(req, "getBatchHistory", req.params.batchId));
+      res.json(await batches.evaluateJson("getBatchHistory", req.params.batchId));
     } catch (error) {
       sendGatewayError(res, error);
     }

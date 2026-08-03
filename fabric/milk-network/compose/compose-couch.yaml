@@ -1,0 +1,130 @@
+# Copyright IBM Corp. All Rights Reserved.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+# CouchDB rather than LevelDB for every peer, because the batch-by-status lookup is a rich query
+# and a peer running LevelDB cannot answer one.
+
+networks:
+  test:
+    name: fabric_milk
+
+# Shared by all six databases. Only the container name and the published port differ.
+x-couchdb: &couchdb
+  image: couchdb:3.4.2
+  labels:
+    service: hyperledger-fabric
+  environment:
+    - COUCHDB_USER=admin
+    - COUCHDB_PASSWORD=adminpw
+  # CouchDB accepts connections before it has finished creating its admin user, and a peer that
+  # arrives in that window is refused with a 401 and gives up. Waiting for _up makes startup
+  # deterministic instead of a race that one peer in six loses.
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:5984/_up"]
+    interval: 3s
+    timeout: 3s
+    retries: 30
+    start_period: 5s
+  # Published for local inspection. In a production deployment this port would
+  # stay inside the network.
+  networks:
+    - test
+
+services:
+
+  couchdb-regulator:
+    <<: *couchdb
+    container_name: couchdb-regulator
+    ports:
+      - "5984:5984"
+
+  peer0.regulator.example.com:
+    environment:
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb-regulator:5984
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    depends_on:
+      couchdb-regulator:
+        condition: service_healthy
+
+  couchdb-farm:
+    <<: *couchdb
+    container_name: couchdb-farm
+    ports:
+      - "6984:5984"
+
+  peer0.farm.example.com:
+    environment:
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb-farm:5984
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    depends_on:
+      couchdb-farm:
+        condition: service_healthy
+
+  couchdb-processor:
+    <<: *couchdb
+    container_name: couchdb-processor
+    ports:
+      - "7984:5984"
+
+  peer0.processor.example.com:
+    environment:
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb-processor:5984
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    depends_on:
+      couchdb-processor:
+        condition: service_healthy
+
+  couchdb-logistics:
+    <<: *couchdb
+    container_name: couchdb-logistics
+    ports:
+      - "8984:5984"
+
+  peer0.logistics.example.com:
+    environment:
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb-logistics:5984
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    depends_on:
+      couchdb-logistics:
+        condition: service_healthy
+
+  couchdb-retailer:
+    <<: *couchdb
+    container_name: couchdb-retailer
+    ports:
+      - "9984:5984"
+
+  peer0.retailer.example.com:
+    environment:
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb-retailer:5984
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    depends_on:
+      couchdb-retailer:
+        condition: service_healthy
+
+  couchdb-oracle:
+    <<: *couchdb
+    container_name: couchdb-oracle
+    ports:
+      - "10984:5984"
+
+  peer0.oracle.example.com:
+    environment:
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb-oracle:5984
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_USERNAME=admin
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_PASSWORD=adminpw
+    depends_on:
+      couchdb-oracle:
+        condition: service_healthy

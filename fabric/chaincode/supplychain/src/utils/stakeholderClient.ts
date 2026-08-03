@@ -38,6 +38,10 @@ export async function getInvokingStakeholder(ctx: Context): Promise<StakeholderS
   return assertActiveRole(ctx, ALL_ROLES);
 }
 
+/**
+ * Asks the registry to authorise the authenticated certificate, then validates the returned role
+ * again before allowing the calling contract to continue.
+ */
 export async function assertActiveRole(
   ctx: Context,
   allowedRoles: readonly StakeholderRole[]

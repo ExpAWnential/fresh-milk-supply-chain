@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createReaderForRequest, describesMissingEvidence } from "../dist/fabric/anchoredEvidence.js";
+import { createAnchoredEvidenceReader, describesMissingEvidence } from "../dist/fabric/anchoredEvidence.js";
 import { chaincodeRejection } from "./harness.mjs";
 
-const asRegulator = { header: (name) => (name === "x-demo-identity" ? "regulator" : undefined) };
+// Only the paths matter here: the gateway is stubbed, so nothing is read off disk.
+const asRegulator = { name: "regulator", mspId: "RegulatorMSP" };
 
 function stubGateway(evaluate) {
   const state = { closed: false, calls: [] };
@@ -24,14 +25,15 @@ const encode = (value) => Buffer.from(JSON.stringify(value));
 test("the anchored hash and transaction come off the ledger as the calling identity", async () => {
   // The statistics come across too, because verification checks them against the readings and the
   // hash cannot stand in for that.
-  const statistics = { minCelsius: 1, maxCelsius: 4, averageCelsius: 2.5, readingCount: 3 };
+  const statistics = { minCelsius: 1, maxCelsius: 4, readingCount: 3 };
   const { state, connect } = stubGateway(() =>
-    encode({ evidenceHash: "a".repeat(64), submittedTxId: "tx-9", statistics })
+    encode({ batchId: "MILK-001", evidenceHash: "a".repeat(64), submittedTxId: "tx-9", statistics })
   );
 
-  const anchored = await createReaderForRequest(asRegulator, connect).getAnchoredEvidence("EV-1");
+  const anchored = await createAnchoredEvidenceReader(asRegulator, connect).getAnchoredEvidence("EV-1");
 
   assert.deepEqual(anchored, {
+    batchId: "MILK-001",
     evidenceHash: "a".repeat(64),
     fabricTransactionId: "tx-9",
     statistics
@@ -50,7 +52,7 @@ test("evidence the contract has never seen reads as absent", async () => {
   });
 
   assert.equal(
-    await createReaderForRequest(asRegulator, connect).getAnchoredEvidence("EV-1"),
+    await createAnchoredEvidenceReader(asRegulator, connect).getAnchoredEvidence("EV-1"),
     undefined
   );
   assert.equal(state.closed, true);
@@ -68,26 +70,12 @@ test("a refusal or an unreachable peer is raised rather than read as absent evid
     });
 
     await assert.rejects(
-      createReaderForRequest(asRegulator, connect).getAnchoredEvidence("EV-1"),
+      createAnchoredEvidenceReader(asRegulator, connect).getAnchoredEvidence("EV-1"),
       error
     );
     // The connection is released even on the way out.
     assert.equal(state.closed, true);
   }
-});
-
-test("an unknown identity is refused before any connection is opened", () => {
-  let connected = false;
-  const connect = async () => {
-    connected = true;
-    return { evaluateTransaction: async () => encode({}), close() {} };
-  };
-
-  assert.throws(
-    () => createReaderForRequest({ header: () => "smuggler" }, connect),
-    /Unknown demo identity/
-  );
-  assert.equal(connected, false);
 });
 
 // Only the contract saying it has no such evidence means "never anchored". Anything else that the

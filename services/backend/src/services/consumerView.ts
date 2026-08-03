@@ -1,8 +1,8 @@
 /**
- * Reduces a full ledger batch record to what a shopper is allowed to see.
+ * Turns the detailed ledger record into the simple provenance view shown to a shopper.
  *
- * Everything naming who did what, and every transaction ID, is dropped here rather than at the
- * route, so there is one place to check that nothing commercially sensitive escapes.
+ * The view keeps locations, lifecycle stages and cold-chain warnings, while intentionally omitting
+ * consortium identities and transaction metadata that are useful to auditors rather than consumers.
  */
 export interface LedgerBatch {
   readonly batchId: string;
@@ -18,19 +18,14 @@ export interface LedgerHistoryEntry {
   readonly batch: { readonly status?: string } | null;
 }
 
-// A breach that a regulator has since cleared still matters to a shopper, so the history is
-// checked rather than only the current status. While a hold is open no lifecycle step will run,
-// so the only ways out are a regulator clearing it, which restores whichever status the breach
-// interrupted, or a recall. Anything after the breach that is neither of those two statuses is
-// therefore a resolution. Treating a recall as one would tell a shopper the problem was dealt
-// with when the batch was in fact withdrawn.
+// History reveals cleared breaches that the current status alone would hide. A recall withdraws
+// the batch and does not count as resolving its breach.
 function coldChainStatus(status: string, history: readonly LedgerHistoryEntry[]): string {
   if (status === "COLD_CHAIN_BREACH") {
     return "UNDER_INVESTIGATION";
   }
 
-  // History arrives newest first, so the most recent breach is the earliest match and anything
-  // that happened after it sits in front of it.
+  // History is newest first, so entries before the breach occurred after it.
   const latestBreach = history.findIndex((entry) => entry.batch?.status === "COLD_CHAIN_BREACH");
   if (latestBreach === -1) {
     return "MAINTAINED";
@@ -47,8 +42,7 @@ function coldChainStatus(status: string, history: readonly LedgerHistoryEntry[])
   return clearedAfterBreach ? "BREACH_RESOLVED" : "UNRESOLVED_BREACH";
 }
 
-// Only the first time the batch reached each status, so a consumer sees the journey without the
-// intermediate corrections. History arrives newest first, so it is walked backwards.
+// Walk oldest to newest and show only the first occurrence of each journey stage.
 function milestones(history: readonly LedgerHistoryEntry[]): Record<string, string> {
   const reached: Record<string, string> = {};
   for (let index = history.length - 1; index >= 0; index -= 1) {
@@ -60,6 +54,7 @@ function milestones(history: readonly LedgerHistoryEntry[]): Record<string, stri
   return reached;
 }
 
+/** Builds the public traceability response from current ledger state and its complete history. */
 export function consumerView(
   batch: LedgerBatch,
   history: readonly LedgerHistoryEntry[]

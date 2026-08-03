@@ -1,28 +1,18 @@
-/**
- * The one endpoint a shopper can reach.
- *
- * Consumers hold no Fabric identity, so this route reads the ledger on their behalf and returns
- * only the filtered view, in wording written for them rather than for an operator.
- */
+/** Serves a privacy-filtered view through the host organisation's ledger permissions. */
 import { Router, type Response } from "express";
 import { config } from "../config.js";
 import { BATCH_CONTRACT } from "../fabric/contracts.js";
 import type { FabricGatewayClient } from "../fabric/gateway.js";
-import { extractChaincodeMessage } from "../fabric/request.js";
+import { extractChaincodeMessage, type GatewayConnector } from "../fabric/connection.js";
 import { consumerView, type LedgerBatch, type LedgerHistoryEntry } from "../services/consumerView.js";
 
-// Opens a connection under the backend's own identity rather than the caller's, because the
-// request carries no identity header for this route.
-export type PublicReader = () => Promise<FabricGatewayClient>;
-
-export function createPublicRouter(readAsRegulator: PublicReader): Router {
+export function createPublicRouter(connect: GatewayConnector): Router {
   const router = Router();
 
   router.get("/batches/:batchId", async (req, res) => {
-    // Inside the try, so a connection failure is reported rather than escaping the handler.
     let client: FabricGatewayClient | undefined;
     try {
-      client = await readAsRegulator();
+      client = await connect();
       const read = async (transaction: string): Promise<unknown> => {
         const bytes = await client!.evaluateTransaction(
           config.supplychainChaincodeName,
@@ -33,8 +23,7 @@ export function createPublicRouter(readAsRegulator: PublicReader): Router {
         return JSON.parse(Buffer.from(bytes).toString());
       };
 
-      // Neither read depends on the other, and the public page is the most expensive request in
-      // the system, so they go together.
+      // Batch state and history are independent reads.
       const [batch, history] = await Promise.all([
         read("getBatch") as Promise<LedgerBatch>,
         read("getBatchHistory") as Promise<readonly LedgerHistoryEntry[]>
@@ -51,9 +40,7 @@ export function createPublicRouter(readAsRegulator: PublicReader): Router {
   return router;
 }
 
-// The contract's own wording never reaches a consumer. It names stakeholders and registry state,
-// which is exactly what consumerView strips out of the successful response, and it is written for
-// an operator rather than someone holding a carton of milk.
+// Replace operator-facing contract details with a safe message for shoppers.
 function sendPublicError(response: Response, error: unknown): void {
   const message = extractChaincodeMessage(error);
   if (message && /^Batch '.*' does not exist\.?$/i.test(message)) {

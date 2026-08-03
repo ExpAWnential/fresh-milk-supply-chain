@@ -1,14 +1,21 @@
+# Named so the volume below is not derived from whatever the directory happens to be called.
+name: fresh-milk-storage
+
 services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: freshmilk
+      # Two databases, one per company that actually holds off-chain data. This one is created by
+      # the entrypoint; the regulator's is created by initdb/02-regulator.sql.
+      POSTGRES_DB: freshmilk_oracle
       POSTGRES_USER: freshmilk
       POSTGRES_PASSWORD: freshmilk
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+      # Run in filename order, and ONLY when the data directory is empty. With an existing volume
+      # none of this runs and the databases silently stay as they were: use `pnpm db:reset`.
+      - ./initdb:/docker-entrypoint-initdb.d:ro
       - postgres-data:/var/lib/postgresql/data
 
 volumes:

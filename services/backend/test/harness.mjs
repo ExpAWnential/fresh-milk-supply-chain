@@ -1,5 +1,6 @@
 import { once } from "node:events";
 import { createApp } from "../dist/app.js";
+import { localReadingsSource } from "../dist/services/readingsSource.js";
 
 // The routes are exercised against a stub ledger. What matters is which transaction each endpoint
 // asks for, with which arguments, and how it reports a refusal, none of which needs a network.
@@ -64,7 +65,6 @@ export function storedEvidence(overrides = {}) {
     evidenceHash: "a".repeat(64),
     minCelsius: 1,
     maxCelsius: 2,
-    averageCelsius: 1.5,
     readingCount: 1,
     complianceOutcome: "COMPLIANT",
     submissionStatus: "ANCHORED",
@@ -75,26 +75,47 @@ export function storedEvidence(overrides = {}) {
 
 export function repositoryStub(overrides = {}) {
   return {
-    saveEvidence: async () => {},
-    markAnchored: async () => {},
-    markFailed: async () => {},
     getEvidence: async () => storedEvidence(),
     listEvidenceForBatch: async () => [storedEvidence()],
-    recordLedgerOutcome: async () => true,
     getReadings: async () => [
-      { sensorId: "S-1", recordedAt: "2026-07-30T00:00:00.000Z", celsius: 2 }
+      {
+        sensorId: "S-1",
+        sequence: 1,
+        recordedAt: "2026-07-30T00:00:00.000Z",
+        celsius: 2,
+        signature: "c2lnbmF0dXJl"
+      }
     ],
     ...overrides
   };
 }
 
+// A company for the app to be. Every process is exactly one, so tests that do not care which still
+// need one, the same way the real entry point does.
+const SOME_COMPANY = {
+  name: "regulator",
+  mspId: "RegulatorMSP",
+  peerEndpoint: "localhost:7051",
+  stakeholderId: "regulator-001",
+  backendPort: 3001
+};
+
 // Starts the app on an ephemeral port and gives the callback a request helper bound to it.
 export async function withServer({ ledger, ...dependencies }, run) {
   const stub = ledger ?? stubLedger();
   const app = createApp({
+    identity: SOME_COMPANY,
+    certificateId: "x509::CN=User1::CN=ca",
     connect: stub.connect,
-    readAsRegulator: () => stub.connect(),
-    readerForRequest: () => ({ getAnchoredEvidence: async () => undefined }),
+    anchoredEvidenceReader: { getAnchoredEvidence: async () => undefined },
+    // Unreadable by default, which reports signaturesMatch as null. Tests that care about the
+    // signature check supply their own; the rest are about the hash and the statistics.
+    sensorKeyReader: { getSensorKey: async () => undefined },
+    // Mirrors what index.ts wires up: a company that holds the readings checks its own copy, and
+    // one that does not fetches them from whoever does.
+    readingsSource: dependencies.temperatureRepository
+      ? localReadingsSource(dependencies.temperatureRepository)
+      : { getReadings: async () => undefined },
     ...dependencies
   });
   const server = app.listen(0);
@@ -104,7 +125,7 @@ export async function withServer({ ledger, ...dependencies }, run) {
   const call = async (method, path, body) => {
     const response = await fetch(base + path, {
       method,
-      headers: { "content-type": "application/json", "x-demo-identity": "regulator" },
+      headers: { "content-type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body)
     });
     const text = await response.text();
@@ -112,7 +133,7 @@ export async function withServer({ ledger, ...dependencies }, run) {
   };
 
   try {
-    await run({ call, ledger: stub });
+    await run({ call, base, ledger: stub });
   } finally {
     await new Promise((resolve, reject) => {
       server.close((error) => (error ? reject(error) : resolve()));

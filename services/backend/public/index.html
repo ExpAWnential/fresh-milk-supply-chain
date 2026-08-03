@@ -1,11 +1,15 @@
 <!doctype html>
+<!--
+  Browser control panel for registration, batch traceability, cold-chain evidence and integrity
+  checks. It talks to each organisation's separate backend, so the selected organisation determines
+  which Fabric identity signs a request.
+-->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Fresh Milk Cold Chain — Demo</title>
     <style>
-      /* Light background and large type: dark themes project poorly in bright rooms. */
       :root {
         --ink: #14213d;
         --muted: #5b6b8c;
@@ -26,7 +30,7 @@
       h1 small { font-weight: 400; color: var(--muted); font-size: .8rem; margin-left: .5rem; }
       .bar {
         display: flex; flex-wrap: wrap; gap: .75rem; align-items: center;
-        padding: .75rem; border: 2px solid var(--ink); border-radius: 8px; margin-bottom: 1rem;
+        padding: .75rem; border: 2px solid var(--ink); border-radius: 8px; margin-bottom: .75rem;
       }
       .bar label { font-weight: 600; }
       select, input, button {
@@ -37,6 +41,14 @@
       button { cursor: pointer; }
       button:hover { border-color: var(--ink); }
       button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+      /* The chip row shows the health of each organisation's separate backend. */
+      #backends { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: 1rem; }
+      .chip {
+        font-size: .8rem; padding: .25rem .6rem; border-radius: 999px;
+        border: 1px solid var(--line); color: var(--muted);
+      }
+      .chip.up { border-color: var(--ok); color: var(--ok); font-weight: 600; }
+      .chip.down { border-color: var(--broken); color: var(--broken); }
       .group { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: .5rem; }
       .group .name {
         width: 8rem; font-size: .75rem; letter-spacing: .07em; text-transform: uppercase;
@@ -68,12 +80,12 @@
   <body>
     <h1>
       Fresh Milk Cold Chain
-      <small>every request is signed by the company selected below</small>
+      <small>each company runs its own backend; the port that answered is shown on every line</small>
     </h1>
 
     <div class="bar">
-      <label for="identity">Acting as</label>
-      <select id="identity"></select>
+      <label for="company">Send to</label>
+      <select id="company"></select>
 
       <label for="batch">Batch</label>
       <input id="batch" list="batches" value="BATCH-001" />
@@ -84,18 +96,21 @@
       <button id="newBatch">new</button>
 
       <button id="setup" class="primary">Set up demo</button>
+      <button id="ping">Ping all</button>
       <button id="clear">Clear log</button>
     </div>
+
+    <div id="backends"></div>
 
     <div id="actions"></div>
 
     <div class="split">
       <section>
-        <h2>PostgreSQL — off-chain</h2>
+        <h2>PostgreSQL — the oracle's own record</h2>
         <pre id="offChain">Use "Show evidence" to fill this in.</pre>
       </section>
       <section>
-        <h2>Ledger — on-chain</h2>
+        <h2>Ledger — anchored</h2>
         <pre id="onChain">—</pre>
       </section>
     </div>
@@ -104,7 +119,7 @@
 
     <script>
       const $ = (id) => document.getElementById(id);
-      const identityField = $("identity");
+      const companyField = $("company");
       const batchField = $("batch");
 
       function log(tone, title, body) {
@@ -122,25 +137,67 @@
         $("log").prepend(entry);
       }
 
-      // A refusal is the contract enforcing a rule, so it is coloured apart from a genuine failure.
-      // Showing both the same way would make the strongest moment of the demo look like a crash.
+      // Contract refusals are business outcomes, so display them separately from system faults.
       function toneFor(status) {
         if (status >= 200 && status < 300) return "ok";
         if (status >= 400 && status < 500) return "refused";
         return "broken";
       }
 
-      // `identity: null` sends no header at all, which is how the consumer endpoint is reached.
-      async function call(method, path, { body, identity } = {}) {
-        const signer = identity === null ? null : (identity ?? identityField.value);
-        const headers = {};
-        if (signer) headers["x-demo-identity"] = signer;
-        if (body) headers["content-type"] = "application/json";
+      // Public keys for the bundled sensors. Regenerating the sensor keys requires updating
+      // these values because the backend does not serve files from the oracle package.
+      const SENSORS = [
+        {
+          sensorId: "SENSOR-001",
+          publicKey: "MCowBQYDK2VwAyEAuQBUNozc43qvuq0ks7mBu0k9/FERFhM3pxKJNZ1WWsA="
+        },
+        {
+          sensorId: "SENSOR-002",
+          publicKey: "MCowBQYDK2VwAyEAdHH5MLcXlIlEbBbdgbwKtVD4ccV1yZaJ+uW/FfE+efY="
+        }
+      ];
+
+      const SIGNATURE_ISSUES = {
+        FORGED: (v) => `NO — reading ${v.signatureFailures.join(", ")} was altered`,
+        SENSOR_NOT_REGISTERED: () => "no sensor key registered, so nothing to check against",
+        SENSOR_REVOKED: () => "the regulator has revoked this sensor's key",
+        MIXED_SENSORS: () => "these readings came from more than one sensor"
+      };
+
+      function signatureLine(v) {
+        if (v.signaturesMatch === null) return "could not check the ledger";
+        if (v.signaturesMatch) return "yes";
+        return SIGNATURE_ISSUES[v.signatureIssue]?.(v) ?? "NO";
+      }
+
+      let companies = [];
+      const originOf = (name) => companies.find((entry) => entry.name === name)?.origin;
+      // The destination backend determines which organisation signs the request.
+      const portOf = (origin) => {
+        try {
+          return `:${new URL(origin).port}`;
+        } catch {
+          return "(no backend)";
+        }
+      };
+
+      async function call(method, path, { body, origin } = {}) {
+        const target = origin ?? companyField.value;
+        const company = companies.find((entry) => entry.origin === target);
+        const label = `${method} ${portOf(target)}${path}   as ${company?.name ?? "?"}`;
+
+        // Disable actions until the organisation directory supplies their destinations.
+        if (!target) {
+          log("broken", `${label}   →   no backend selected`,
+            `The company directory has not loaded. Press "Ping all", or check that the backend ` +
+              `serving this page is running.`);
+          return { status: 0, body: null };
+        }
 
         try {
-          const response = await fetch(path, {
+          const response = await fetch(target + path, {
             method,
-            headers,
+            headers: body ? { "content-type": "application/json" } : {},
             body: body ? JSON.stringify(body) : undefined
           });
           const text = await response.text();
@@ -149,52 +206,101 @@
 
           log(
             toneFor(response.status),
-            `${method} ${path}   ${signer ? `as ${signer}` : "no identity"}   →   ${response.status}`,
+            `${label}   →   ${response.status}`,
             typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2)
           );
           return { status: response.status, body: parsed };
         } catch (error) {
-          // A failed fetch means the backend is unreachable, which is not the contract refusing.
-          log("broken", `${method} ${path}   →   could not reach the backend`, String(error));
+          // Network TypeErrors do not identify the failed backend, so include its origin.
+          log("broken", `${label}   →   ${target} did not answer`, String(error));
           return { status: 0, body: null };
         }
       }
 
-      let identities = [];
-
-      async function loadIdentities() {
-        const result = await call("GET", "/demo/identities", { identity: null });
-        if (result.status !== 200) return;
-
-        identities = result.body;
-        identityField.innerHTML = identities
-          .map((entry) => `<option value="${entry.role}">${entry.role}</option>`)
-          .join("");
-        identityField.value = localStorage.getItem("identity") ?? "farm";
-      }
-
-      // Bootstrap first: every other registration needs an active regulator to authorise it. The
-      // six requests are made from here rather than server-side so each one appears in the log.
-      async function setUpDemo() {
-        const regulator = identities.find((entry) => entry.role === "regulator");
-        if (!regulator) {
-          log("broken", "Set up demo   →   the identities have not loaded", "Reload the page.");
+      // Each backend reports its own certificate because no process holds another company's key.
+      async function loadConsortium() {
+        try {
+          const response = await fetch("/organisations");
+          if (!response.ok) {
+            throw new Error(`the directory answered ${response.status}`);
+          }
+          companies = await response.json();
+        } catch (error) {
+          // Surface directory failure instead of leaving an apparently usable but inert panel.
+          log("broken", "Could not load the company directory",
+            `${String(error)}\n\nThe backend serving this page is not answering. Check it is ` +
+              `running, then reload.`);
           return;
         }
 
+        companyField.innerHTML = companies
+          .map((entry) => `<option value="${entry.origin}">${entry.name} — ${portOf(entry.origin)}</option>`)
+          .join("");
+        const remembered = localStorage.getItem("company");
+        companyField.value = companies.some((entry) => entry.origin === remembered)
+          ? remembered
+          : originOf("farm");
+
+        await pingAll();
+      }
+
+      async function pingAll() {
+        $("backends").innerHTML = companies
+          .map((entry) => `<span class="chip" id="chip-${entry.name}">${entry.name} ${portOf(entry.origin)}</span>`)
+          .join("");
+
+        await Promise.all(
+          companies.map(async (entry) => {
+            const chip = $(`chip-${entry.name}`);
+            try {
+              const response = await fetch(`${entry.origin}/identity`);
+              entry.certificateId = (await response.json()).certificateId;
+              chip.className = "chip up";
+            } catch {
+              entry.certificateId = undefined;
+              chip.className = "chip down";
+            }
+          })
+        );
+      }
+
+      // Bootstrap the first regulator before using it to register the remaining organisations.
+      async function setUpDemo() {
+        // Refuse incomplete setup rather than creating only part of the registry.
+        const missing = companies.filter((entry) => !entry.certificateId);
+        if (missing.length > 0) {
+          log(
+            "broken",
+            "Set up demo   →   not every company answered",
+            `No certificate from: ${missing.map((entry) => portOf(entry.origin)).join(", ")}.\n` +
+              `All six backends have to be running. Try "Ping all".`
+          );
+          return;
+        }
+
+        const regulator = companies.find((entry) => entry.name === "regulator");
         await call("POST", "/stakeholders/bootstrap", {
-          identity: "regulator",
+          origin: regulator.origin,
           body: { stakeholderId: regulator.stakeholderId }
         });
 
-        for (const entry of identities.filter((candidate) => candidate.role !== "regulator")) {
+        // The regulator registers each certificate reported by its owning organisation.
+        for (const entry of companies.filter((candidate) => candidate.name !== "regulator")) {
           await call("POST", "/stakeholders", {
-            identity: "regulator",
+            origin: regulator.origin,
             body: {
               stakeholderId: entry.stakeholderId,
-              role: entry.role.toUpperCase(),
+              role: entry.name.toUpperCase(),
               certificateId: entry.certificateId
             }
+          });
+        }
+
+        // Register sensor keys so every organisation can verify readings independently.
+        for (const sensor of SENSORS) {
+          await call("POST", "/sensors", {
+            origin: regulator.origin,
+            body: { ...sensor, algorithm: "ed25519" }
           });
         }
       }
@@ -202,10 +308,11 @@
       const batch = () => encodeURIComponent(batchField.value);
       const evidence = (id) => encodeURIComponent(id);
 
-      // The left column is what PostgreSQL holds, the right is what the ledger holds. Side by side
-      // they are the architecture: bulk readings off-chain, a fingerprint on-chain.
+      // The oracle lists its off-chain rows. The selected organisation independently verifies
+      // those readings against the on-chain fingerprint.
       async function showEvidence() {
-        const listed = await call("GET", `/temperature/batches/${batch()}/evidence`);
+        const oracle = originOf("oracle");
+        const listed = await call("GET", `/temperature/batches/${batch()}/evidence`, { origin: oracle });
         if (listed.status !== 200 || !Array.isArray(listed.body) || listed.body.length === 0) {
           $("offChain").textContent = "No evidence recorded for this batch yet.";
           $("onChain").textContent = "—";
@@ -214,7 +321,7 @@
 
         const evidenceId = listed.body[listed.body.length - 1].evidenceId;
         const [readings, verified] = await Promise.all([
-          call("GET", `/temperature/evidence/${evidence(evidenceId)}/readings`),
+          call("GET", `/temperature/evidence/${evidence(evidenceId)}/readings`, { origin: oracle }),
           call("GET", `/temperature/evidence/${evidence(evidenceId)}/verify`)
         ]);
 
@@ -224,29 +331,39 @@
             readings.body
               .map((r) => `${String(r.celsius).padStart(6)} °C   ${r.recordedAt}   ${r.sensorId}`)
               .join("\n") +
-            `\n\n${readings.body.length} readings`;
+            `\n\n${readings.body.length} readings, held by the oracle`;
         }
 
         if (verified.status === 200) {
           const v = verified.body;
           const statistics = v.anchoredStatistics;
+          const checker = companies.find((entry) => entry.origin === companyField.value);
           $("onChain").textContent =
             `hash        ${v.anchoredHash}\n` +
             `recomputed  ${v.recomputedHash}\n\n` +
-            (statistics ? `min ${statistics.minCelsius}   max ${statistics.maxCelsius}   avg ${statistics.averageCelsius}\n\n` : "") +
+            (statistics ? `min ${statistics.minCelsius}   max ${statistics.maxCelsius}\n\n` : "") +
             `readings match anchor     ${v.match ? "yes" : "NO — tampered"}\n` +
             `statistics match anchor   ${v.statisticsMatch === null ? "not recorded" : v.statisticsMatch ? "yes" : "NO"}\n` +
-            `transaction               ${v.fabricTransactionId ?? "—"}`;
+            // Null means signature verification was unavailable. Only FORGED identifies rows
+            // because registration and revocation are sensor-level issues.
+            `signatures match sensor   ${signatureLine(v)}\n` +
+            // Only the oracle can compare Fabric with its own stored hash.
+            `holder's own hash         ${v.databaseHashMatchesAnchor === null ? "not disclosed" : v.databaseHashMatchesAnchor ? "matches" : "ALTERED"}\n` +
+            `transaction               ${v.fabricTransactionId ?? "—"}\n\n` +
+            `checked by ${checker?.name ?? "?"}, readings from the oracle,\n` +
+            `sensor key read from the ledger`;
         } else {
           $("onChain").textContent = `Could not verify (${verified.status}).`;
         }
       }
 
+      const regulator = () => ({ origin: originOf("regulator") });
+
       const actions = [
         ["Stakeholders", [
           ["Look up farm", () => call("GET", "/stakeholders/farm-001")],
-          ["Suspend farm", () => call("POST", "/stakeholders/farm-001/suspend", { identity: "regulator" })],
-          ["Reactivate farm", () => call("POST", "/stakeholders/farm-001/reactivate", { identity: "regulator" })]
+          ["Suspend farm", () => call("POST", "/stakeholders/farm-001/suspend", regulator())],
+          ["Reactivate farm", () => call("POST", "/stakeholders/farm-001/reactivate", regulator())]
         ]],
         ["Batch", [
           ["Create", () => call("POST", "/batches", {
@@ -262,7 +379,7 @@
             body: { eventType: "DELIVERY", location: "Sydney Depot" }
           })],
           ["Recall", () => call("POST", `/batches/${batch()}/recall`, {
-            identity: "regulator", body: { reason: "Investigation opened" }
+            ...regulator(), body: { reason: "Investigation opened" }
           })],
           ["Get", () => call("GET", `/batches/${batch()}`)],
           ["History", () => call("GET", `/batches/${batch()}/history`)],
@@ -271,11 +388,13 @@
         ["Temperature", [
           ["Show evidence", showEvidence],
           ["Clear breach", () => call("POST", `/temperature/batches/${batch()}/resolve-breach`, {
-            identity: "regulator", body: { reason: "Cold store repaired and stock rechecked" }
-          })]
+            ...regulator(), body: { reason: "Cold store repaired and stock rechecked" }
+          })],
+          // Verdicts come from the regulator's independent archive.
+          ["Regulator's archive", () => call("GET", `/verdicts/batches/${batch()}`, regulator())]
         ]],
         ["Consumer", [
-          ["Public lookup", () => call("GET", `/public/batches/${batch()}`, { identity: null })]
+          ["Public lookup", () => call("GET", `/public/batches/${batch()}`, { origin: originOf("retailer") })]
         ]]
       ];
 
@@ -296,24 +415,26 @@
         }
       });
 
-      // Remembered so a refresh mid-demo does not lose your place.
-      identityField.addEventListener("change", () =>
-        localStorage.setItem("identity", identityField.value)
+      // Preserve the selected organisation across a page refresh.
+      companyField.addEventListener("change", () =>
+        localStorage.setItem("company", companyField.value)
       );
       batchField.addEventListener("change", () => localStorage.setItem("batch", batchField.value));
       batchField.value = localStorage.getItem("batch") ?? "BATCH-001";
 
-      // Only for the refusal demonstrations, which never touch temperature evidence: the sample
-      // reading files name BATCH-001 and BATCH-002, so those two stay as presets.
+      // Use random batch IDs so refused requests do not consume sample evidence IDs.
       $("newBatch").addEventListener("click", () => {
         batchField.value = `BATCH-${Math.floor(1000 + Math.random() * 9000)}`;
         localStorage.setItem("batch", batchField.value);
       });
 
       $("setup").addEventListener("click", setUpDemo);
+      $("ping").addEventListener("click", pingAll);
       $("clear").addEventListener("click", () => { $("log").innerHTML = ""; });
 
-      loadIdentities();
+      loadConsortium().catch((error) =>
+        log("broken", "The page could not start up", String(error))
+      );
     </script>
   </body>
 </html>

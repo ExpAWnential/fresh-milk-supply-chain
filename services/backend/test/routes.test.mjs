@@ -164,7 +164,7 @@ test("temperature endpoints never send a compliance outcome to the contract", as
       evidenceId: "EV-1",
       evidenceHash: "a".repeat(64),
       offChainReference: "postgres://evidence/EV-1",
-      statistics: { minCelsius: 1, maxCelsius: 4, averageCelsius: 2, readingCount: 3 },
+      statistics: { minCelsius: 1, maxCelsius: 4, readingCount: 3 },
       complianceOutcome: "COMPLIANT"
     });
     assert.equal(submitted.status, 201);
@@ -179,7 +179,6 @@ test("temperature endpoints never send a compliance outcome to the contract", as
 
   const [submit] = ledger.calls;
   assert.equal(submit.args[2], "submitTemperatureEvidence");
-  // The caller's outcome is dropped: only the statistics are forwarded, and the contract decides.
   assert.equal(
     submit.args.some((argument) => String(argument).includes("COMPLIANT")),
     false
@@ -217,7 +216,6 @@ test("a refused transaction reports the contract's own wording", async () => {
       location: "Depot"
     });
     assert.equal(result.status, 400);
-    // The peer's transport prefix is stripped, leaving the message a person can act on.
     assert.equal(
       result.body.error,
       "Stakeholder 'farm-001' has role 'FARM', but this operation requires one of: RETAILER."
@@ -271,8 +269,7 @@ test("the consumer view exposes the journey but never who recorded it", async ()
   assert.equal(ledger.leaked, false);
 });
 
-// History arrives newest first. A breach only counts as cleared when the batch went back to
-// IN_TRANSIT afterwards, which is the one status resolveTemperatureBreach produces.
+// History arrives newest first and reveals whether a breach was later resolved.
 test("the consumer view reports a cleared breach apart from one that was never cleared", async () => {
   const entry = (status, hour) => ({
     timestamp: `2026-07-30T0${hour}:00:00.000Z`,
@@ -294,8 +291,6 @@ test("the consumer view reports a cleared breach apart from one that was never c
       ],
       expected: "BREACH_RESOLVED"
     },
-    // Recalling a breached batch leaves the hold open, so telling a shopper it was resolved would
-    // claim someone dealt with a problem nobody dealt with.
     {
       status: "RECALLED",
       history: [entry("RECALLED", 3), entry("COLD_CHAIN_BREACH", 2), entry("IN_TRANSIT", 1)],
@@ -306,8 +301,6 @@ test("the consumer view reports a cleared breach apart from one that was never c
       history: [entry("DELIVERED", 2), entry("IN_TRANSIT", 1)],
       expected: "MAINTAINED"
     },
-    // A breach in the processor's cold store clears back to PROCESSED, not IN_TRANSIT, so a
-    // resolution must not be judged by that one status.
     {
       status: "DELIVERED",
       history: [
@@ -319,7 +312,6 @@ test("the consumer view reports a cleared breach apart from one that was never c
       ],
       expected: "BREACH_RESOLVED"
     },
-    // The same shape at the farm, where nothing after the breach has ever been IN_TRANSIT.
     {
       status: "CREATED",
       history: [entry("CREATED", 3), entry("COLD_CHAIN_BREACH", 2), entry("CREATED", 1)],
@@ -342,13 +334,13 @@ test("the consumer view reports a cleared breach apart from one that was never c
     await withServer({ ledger }, async ({ call }) => {
       const result = await call("GET", "/public/batches/MILK-1");
       assert.equal(result.body.coldChain, expected, `${status} should report ${expected}`);
-      // Batches predating the origin field must still be readable.
+      // Older batches may not contain provenance fields.
       assert.equal(result.body.origin, "not recorded");
     });
   }
 });
 
-// The rich query is the reason the network runs CouchDB rather than LevelDB, so it needs a way in.
+// Expose the status filter backed by CouchDB's rich query.
 test("batches can be listed by status", async () => {
   const ledger = stubLedger({
     evaluate: async () => Buffer.from(JSON.stringify([{ batchId: "MILK-1", status: "RECALLED" }]))

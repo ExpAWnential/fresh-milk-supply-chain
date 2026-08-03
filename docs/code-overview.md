@@ -6,7 +6,7 @@ A walkthrough of the codebase from the ground up, for anyone reading it for the 
 
 It tracks a carton of milk from the farm to the shop shelf, using a blockchain so nobody can
 quietly rewrite the record afterwards. It is a university proof of concept (COMP6452), not a
-product. There is no UI, just a REST API and scripts.
+product. The interface is a REST API, a single static control panel over it, and scripts.
 
 The problem it solves: milk has to stay cold. If it gets too warm in a truck, someone might be
 tempted to erase that from the record. Here, the temperature evidence is locked onto a shared
@@ -32,27 +32,34 @@ could bypass them, they are in the ledger itself.
    REST requests
         │
         ▼
-  ┌───────────┐        ┌──────────────────────────┐
-  │  Backend  │───────▶│  Fabric blockchain       │
-  │ (Express) │        │   • stakeholder contract │
-  └─────┬─────┘        │   • batch contract       │
-        │              │   • temperature contract │
-        │              └──────────────────────────┘
-        ▼                          ▲
-  ┌───────────┐                    │ summary + fingerprint only
-  │ PostgreSQL│◀───────────────────┤
-  │ (bulky    │   full readings    │
-  │  readings)│              ┌─────┴──────┐
-  └───────────┘◀─────────────│   Oracle   │
-                             └────────────┘
+  ┌───────────────────────┐   ┌──────────────────────────┐
+  │  Six backends         │──▶│  Fabric blockchain       │
+  │  (the same Express    │   │   • stakeholder contract │
+  │   service, run once   │   │   • batch contract       │
+  │   per company, each   │   │   • temperature contract │
+  │   with its own key)   │   └──────────────────────────┘
+  └─────┬─────────────────┘              ▲
+        │                                │ summary + fingerprint only
+        ▼                                │
+  ┌───────────────────────┐              │
+  │ PostgreSQL            │   full       │
+  │  • oracle: readings   │◀──readings───┤
+  │  • regulator: verdicts│         ┌────┴───────┐
+  └───────────────────────┘         │   Oracle   │
+                                    └────────────┘
 ```
 
 1. **Two chaincode packages** (`fabric/chaincode/`) holding three contracts. This is the heart.
 2. **Backend** (`services/backend/`) an Express API. It is a translator: HTTP in, blockchain
-   transactions out.
+   transactions out. One codebase, run six times with a different `ORGANISATION`, so each company's
+   process holds only its own private key.
 3. **Oracle** (`services/oracle/`) stands in for the temperature logger on a truck. Reads a CSV of
-   readings.
-4. **Storage** (`services/storage/`) PostgreSQL, holds the thousands of raw readings.
+   readings, each one already signed by the sensor, and refuses the whole file if any signature
+   fails or a reading has been removed. `src/signReadings.ts` plays the sensor: it holds the
+   private key and signs the sample data, which is why the oracle can relay readings it cannot
+   forge.
+4. **Storage** (`services/storage/`) PostgreSQL. Two databases: the oracle's holds the thousands
+   of raw readings, the regulator's holds the archive of verdicts built from the chain's events.
 5. **Network scripts** (`fabric/network/`) start Docker, issue certificates, deploy the chaincode.
 
 It is a pnpm monorepo, all TypeScript, so each folder is its own package that the others can
@@ -72,8 +79,8 @@ Three details worth understanding:
 
 **The chicken-and-egg problem** (`bootstrapRegulator`, line 100). Registering anyone requires an
 existing regulator, but a fresh ledger has none. So there is a one-shot function that creates the
-very first regulator. It is guarded two ways: you must belong to the regulator organisation
-(`Org1MSP`), and a flag on the ledger means it can only ever run once.
+very first regulator. It is guarded two ways: you must belong to the regulator's own organisation
+(`RegulatorMSP`), and a flag on the ledger means it can only ever run once.
 
 **The lockout guard** (lines 409-437). The registry keeps a counter of active regulators. If you
 try to suspend or demote the last one, it refuses. Otherwise the system would brick itself with
@@ -129,25 +136,27 @@ by all members. So:
    fingerprint for identical data.
 2. It runs SHA-256 over that. You get a 64-character fingerprint that changes completely if any
    single reading changes by 0.001°C.
-3. **Full readings go into PostgreSQL. Only the fingerprint, a min/max/average summary, and a
+3. **Full readings go into PostgreSQL. Only the fingerprint, a min/max summary, and a
    pointer go onto the chain.**
 
-Now the tamper demo works: read the readings back out of Postgres, hash them again, compare
-against the fingerprint on the ledger. Change one row in the database and the hashes stop
-matching, while the blockchain record sits there unchanged.
+Now the tamper demo works: fetch the readings from the company that holds them, hash them again,
+compare against the fingerprint on the ledger. Change one row in that company's database and the
+hashes stop matching, while the blockchain record sits there unchanged. Run it from the retailer
+and you have a company catching its own supplier, which is the version worth showing.
 
-`evidenceVerification.ts` line 21 has the sharp comment about why: comparing the database's
-readings against the database's own stored hash proves nothing, because a tamperer would change
-both. The anchor has to come from the ledger.
+`evidenceVerification.ts` carries the sharp comment about why: comparing a holder's readings
+against that holder's own stored hash proves nothing, because a tamperer would change both. The
+anchor has to come from the ledger.
 
 ## How a request actually flows
 
 Say a retailer marks a batch delivered:
 
-1. `POST /batches/BATCH-001/delivery` with header `x-demo-identity: retailer`.
-2. The backend (`demoIdentity.ts`) maps "retailer" to a certificate on disk. This header is a demo
-   shortcut, and the file says so plainly at line 85. Real systems would authenticate properly.
-3. `gateway.ts` opens a signed gRPC connection to a Fabric peer using that certificate.
+1. `POST /batches/BATCH-001/delivery` to the retailer's own backend on port 3005.
+2. That process resolved its certificate once at startup, from `ORGANISATION=retailer`
+   (`organisations.ts`). There is nothing in the request that says who is calling, and nothing that
+   could: the process holds no other company's key.
+3. `gateway.ts` opens a signed gRPC connection to the retailer's own peer using that certificate.
 4. `recordDelivery` runs inside the chaincode.
 5. It calls across to the stakeholder chaincode: "is this certificate an active RETAILER?"
 6. It checks the batch is currently `IN_TRANSIT`, because delivery is the step that follows
@@ -155,9 +164,11 @@ Say a retailer marks a batch delivered:
 7. If both pass, it writes the new state and emits an event. If either fails, the whole
    transaction is rejected and nothing is written.
 
-The backend also runs a permanent listener (`index.ts` line 28) that watches for compliance events
-coming off the chain and copies the ledger's verdict back into Postgres. Again, the chain is the
-source of truth and the database follows it.
+The regulator's backend, and only the regulator's, runs a permanent listener (`index.ts`) that
+watches for compliance events coming off the chain and archives the ledger's verdict in its own
+database. Again, the chain is the source of truth and the database follows it. A second listener
+would race the first for the same rows and keep a checkpoint that disagreed about how far the chain
+had been read.
 
 ## Two things that trip people up
 

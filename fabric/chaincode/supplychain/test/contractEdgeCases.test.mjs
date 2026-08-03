@@ -35,7 +35,6 @@ test("a recalled batch cannot be recalled twice or continue its journey", async 
   const recalled = JSON.parse(await contract.getBatch(as(stub, "cert-farm"), "B-1"));
   assert.equal(recalled.recallReason, "contamination");
   assert.equal(recalled.recalledByStakeholderId, "regulator-001");
-  // The origin and the last known position survive the recall.
   assert.equal(recalled.origin, "Bega Dairy");
   assert.equal(recalled.lastKnownLocation, "Highway");
 });
@@ -97,7 +96,6 @@ test("a corrupted ledger record is refused rather than parsed loosely", async ()
   await stub.putState(key, Buffer.from(JSON.stringify({ batchId: "B-9", status: "MELTED" })));
   await assert.rejects(contract.getBatch(as(stub, "cert-farm"), "B-9"), /invalid ledger data/);
 
-  // A record filed under a different batch ID than it claims is also refused.
   await stub.putState(
     key,
     Buffer.from(
@@ -116,6 +114,49 @@ test("a corrupted ledger record is refused rather than parsed loosely", async ()
   await assert.rejects(contract.getBatch(as(stub, "cert-farm"), "B-9"), /invalid ledger data/);
 });
 
+test("a ledger record that is valid JSON but not a record is refused too", async () => {
+  const contract = new BatchLifecycleContract();
+  const stub = new MemoryStub();
+  const key = stub.createCompositeKey("batch", ["B-9"]);
+
+  for (const stored of ["null", "42", '"a string"', "[]", "true"]) {
+    await stub.putState(key, Buffer.from(stored));
+    await assert.rejects(
+      contract.getBatch(as(stub, "cert-farm"), "B-9"),
+      /invalid ledger data/,
+      stored
+    );
+  }
+});
+
+test("history entries the peer cannot date are refused rather than guessed at", async () => {
+  const contract = new BatchLifecycleContract();
+  const stub = new MemoryStub();
+
+  await transact(stub, "cert-farm", (ctx) =>
+    contract.createBatch(ctx, "B-1", "Bega Dairy", "Bega NSW")
+  );
+  const key = stub.createCompositeKey("batch", ["B-1"]);
+  const [entry] = stub.history.get(key);
+
+  const unusable = [
+    undefined,
+    // Integer timestamp parts can still exceed JavaScript's date range.
+    { seconds: 1e15, nanos: 0 },
+    { seconds: Number.MAX_SAFE_INTEGER * 2, nanos: 0 },
+    { seconds: 1_750_000_000, nanos: 1.5 }
+  ];
+
+  for (const timestamp of unusable) {
+    stub.history.set(key, [{ ...entry, timestamp }]);
+    await assert.rejects(
+      contract.getBatchHistory(as(stub, "cert-farm"), "B-1"),
+      /timestamp/i,
+      JSON.stringify(timestamp)
+    );
+  }
+});
+
 test("temperature evidence is refused for an unknown batch and read back only when it exists", async () => {
   const temperature = new TemperatureComplianceContract();
   const stub = new MemoryStub();
@@ -128,7 +169,7 @@ test("temperature evidence is refused for an unknown batch and read back only wh
       "MISSING",
       "a".repeat(64),
       "ref",
-      JSON.stringify({ minCelsius: 1, maxCelsius: 4, averageCelsius: 2, readingCount: 3 })
+      JSON.stringify({ minCelsius: 1, maxCelsius: 4, readingCount: 3 })
     ),
     /Batch 'MISSING' does not exist/
   );
@@ -147,7 +188,7 @@ test("evidence fields are validated before anything is written", async () => {
   const temperature = new TemperatureComplianceContract();
   const stub = new MemoryStub();
   await batchInTransit(stub);
-  const stats = JSON.stringify({ minCelsius: 1, maxCelsius: 4, averageCelsius: 2, readingCount: 3 });
+  const stats = JSON.stringify({ minCelsius: 1, maxCelsius: 4, readingCount: 3 });
   const oracle = () => as(stub, "cert-oracle");
 
   const cases = [
@@ -158,8 +199,8 @@ test("evidence fields are validated before anything is written", async () => {
     ["EV-1", "B-1", "a".repeat(64), "  ", stats, /Off-chain reference must not be empty/],
     ["EV-1", "B-1", "a".repeat(64), "ref", "not json", /must be valid JSON/],
     ["EV-1", "B-1", "a".repeat(64), "ref", "[1,2]", /must be a JSON object/],
-    ["EV-1", "B-1", "a".repeat(64), "ref", JSON.stringify({ minCelsius: 1, maxCelsius: 4, averageCelsius: 2, readingCount: 0 }), /positive integer/],
-    ["EV-1", "B-1", "a".repeat(64), "ref", JSON.stringify({ minCelsius: "cold", maxCelsius: 4, averageCelsius: 2, readingCount: 3 }), /finite number/]
+    ["EV-1", "B-1", "a".repeat(64), "ref", JSON.stringify({ minCelsius: 1, maxCelsius: 4, readingCount: 0 }), /positive integer/],
+    ["EV-1", "B-1", "a".repeat(64), "ref", JSON.stringify({ minCelsius: "cold", maxCelsius: 4, readingCount: 3 }), /finite number/]
   ];
 
   for (const [evidenceId, batchId, hash, reference, statistics, expected] of cases) {
@@ -182,7 +223,7 @@ test("an uppercase hash is stored in lower case so comparisons cannot drift", as
       "B-1",
       "A".repeat(64),
       "ref",
-      JSON.stringify({ minCelsius: 1, maxCelsius: 4, averageCelsius: 2, readingCount: 3 })
+      JSON.stringify({ minCelsius: 1, maxCelsius: 4, readingCount: 3 })
     )
   );
 
@@ -209,7 +250,7 @@ test("a breach can only be cleared once, and only from a breached batch", async 
       "B-1",
       "b".repeat(64),
       "ref",
-      JSON.stringify({ minCelsius: 1, maxCelsius: 9, averageCelsius: 5, readingCount: 3 })
+      JSON.stringify({ minCelsius: 1, maxCelsius: 9, readingCount: 3 })
     )
   );
 
@@ -238,7 +279,7 @@ test("the same evidence cannot be anchored twice", async () => {
       "B-1",
       "c".repeat(64),
       "ref",
-      JSON.stringify({ minCelsius: 1, maxCelsius: 4, averageCelsius: 2, readingCount: 3 })
+      JSON.stringify({ minCelsius: 1, maxCelsius: 4, readingCount: 3 })
     );
 
   await transact(stub, "cert-oracle", submit);

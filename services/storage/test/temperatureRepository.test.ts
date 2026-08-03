@@ -15,8 +15,6 @@ interface RecordedQuery {
 class FakeClient {
   readonly queries: RecordedQuery[] = [];
   released = false;
-  // The upsert reports no row written when the existing evidence is already ANCHORED, which is
-  // how the repository knows to leave the anchored readings alone.
   evidenceUpsertWrites = true;
 
   async query(text: string, values?: readonly unknown[]): Promise<QueryResult> {
@@ -77,9 +75,6 @@ describe("temperature repository", () => {
     assert.equal(pool.client.released, true);
   });
 
-  // The evidence ID is derived from the readings, so repeating a run that failed part way through
-  // produces the same ID. Without the upsert the retry dies on the primary key and those readings
-  // can never be anchored.
   it("replaces an earlier attempt rather than failing on the primary key", async () => {
     const pool = new FakePool();
     const repository = createTemperatureRepository(pool as unknown as Pool);
@@ -88,7 +83,7 @@ describe("temperature repository", () => {
 
     const upsert = pool.client.queries[1].text;
     assert.match(upsert, /ON CONFLICT \(evidence_id\) DO UPDATE/);
-    // Anchored evidence is never rewritten: its readings are what the ledger hash covers.
+    // Preserve the readings covered by the ledger hash.
     assert.match(upsert, /WHERE temperature_evidence\.submission_status <> 'ANCHORED'/);
   });
 
@@ -134,7 +129,6 @@ describe("temperature repository", () => {
         evidence_hash: "abc123",
         min_celsius: "3.20",
         max_celsius: "3.60",
-        average_celsius: "3.40",
         reading_count: 2,
         compliance_outcome: "COMPLIANT",
         submission_status: "PENDING",
@@ -146,8 +140,6 @@ describe("temperature repository", () => {
     assert.deepEqual(await repository.getEvidence("EV-001"), sampleEvidence());
   });
 
-  // The evidence ID embeds a hash of the readings, so it cannot be guessed. Listing by batch is
-  // the only way to reach the evidence behind a cold-chain breach.
   it("lists a batch's evidence oldest first", async () => {
     const pool = new FakePool();
     pool.evidenceRows = [];
@@ -166,13 +158,17 @@ describe("temperature repository", () => {
     pool.readingRows = [
       {
         sensor_id: "SENSOR-001",
+        sequence: 1,
         recorded_at: new Date("2026-07-14T08:00:00.000Z"),
-        celsius: "3.20"
+        celsius: "3.20",
+        signature: "c2lnbmF0dXJlLTE="
       },
       {
         sensor_id: "SENSOR-001",
+        sequence: 2,
         recorded_at: "2026-07-14T08:15:00.000Z",
-        celsius: "3.60"
+        celsius: "3.60",
+        signature: "c2lnbmF0dXJlLTI="
       }
     ];
     const repository = createTemperatureRepository(pool as unknown as Pool);
@@ -203,7 +199,6 @@ function sampleEvidence(): StoredTemperatureEvidence {
     evidenceHash: "abc123",
     minCelsius: 3.2,
     maxCelsius: 3.6,
-    averageCelsius: 3.4,
     readingCount: 2,
     complianceOutcome: "COMPLIANT",
     submissionStatus: "PENDING",
@@ -215,13 +210,17 @@ function sampleReadings(): readonly StoredTemperatureReading[] {
   return [
     {
       sensorId: "SENSOR-001",
+      sequence: 1,
       recordedAt: "2026-07-14T08:00:00.000Z",
-      celsius: 3.2
+      celsius: 3.2,
+      signature: "c2lnbmF0dXJlLTE="
     },
     {
       sensorId: "SENSOR-001",
+      sequence: 2,
       recordedAt: "2026-07-14T08:15:00.000Z",
-      celsius: 3.6
+      celsius: 3.6,
+      signature: "c2lnbmF0dXJlLTI="
     }
   ];
 }
