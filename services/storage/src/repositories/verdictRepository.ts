@@ -9,6 +9,11 @@ import type { ComplianceOutcome } from "./temperatureRepository.js";
 
 export type ComplianceEventName = "TemperatureEvidenceSubmitted" | "ColdChainBreach";
 
+// UNKNOWN is not a failure. It means the check could not be completed, which has to stay distinct
+// from a check that completed and found a forged reading: one is a gap in what was looked at, the
+// other is a finding about the evidence.
+export type SignatureCheck = "PASSED" | "FAILED" | "UNKNOWN";
+
 export interface LedgerComplianceVerdict {
   readonly evidenceId: string;
   readonly batchId: string;
@@ -20,10 +25,25 @@ export interface LedgerComplianceVerdict {
   // exactly rather than restamping everything with the time of the replay.
   readonly ledgerTimestamp: string;
   readonly eventName: ComplianceEventName;
+  // Whether the regulator managed to check the sensor signatures behind this verdict, and what it
+  // found. Defaults to UNKNOWN until the check runs.
+  readonly signatureCheck: SignatureCheck;
+  readonly signatureCheckedAt: string | null;
 }
 
+// What the event carries. The signature check has not run yet at the moment a verdict is archived,
+// and it must not hold archiving up, so it is deliberately absent from the write shape rather than
+// passed as a placeholder.
+export type ArchivedVerdict = Omit<
+  LedgerComplianceVerdict,
+  "signatureCheck" | "signatureCheckedAt"
+>;
+
 export interface VerdictRepository {
-  recordVerdict(verdict: LedgerComplianceVerdict): Promise<void>;
+  recordVerdict(verdict: ArchivedVerdict): Promise<void>;
+  // Written after the verdict is archived, never as part of it. Archiving what the ledger decided
+  // must not depend on the oracle being reachable.
+  recordSignatureCheck(evidenceId: string, outcome: SignatureCheck): Promise<void>;
   listVerdictsForBatch(batchId: string): Promise<readonly LedgerComplianceVerdict[]>;
 }
 
@@ -36,6 +56,8 @@ interface VerdictRow {
   readonly fabric_transaction_id: string;
   readonly ledger_timestamp: Date;
   readonly event_name: ComplianceEventName;
+  readonly signature_check: SignatureCheck;
+  readonly signature_checked_at: Date | null;
 }
 
 function toVerdict(row: VerdictRow): LedgerComplianceVerdict {
@@ -47,13 +69,15 @@ function toVerdict(row: VerdictRow): LedgerComplianceVerdict {
     submittedByStakeholderId: row.submitted_by_stakeholder_id,
     fabricTransactionId: row.fabric_transaction_id,
     ledgerTimestamp: row.ledger_timestamp.toISOString(),
-    eventName: row.event_name
+    eventName: row.event_name,
+    signatureCheck: row.signature_check,
+    signatureCheckedAt: row.signature_checked_at?.toISOString() ?? null
   };
 }
 
 export function createVerdictRepository(pool: Pool): VerdictRepository {
   return {
-    async recordVerdict(verdict: LedgerComplianceVerdict): Promise<void> {
+    async recordVerdict(verdict: ArchivedVerdict): Promise<void> {
       // Upsert rather than insert. A restart replays from the last checkpoint, so the same event
       // can arrive twice, and it carries the same values both times.
       await pool.query(
@@ -82,6 +106,18 @@ export function createVerdictRepository(pool: Pool): VerdictRepository {
           verdict.ledgerTimestamp,
           verdict.eventName
         ]
+      );
+    },
+
+    async recordSignatureCheck(evidenceId: string, outcome: SignatureCheck): Promise<void> {
+      await pool.query(
+        `
+          UPDATE ledger_compliance_verdicts
+          SET signature_check = $2,
+              signature_checked_at = now()
+          WHERE evidence_id = $1
+        `,
+        [evidenceId, outcome]
       );
     },
 

@@ -165,13 +165,17 @@ describe("temperature repository", () => {
     pool.readingRows = [
       {
         sensor_id: "SENSOR-001",
+        sequence: 1,
         recorded_at: new Date("2026-07-14T08:00:00.000Z"),
-        celsius: "3.20"
+        celsius: "3.20",
+        signature: "c2lnbmF0dXJlLTE="
       },
       {
         sensor_id: "SENSOR-001",
+        sequence: 2,
         recorded_at: "2026-07-14T08:15:00.000Z",
-        celsius: "3.60"
+        celsius: "3.60",
+        signature: "c2lnbmF0dXJlLTI="
       }
     ];
     const repository = createTemperatureRepository(pool as unknown as Pool);
@@ -213,13 +217,17 @@ function sampleReadings(): readonly StoredTemperatureReading[] {
   return [
     {
       sensorId: "SENSOR-001",
+      sequence: 1,
       recordedAt: "2026-07-14T08:00:00.000Z",
-      celsius: 3.2
+      celsius: 3.2,
+      signature: "c2lnbmF0dXJlLTE="
     },
     {
       sensorId: "SENSOR-001",
+      sequence: 2,
       recordedAt: "2026-07-14T08:15:00.000Z",
-      celsius: 3.6
+      celsius: 3.6,
+      signature: "c2lnbmF0dXJlLTI="
     }
   ];
 }

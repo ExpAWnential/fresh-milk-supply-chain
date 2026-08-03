@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { Pool, QueryResult } from "pg";
 import {
   createVerdictRepository,
+  type ArchivedVerdict,
   type LedgerComplianceVerdict
 } from "../src/repositories/verdictRepository.js";
 
@@ -21,7 +22,9 @@ class FakePool {
   }
 }
 
-const verdict: LedgerComplianceVerdict = {
+// What the event carries, and so what is written. The signature check has not run yet at this
+// point, which is why it is not part of this shape.
+const verdict: ArchivedVerdict = {
   evidenceId: "EV-B-1-a3f9",
   batchId: "B-1",
   evidenceHash: "a".repeat(64),
@@ -30,6 +33,13 @@ const verdict: LedgerComplianceVerdict = {
   fabricTransactionId: "tx-1",
   ledgerTimestamp: "2026-07-30T00:00:00.000Z",
   eventName: "ColdChainBreach"
+};
+
+// The same row read back, once the archive has added its own two columns.
+const archived: LedgerComplianceVerdict = {
+  ...verdict,
+  signatureCheck: "UNKNOWN",
+  signatureCheckedAt: null
 };
 
 const row = (overrides: Record<string, unknown> = {}) => ({
@@ -41,6 +51,8 @@ const row = (overrides: Record<string, unknown> = {}) => ({
   fabric_transaction_id: "tx-1",
   ledger_timestamp: new Date("2026-07-30T00:00:00.000Z"),
   event_name: "ColdChainBreach",
+  signature_check: "UNKNOWN",
+  signature_checked_at: null,
   ...overrides
 });
 
@@ -96,7 +108,7 @@ describe("reading a batch's verdicts back", () => {
 
     const [read] = await repositoryOver(pool).listVerdictsForBatch("B-1");
 
-    assert.deepEqual(read, verdict);
+    assert.deepEqual(read, archived);
   });
 
   // The column is a timestamp, so the driver hands back a Date. Letting one reach the JSON response
@@ -152,5 +164,39 @@ describe("reading a batch's verdicts back", () => {
         ["EV-2", "ColdChainBreach", "UNSAFE"]
       ]
     );
+  });
+});
+
+// Written separately from the verdict, and after it. Archiving what the ledger decided must never
+// wait on the oracle being reachable, so the check lands as its own update on a row that already
+// exists.
+describe("recording what the signature check found", () => {
+  it("updates only the check columns, on the evidence it was given", async () => {
+    const pool = new FakePool();
+
+    await repositoryOver(pool).recordSignatureCheck("EV-B-1-a3f9", "FAILED");
+
+    const [query] = pool.queries;
+    assert.match(query.text, /UPDATE ledger_compliance_verdicts/);
+    assert.match(query.text, /signature_check = \$2/);
+    // Stamped by the database at the moment of the check, not carried in from the caller.
+    assert.match(query.text, /signature_checked_at = now\(\)/);
+    assert.match(query.text, /WHERE evidence_id = \$1/);
+    assert.deepEqual(query.values, ["EV-B-1-a3f9", "FAILED"]);
+  });
+
+  it("reads back what the check recorded", async () => {
+    const pool = new FakePool();
+    pool.rows = [
+      row({
+        signature_check: "PASSED",
+        signature_checked_at: new Date("2026-08-01T09:30:15.250Z")
+      })
+    ];
+
+    const [read] = await repositoryOver(pool).listVerdictsForBatch("B-1");
+
+    assert.equal(read.signatureCheck, "PASSED");
+    assert.equal(read.signatureCheckedAt, "2026-08-01T09:30:15.250Z");
   });
 });

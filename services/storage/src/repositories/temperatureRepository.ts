@@ -11,8 +11,13 @@ export type SubmissionStatus = "PENDING" | "ANCHORED" | "FAILED";
 
 export interface StoredTemperatureReading {
   readonly sensorId: string;
+  // Where this reading sat in the sensor's run, and the sensor's signature over it. Both are kept
+  // so a company that does not hold this database can check the readings itself rather than taking
+  // the holder's word that they were checked.
+  readonly sequence: number;
   readonly recordedAt: string;
   readonly celsius: number;
+  readonly signature: string;
 }
 
 export interface StoredTemperatureEvidence {
@@ -58,8 +63,10 @@ interface EvidenceRow {
 
 interface ReadingRow {
   readonly sensor_id: string;
+  readonly sequence: number;
   readonly recorded_at: Date | string;
   readonly celsius: string | number;
+  readonly signature: string;
 }
 
 export function createTemperatureRepository(pool: Pool): TemperatureRepository {
@@ -165,8 +172,10 @@ export function createTemperatureRepository(pool: Pool): TemperatureRepository {
       const result = await pool.query<ReadingRow>(
         `
           SELECT sensor_id,
+                 sequence,
                  recorded_at,
-                 celsius
+                 celsius,
+                 signature
           FROM temperature_readings
           WHERE evidence_id = $1
           ORDER BY recorded_at ASC, sensor_id ASC, reading_id ASC
@@ -256,12 +265,21 @@ async function insertReadings(
         INSERT INTO temperature_readings (
           evidence_id,
           sensor_id,
+          sequence,
           recorded_at,
-          celsius
+          celsius,
+          signature
         )
-        VALUES ($1, $2, $3, $4)
+        VALUES ($1, $2, $3, $4, $5, $6)
       `,
-      [evidenceId, reading.sensorId, reading.recordedAt, reading.celsius]
+      [
+        evidenceId,
+        reading.sensorId,
+        reading.sequence,
+        reading.recordedAt,
+        reading.celsius,
+        reading.signature
+      ]
     );
   }
 }
@@ -284,7 +302,9 @@ function mapEvidenceRow(row: EvidenceRow): StoredTemperatureEvidence {
 function mapReadingRow(row: ReadingRow): StoredTemperatureReading {
   return {
     sensorId: row.sensor_id,
+    sequence: row.sequence,
     recordedAt: row.recorded_at instanceof Date ? row.recorded_at.toISOString() : row.recorded_at,
-    celsius: Number(row.celsius)
+    celsius: Number(row.celsius),
+    signature: row.signature
   };
 }

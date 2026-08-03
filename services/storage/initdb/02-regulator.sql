@@ -22,6 +22,19 @@ CREATE TABLE IF NOT EXISTS ledger_compliance_verdicts (
     ledger_timestamp TIMESTAMPTZ NOT NULL,
     event_name TEXT NOT NULL
         CHECK (event_name IN ('TemperatureEvidenceSubmitted', 'ColdChainBreach')),
+
+    -- Whether the readings behind this verdict still carry signatures the registered sensor could
+    -- have produced, checked by the regulator itself when the event arrived.
+    --
+    -- UNKNOWN is not a failure. It means the regulator could not reach the oracle or could not read
+    -- the sensor's key, and it is deliberately distinct from FAILED: one is a finding about the
+    -- evidence, the other is a gap in what we managed to look at. Collapsing them would either
+    -- accuse a company on the strength of a network problem, or let a dishonest one clear itself by
+    -- being unreachable.
+    signature_check TEXT NOT NULL DEFAULT 'UNKNOWN'
+        CHECK (signature_check IN ('PASSED', 'FAILED', 'UNKNOWN')),
+    signature_checked_at TIMESTAMPTZ,
+
     recorded_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

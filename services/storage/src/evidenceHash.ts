@@ -44,7 +44,10 @@ export function compareTemperatureReadings(
   );
 }
 
-function requireText(value: string, label: string): string {
+// Exported for the same reason as roundCelsius: what the sensor signs and what the fingerprint
+// covers have to agree on what a reading *is*, down to the timestamp format. Two normalisations
+// would eventually differ and report a forged signature on a reading nobody had touched.
+export function requireText(value: string, label: string): string {
   const normalised = value.trim();
   if (!normalised) {
     throw new Error(`${label} must not be empty.`);
@@ -52,14 +55,19 @@ function requireText(value: string, label: string): string {
   return normalised;
 }
 
+export function normaliseRecordedAt(value: string): string {
+  const timestamp = new Date(value.trim());
+  if (Number.isNaN(timestamp.getTime())) {
+    throw new Error(`Invalid temperature reading timestamp '${value}'.`);
+  }
+  return timestamp.toISOString();
+}
+
 function normaliseReading(
   batchId: string,
   reading: HashableTemperatureReading
 ): CanonicalTemperatureReading {
-  const timestamp = new Date(reading.recordedAt.trim());
-  if (Number.isNaN(timestamp.getTime())) {
-    throw new Error(`Invalid temperature reading timestamp '${reading.recordedAt}'.`);
-  }
+  const recordedAt = normaliseRecordedAt(reading.recordedAt);
   if (!Number.isFinite(reading.celsius)) {
     throw new Error("Temperature reading must be a finite number.");
   }
@@ -67,7 +75,7 @@ function normaliseReading(
   return {
     batchId,
     sensorId: requireText(reading.sensorId, "Temperature reading sensor ID"),
-    recordedAt: timestamp.toISOString(),
+    recordedAt,
     // Match the oracle's canonical representation exactly.
     celsius: roundCelsius(reading.celsius)
   };

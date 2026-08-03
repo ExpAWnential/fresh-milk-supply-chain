@@ -28,12 +28,24 @@ CREATE TABLE IF NOT EXISTS temperature_evidence (
     CHECK (submission_status <> 'ANCHORED' OR fabric_transaction_id IS NOT NULL)
 );
 
+-- The sensor's own signature is kept beside the reading, not just checked and discarded. A check
+-- the oracle runs on data it holds proves nothing to anyone else, because the oracle could simply
+-- not run it. Storing the signature is what lets another company fetch these rows, read the
+-- sensor's public key off the ledger, and decide for itself.
 CREATE TABLE IF NOT EXISTS temperature_readings (
     reading_id BIGSERIAL PRIMARY KEY,
     evidence_id TEXT NOT NULL REFERENCES temperature_evidence (evidence_id) ON DELETE CASCADE,
     sensor_id TEXT NOT NULL,
+    -- Where this reading sat in the sensor's run, counting from 1. Covered by the signature, so it
+    -- cannot be renumbered to close the gap a deleted reading leaves behind.
+    sequence INTEGER NOT NULL CHECK (sequence > 0),
     recorded_at TIMESTAMPTZ NOT NULL,
-    celsius NUMERIC(6, 3) NOT NULL
+    celsius NUMERIC(6, 3) NOT NULL,
+    signature TEXT NOT NULL,
+
+    -- Two readings claiming the same position in one run is a contradiction the signatures cannot
+    -- resolve, so it is refused by the database rather than left for a verifier to puzzle over.
+    UNIQUE (evidence_id, sequence)
 );
 
 CREATE INDEX IF NOT EXISTS idx_temperature_evidence_batch_id ON temperature_evidence (batch_id);
