@@ -1,6 +1,8 @@
 # COMP6452
 Fresh Milk Supply Chain
 
+[![CI](https://github.com/ExpAWnential/fresh-milk-supply-chain/actions/workflows/ci.yml/badge.svg)](https://github.com/ExpAWnential/fresh-milk-supply-chain/actions/workflows/ci.yml)
+
 A permissioned Hyperledger Fabric proof of concept for a fresh-milk cold chain. Milk is tracked
 from the farm to the shelf, temperature readings are anchored on the ledger so they cannot be
 altered unnoticed, and a shopper can look up a carton without holding any blockchain identity.
