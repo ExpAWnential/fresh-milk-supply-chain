@@ -7,6 +7,16 @@
  */
 import { createHash } from "node:crypto";
 
+// How precisely a reading is pinned down before anything is derived from it. The fingerprint and
+// the summary are both recomputed by a second party and compared exactly, so the two have to round
+// identically: a precision that applied to one and not the other would report a tamper on readings
+// nobody had touched. Exported so the summary uses this one rather than a copy of it.
+export const READING_DECIMALS = 3;
+
+export function roundCelsius(value: number): number {
+  return Number(value.toFixed(READING_DECIMALS));
+}
+
 export interface HashableTemperatureReading {
   readonly sensorId: string;
   readonly recordedAt: string;
@@ -59,7 +69,7 @@ function normaliseReading(
     sensorId: requireText(reading.sensorId, "Temperature reading sensor ID"),
     recordedAt: timestamp.toISOString(),
     // Match the oracle's canonical representation exactly.
-    celsius: Number(reading.celsius.toFixed(3))
+    celsius: roundCelsius(reading.celsius)
   };
 }
 

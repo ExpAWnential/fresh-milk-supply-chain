@@ -7,6 +7,8 @@
  * implementations would eventually round differently and report a lie where there was none.
  */
 
+import { roundCelsius } from "./evidenceHash.js";
+
 export interface TemperatureStatistics {
   readonly minCelsius: number;
   readonly maxCelsius: number;
@@ -23,8 +25,8 @@ export function calculateTemperatureStatistics(
   const values = readings.map((reading) => reading.celsius);
 
   return {
-    minCelsius: Number(Math.min(...values).toFixed(3)),
-    maxCelsius: Number(Math.max(...values).toFixed(3)),
+    minCelsius: roundCelsius(Math.min(...values)),
+    maxCelsius: roundCelsius(Math.max(...values)),
     readingCount: values.length
   };
 }

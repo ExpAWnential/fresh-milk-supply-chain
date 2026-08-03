@@ -5,9 +5,10 @@
  * Two runs over the same readings have to produce byte-identical output, or the hash means
  * nothing.
  */
-// Sorted with the storage package's comparator, the same one the hash uses, so the order this
-// produces and the order the fingerprint is built from can never disagree.
-import { compareTemperatureReadings } from "@fresh-milk/storage";
+// Sorted and rounded with the storage package's own helpers, the same ones the hash uses, so
+// neither the order this produces nor its precision can disagree with what the fingerprint is
+// built from.
+import { compareTemperatureReadings, roundCelsius } from "@fresh-milk/storage";
 
 export interface RawTemperatureReading {
   readonly batchId: string;
@@ -61,6 +62,6 @@ function normaliseTemperature(value: number): number {
     throw new Error(`Invalid celsius value: ${value}`);
   }
 
-  return Number(value.toFixed(3));
+  return roundCelsius(value);
 }
 
