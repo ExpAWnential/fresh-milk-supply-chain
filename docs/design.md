@@ -26,7 +26,7 @@ down what is stored on-chain, was already addressed in the Task 2 design.
 | Consumers no longer join the blockchain | They read a filtered public page instead, which is simpler and safer |
 | Two contract packages instead of one | Removes any doubt about having at least two smart contracts |
 | Turned on the searchable database inside Fabric | Needed for fast history lookups |
-| No graphical interface | A REST interface and a scripted terminal demo are enough, and the brief allows this |
+| One static control panel over the REST API, not an application per company | Enough to drive the demo in five minutes; a real deployment would give each company its own client |
 | GitHub instead of GitLab | Matches what the team actually used |
 
 ## 3. How the system fits together
@@ -37,16 +37,18 @@ down what is stored on-chain, was already addressed in the Task 2 design.
                     └──────────────┬───────────────┘
                                    │
                                    ▼
-                    ┌──────────────────────────────┐
-                    │        Backend (front desk)  │
-                    │  ties everything together    │
-                    └──────┬────────────────┬──────┘
-                           │                │
-                           ▼                ▼
+        ┌──────────┐  ┌──────────┐  ┌──────────┐   one backend per company,
+        │ regulator│  │  farm    │  │ retailer │   each holding only its own
+        │  :3001   │  │  :3002   │  │  :3005   │   key. Three of six shown.
+        └────┬─────┘  └────┬─────┘  └────┬─────┘
+             │             │             │
+             └─────────────┼─────────────┘
+                           │
+                           ▼
         ┌──────────────────────────┐  ┌─────────────────────┐
-        │   Blockchain (Fabric)    │  │  Database (Postgres) │
-        │  the shared record book  │  │  the full temperature│
-        │  + the smart contracts   │  │  readings            │
+        │   Blockchain (Fabric)    │  │ Databases (Postgres)│
+        │  the shared record book  │  │ oracle: readings    │
+        │  + the smart contracts   │  │ regulator: verdicts │
         └───────────▲──────────────┘  └──────────▲──────────┘
                     │                            │
                     │ summary + fingerprint      │ full readings
@@ -58,9 +60,10 @@ down what is stored on-chain, was already addressed in the Task 2 design.
               └────────────────────────────────────────┘
 ```
 
-In plain terms: the sensor feed produces temperature readings, the backend ties the parts
-together, the full readings live in the database, and only a short summary plus a fingerprint
-go onto the blockchain where the smart contracts check them.
+In plain terms: the sensor feed produces temperature readings, each company's own backend talks to
+the blockchain on its behalf, the full readings live in the database of the company that collected
+them, and only a short summary plus a fingerprint go onto the blockchain where the smart contracts
+check them.
 
 ## 4. What each part does
 
@@ -110,18 +113,41 @@ on a truck.
 - If a reading were later changed, the fingerprint would no longer match, which is how tampering
   is caught.
 
-**The database (PostgreSQL).** Holds the bulky and sensitive data that does not belong on a
-shared ledger.
+**The databases (PostgreSQL).** Hold the bulky data that does not belong on a shared ledger. There
+are two, because six competing companies sharing one would defeat the point of having a ledger.
 
-- Stores the full temperature readings.
+- The oracle's holds the full temperature readings it collected.
+- The regulator's holds an archive of the verdicts the contract reached, built from the chain's
+  own events. It never copies the oracle's opinion of the same readings, so the two can be
+  compared.
+- The other four companies store nothing off-chain.
 - Only the short summary and the fingerprint live on the blockchain.
 
-**The backend (front desk).** Ties the three parts together.
+**The backends (one per company).** Each company's own front desk.
 
-- Takes requests and acts as the right company's identity.
-- Talks to both the blockchain and the database.
-- Filters what the public is allowed to see.
-- Listens for temperature alerts.
+- Loads exactly one certificate at startup and talks to exactly one peer.
+- Cannot act as any other company, because it holds no other company's key.
+- The regulator's listens for temperature alerts and builds the archive; the others do not.
+- The retailer's filters what the public is allowed to see, for a shopper holding no identity.
+
+**How one company checks another.** Verification needs readings and an anchor, and it deliberately
+gets them from different places. Any company can ask the oracle for the readings over HTTP,
+recompute the fingerprint itself, and compare that against the anchor it reads off the ledger with
+its own certificate. A retailer can therefore catch its supplier altering records, which a company
+auditing its own database never could.
+
+That endpoint is worth being precise about. The oracle's backend reads the ledger before serving
+readings, but it signs that read with the oracle's certificate, because that is the only one it
+holds. So the check answers "is the oracle registered and does this evidence exist", and nothing
+about the caller. **The readings endpoint is unauthenticated with respect to who is asking.** The
+evidence ID contains part of the hash so it is not enumerable, but that is obscurity, not access
+control.
+
+The verification is sound regardless. A dishonest oracle cannot make altered readings verify: the
+fingerprint it is checked against came off the ledger, not from the oracle. The most it can do is
+refuse to answer or answer with rubbish, and both surface as a mismatch or an error rather than as
+a clean result. Fixing the endpoint properly means a Fabric-signed request the oracle can verify,
+or private data collections so the readings never leave the peers entitled to them.
 
 ## 5. What the demo shows
 
@@ -139,11 +165,11 @@ shared ledger.
 
 Task 3 asks for five things, and each maps to a part above:
 
-- Interacts with a blockchain → the backend and sensor feed talk to Fabric.
+- Interacts with a blockchain → each company's backend and the sensor feed talk to Fabric.
 - At least two smart contracts with real logic → two packages holding three contracts, each one
   making decisions and refusing invalid actions.
 - Off-chain computation → the sensor feed working out the stats and the fingerprint.
-- Off-chain storage → the Postgres database.
+- Off-chain storage → the two Postgres databases, one per company that keeps records.
 - An oracle → the temperature sensor feed.
 
 The Task 2 quality goals are shown by the demo: integrity (tampering is caught), fast

@@ -15,8 +15,10 @@ Roughly 1,400 lines. These are what questions will be about.
 | `fabric/chaincode/supplychain/src/utils/stakeholderClient.ts` | 106 | How one chaincode calls another to check permissions |
 | `services/storage/src/evidenceHash.ts` | 89 | Canonicalise then SHA-256, and why the ordering rule matters |
 | `services/oracle/src/runOracle.ts` | 147 | The run end to end, why the row is saved PENDING first, and the failure handling |
-| `services/backend/src/services/evidenceVerification.ts` | 157 | Three hashes, and why the anchor has to come off the ledger |
-| `services/storage/schema.sql` | 40 | Two tables, and the constraint that makes ANCHORED without a transaction ID impossible |
+| `services/backend/src/services/evidenceVerification.ts` | 169 | Three hashes, and why the anchor has to come off the ledger |
+| `services/storage/initdb/01-oracle.sql` | 43 | The oracle's two tables, and the constraint that makes ANCHORED without a transaction ID impossible |
+| `services/storage/initdb/02-regulator.sql` | 29 | A separate database for the regulator's archive, and why it references nothing of the oracle's |
+| `services/backend/src/services/readingsSource.ts` | 79 | Local versus fetched readings, and why an unreachable holder must raise rather than read as absent |
 
 ## Tier 2: understand, do not memorise
 
@@ -26,7 +28,7 @@ About 500 lines.
 |---|---|
 | `fabric/chaincode/*/src/utils/identity.ts` and `txContext.ts` | 30 lines each. Where every trusted value comes from. Small but foundational |
 | `services/backend/src/events/complianceEvents.ts` | How the ledger's verdict gets back into PostgreSQL |
-| `services/backend/src/demoIdentity.ts` | The `x-demo-identity` header, and why it is a demo shortcut rather than authentication |
+| `services/backend/src/organisations.ts` | The six companies, and how a process learns which one it is |
 | `fabric/chaincode/supplychain/src/models/Batch.ts` and `TemperatureEvidence.ts` | What is actually stored. 80 lines total, quick to absorb |
 | `services/storage/src/tamperEvidence.ts` | The demo that gets run live |
 
@@ -68,7 +70,7 @@ Follow the story rather than the folder structure. Each file hands off to the ne
 
 Run `pnpm test` and `pnpm typecheck`. Both should be clean.
 
-The demo itself is driven from the control panel at <http://localhost:3000>, with the oracle and the
+The demo itself is driven from the control panel at <http://localhost:3001>, with the oracle and the
 tamper command run in a terminal beside it. Those two stay outside the page on purpose: the oracle is
 a separate off-chain process, and tampering means reaching into PostgreSQL around the application, so
 a button inside the application would misrepresent both.
