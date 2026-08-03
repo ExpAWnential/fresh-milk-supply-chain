@@ -116,6 +116,55 @@ test("a corrupted ledger record is refused rather than parsed loosely", async ()
   await assert.rejects(contract.getBatch(as(stub, "cert-farm"), "B-9"), /invalid ledger data/);
 });
 
+// JSON that parses to something which is not an object at all. It gets past the parse and would
+// then be read field by field off a number or a null, so it is refused on the same footing as text
+// that was never JSON.
+test("a ledger record that is valid JSON but not a record is refused too", async () => {
+  const contract = new BatchLifecycleContract();
+  const stub = new MemoryStub();
+  const key = stub.createCompositeKey("batch", ["B-9"]);
+
+  for (const stored of ["null", "42", '"a string"', "[]", "true"]) {
+    await stub.putState(key, Buffer.from(stored));
+    await assert.rejects(
+      contract.getBatch(as(stub, "cert-farm"), "B-9"),
+      /invalid ledger data/,
+      stored
+    );
+  }
+});
+
+// The history is Fabric's own, and every entry carries the time the peer stamped on it. A record
+// the peer cannot date is not something to guess at: the history is what a recall traces back
+// through, so an invented timestamp would be worse than no answer.
+test("history entries the peer cannot date are refused rather than guessed at", async () => {
+  const contract = new BatchLifecycleContract();
+  const stub = new MemoryStub();
+
+  await transact(stub, "cert-farm", (ctx) =>
+    contract.createBatch(ctx, "B-1", "Bega Dairy", "Bega NSW")
+  );
+  const key = stub.createCompositeKey("batch", ["B-1"]);
+  const [entry] = stub.history.get(key);
+
+  const unusable = [
+    undefined,
+    // Past the range a Date can represent, though each part is a whole number on its own.
+    { seconds: 1e15, nanos: 0 },
+    { seconds: Number.MAX_SAFE_INTEGER * 2, nanos: 0 },
+    { seconds: 1_750_000_000, nanos: 1.5 }
+  ];
+
+  for (const timestamp of unusable) {
+    stub.history.set(key, [{ ...entry, timestamp }]);
+    await assert.rejects(
+      contract.getBatchHistory(as(stub, "cert-farm"), "B-1"),
+      /timestamp/i,
+      JSON.stringify(timestamp)
+    );
+  }
+});
+
 test("temperature evidence is refused for an unknown batch and read back only when it exists", async () => {
   const temperature = new TemperatureComplianceContract();
   const stub = new MemoryStub();

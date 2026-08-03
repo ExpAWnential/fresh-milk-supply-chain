@@ -133,6 +133,84 @@ test("a suspended regulator does not count towards the minimum", async () => {
   );
 });
 
+// Reactivating one is the only way back up, and the count has to follow it. If it did not, a
+// registry with two active regulators would still believe it had one and refuse to let either go.
+test("reactivating a regulator puts it back into the count", async () => {
+  const { contract, regulator } = await registryWithRegulator();
+  await contract.registerStakeholder(regulator, "regulator-002", "REGULATOR", "cert-regulator-2");
+  await contract.suspendStakeholder(regulator, "regulator-002");
+
+  // While it is suspended the remaining one is the last, and protected.
+  await assert.rejects(
+    contract.suspendStakeholder(regulator, "regulator-001"),
+    /final active regulator/
+  );
+
+  await contract.reactivateStakeholder(regulator, "regulator-002");
+
+  // Two active again, so the first may now step aside.
+  await contract.suspendStakeholder(regulator, "regulator-001");
+});
+
+// Reactivating anyone else must leave the count alone, or suspending a farm would eventually
+// convince the registry it had regulators it never had.
+test("reactivating anyone else leaves the regulator count where it was", async () => {
+  const { contract, regulator } = await registryWithRegulator();
+  await contract.registerStakeholder(regulator, "farm-001", "FARM", "cert-farm");
+  await contract.suspendStakeholder(regulator, "farm-001");
+  await contract.reactivateStakeholder(regulator, "farm-001");
+
+  // Still exactly one regulator, so it is still the last one.
+  await assert.rejects(
+    contract.suspendStakeholder(regulator, "regulator-001"),
+    /final active regulator/
+  );
+});
+
+// A stakeholder ID nobody holds. Distinct from a certificate nobody holds, which is the caller
+// being unknown rather than the subject, and reported separately above.
+test("an operation on a stakeholder that does not exist names the one it looked for", async () => {
+  const { contract, regulator } = await registryWithRegulator();
+
+  for (const operation of [
+    () => contract.getStakeholder(regulator, "farm-404"),
+    () => contract.updateStakeholderRole(regulator, "farm-404", "PROCESSOR"),
+    () => contract.suspendStakeholder(regulator, "farm-404"),
+    () => contract.reactivateStakeholder(regulator, "farm-404")
+  ]) {
+    await assert.rejects(operation(), /Stakeholder 'farm-404' does not exist/);
+  }
+});
+
+const COUNT_KEY = "registry.activeRegulatorCount";
+
+// The counter is the only thing standing between the registry and a state nobody can administer,
+// so it is never inferred from an absent or unreadable value.
+test("an uninitialised registry is reported rather than treated as having no regulators", async () => {
+  const { contract, stub, regulator } = await registryWithRegulator();
+  await contract.registerStakeholder(regulator, "regulator-002", "REGULATOR", "cert-regulator-2");
+  stub.state.delete(COUNT_KEY);
+
+  await assert.rejects(
+    contract.suspendStakeholder(regulator, "regulator-002"),
+    /has not been initialised/
+  );
+});
+
+test("a counter that could not have been written by this contract is refused", async () => {
+  for (const stored of ["0", "-1", "not a number", "1.5", ""]) {
+    const { contract, stub, regulator } = await registryWithRegulator();
+    await contract.registerStakeholder(regulator, "regulator-002", "REGULATOR", "cert-regulator-2");
+    stub.state.set(COUNT_KEY, Buffer.from(stored));
+
+    await assert.rejects(
+      contract.suspendStakeholder(regulator, "regulator-002"),
+      /has not been initialised|count stored on the ledger is invalid/,
+      JSON.stringify(stored)
+    );
+  }
+});
+
 test("every stakeholder record carries who created it, when, and in which transaction", async () => {
   const { contract, regulator } = await registryWithRegulator();
   await contract.registerStakeholder(regulator, "farm-001", "FARM", "cert-farm");
@@ -157,4 +235,10 @@ test("identity and metadata refuse values Fabric could not supply", () => {
   const noTxId = context(stub, "cert-regulator", REGULATOR_MSP_ID);
   noTxId.stub = { ...stub, getTxID: () => "   ", getTxTimestamp: () => stub.getTxTimestamp() };
   assert.throws(() => getTransactionMetadata(noTxId), /empty transaction ID/);
+
+  // Whole numbers on their own, but past the range a date can represent. Left through, this would
+  // write "Invalid Date" into a record that exists to be an audit trail.
+  const outOfRange = context(stub, "cert-regulator", REGULATOR_MSP_ID);
+  outOfRange.stub = { ...stub, getTxTimestamp: () => ({ seconds: 1e15, nanos: 0 }) };
+  assert.throws(() => getTransactionMetadata(outOfRange), /invalid transaction timestamp/);
 });
