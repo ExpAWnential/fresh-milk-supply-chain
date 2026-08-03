@@ -12,7 +12,11 @@ import {
   type TemperatureRepository,
   type TemperatureStatistics
 } from "@fresh-milk/storage";
-import { canonicaliseReadings, type RawTemperatureReading } from "./canonicalise.js";
+import {
+  canonicaliseReadings,
+  type CanonicalTemperatureReading,
+  type RawTemperatureReading
+} from "./canonicalise.js";
 import { assessCompliance } from "./compliance.js";
 import { AnchorError } from "./oracleClient.js";
 import type { AnchoredEvidence, TemperatureEvidenceSubmission } from "./oracleClient.js";
@@ -24,6 +28,10 @@ export interface OracleDependencies {
   // so the contract refuses a second submission of the same run: when anchoring fails after the
   // transaction landed, adopting the existing record is the only way the run can finish.
   readonly readAnchored: (evidenceId: string) => Promise<AnchoredEvidence | undefined>;
+  // Throws if any reading was altered, removed or came from a sensor the ledger does not vouch for.
+  // Required rather than optional: a run that skipped it would anchor unchecked readings and look
+  // exactly like one that passed.
+  readonly verifyReadings: (readings: readonly CanonicalTemperatureReading[]) => Promise<void>;
 }
 
 export interface OracleResult {
@@ -54,13 +62,24 @@ export async function runOracle(
   dependencies: OracleDependencies
 ): Promise<OracleResult> {
   const canonicalReadings = canonicaliseReadings(rawReadings);
+
+  // Before the fingerprint, before the statistics, and well before anything is written. A reading
+  // that fails here never contributes to a hash, never reaches the database and never reaches the
+  // ledger, so a refused run leaves nothing behind to clean up or explain.
+  await dependencies.verifyReadings(canonicalReadings);
+
   const batchId = singleBatchId(canonicalReadings.map((reading) => reading.batchId));
   const statistics = calculateTemperatureStatistics(canonicalReadings);
 
+  // The batch ID is dropped because the evidence record already names it. The sequence and the
+  // signature are kept, so whoever fetches these rows later can check them against the sensor's
+  // registered key rather than trusting that this process did.
   const readings: readonly StoredTemperatureReading[] = canonicalReadings.map((reading) => ({
     sensorId: reading.sensorId,
+    sequence: reading.sequence,
     recordedAt: reading.recordedAt,
-    celsius: reading.celsius
+    celsius: reading.celsius,
+    signature: reading.signature
   }));
 
   // Hashed with the storage package's function, the same one verification and the tamper demo

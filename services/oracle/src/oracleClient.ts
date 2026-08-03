@@ -5,6 +5,7 @@
  * reached the ledger, because that is what decides whether a run can be repaired.
  */
 import type { TemperatureStatistics } from "@fresh-milk/storage";
+import type { SensorPublicKey } from "./verifyReadings.js";
 
 export interface TemperatureEvidenceSubmission {
   readonly evidenceId: string;
@@ -106,6 +107,36 @@ export async function readAnchoredEvidence(
   }
 
   return anchored;
+}
+
+/**
+ * The sensor's registered public key, read from the ledger through this backend rather than from
+ * the file beside the readings. Checking the oracle's data against the oracle's own copy of the key
+ * would prove nothing; the regulator's attestation on the ledger is the part it cannot forge.
+ *
+ * Undefined means the ledger positively holds no key, and the caller refuses the readings on the
+ * strength of it. Every other failure throws, so a peer that could not be reached is never read as
+ * an unregistered sensor: one of those refuses the reading, the other would wave it through.
+ */
+export async function readSensorPublicKey(
+  sensorId: string
+): Promise<SensorPublicKey | undefined> {
+  const response = await fetch(`${backendUrl}/sensors/${encodeURIComponent(sensorId)}`);
+
+  if (response.status === 404) {
+    return undefined;
+  }
+
+  if (!response.ok) {
+    throw new Error(await describeFailure(response));
+  }
+
+  const sensorKey = (await response.json()) as SensorPublicKey;
+  if (!sensorKey.publicKey) {
+    throw new Error(`The registered record for sensor '${sensorId}' carried no public key.`);
+  }
+
+  return sensorKey;
 }
 
 async function describeFailure(response: Response): Promise<string> {

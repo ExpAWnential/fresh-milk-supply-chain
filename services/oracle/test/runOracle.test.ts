@@ -8,16 +8,24 @@ const READINGS = [
   {
     batchId: "BATCH-001",
     sensorId: "SENSOR-001",
+    sequence: 1,
     recordedAt: "2026-07-14T08:00:00Z",
-    celsius: 3.2
+    celsius: 3.2,
+    signature: "c2lnbmF0dXJlLTE="
   },
   {
     batchId: "BATCH-001",
     sensorId: "SENSOR-001",
+    sequence: 2,
     recordedAt: "2026-07-14T08:15:00Z",
-    celsius: 3.6
+    celsius: 3.6,
+    signature: "c2lnbmF0dXJlLTI="
   }
 ];
+
+// These tests are about the order the run does things in and how it recovers, not about whether a
+// signature is genuine. Real keys are used in verifyReadings.test.ts.
+const acceptsSignedReadings = async () => {};
 
 function recordingRepository() {
   const calls: { name: string; args: readonly unknown[] }[] = [];
@@ -60,6 +68,7 @@ describe("oracle run", () => {
 
     const result = await runOracle(READINGS, {
       repository,
+      verifyReadings: acceptsSignedReadings,
       anchor: anchorSucceeds,
       readAnchored: nothingAnchored
     });
@@ -80,6 +89,7 @@ describe("oracle run", () => {
     const { repository } = recordingRepository();
     const result = await runOracle(READINGS, {
       repository,
+      verifyReadings: acceptsSignedReadings,
       anchor: anchorSucceeds,
       readAnchored: nothingAnchored
     });
@@ -98,6 +108,7 @@ describe("oracle run", () => {
     // These readings are within range, yet the contract is the one that decides.
     const result = await runOracle(READINGS, {
       repository,
+      verifyReadings: acceptsSignedReadings,
       readAnchored: nothingAnchored,
       anchor: async () => ({ submittedTxId: "tx-1", complianceOutcome: "UNSAFE" as const })
     });
@@ -110,6 +121,7 @@ describe("oracle run", () => {
     await assert.rejects(
       runOracle(READINGS, {
         repository,
+        verifyReadings: acceptsSignedReadings,
         readAnchored: nothingAnchored,
         anchor: async () => {
           throw new Error("batch must be IN_TRANSIT");
@@ -132,6 +144,7 @@ describe("oracle run", () => {
     await assert.rejects(
       runOracle(READINGS, {
         repository,
+        verifyReadings: acceptsSignedReadings,
         readAnchored: nothingAnchored,
         anchor: async () => {
           throw new AnchorError("submitted but could not be read back", true);
@@ -152,6 +165,7 @@ describe("oracle run", () => {
     await assert.rejects(
       runOracle(READINGS, {
         repository,
+        verifyReadings: acceptsSignedReadings,
         readAnchored: nothingAnchored,
         anchor: async () => {
           throw new AnchorError("batch must be IN_TRANSIT", false);
@@ -173,6 +187,7 @@ describe("oracle run", () => {
 
     const result = await runOracle(READINGS, {
       repository,
+      verifyReadings: acceptsSignedReadings,
       readAnchored: async () => ({ submittedTxId: "tx-earlier", complianceOutcome: "UNSAFE" }),
       anchor: async () => {
         throw new AnchorError("evidence 'EV-1' has already been anchored", false);
@@ -194,6 +209,7 @@ describe("oracle run", () => {
     await assert.rejects(
       runOracle(READINGS, {
         repository,
+        verifyReadings: acceptsSignedReadings,
         readAnchored: async () => {
           throw new Error("peer unavailable");
         },
@@ -217,6 +233,7 @@ describe("oracle run", () => {
     await assert.rejects(
       runOracle([...READINGS, { ...READINGS[0], batchId: "BATCH-002" }], {
         repository,
+        verifyReadings: acceptsSignedReadings,
         readAnchored: nothingAnchored,
         anchor: anchorSucceeds
       }),
@@ -229,7 +246,12 @@ describe("oracle run", () => {
   it("refuses an empty reading set", async () => {
     const { repository } = recordingRepository();
     await assert.rejects(
-      runOracle([], { repository, anchor: anchorSucceeds, readAnchored: nothingAnchored }),
+      runOracle([], {
+        repository,
+        verifyReadings: acceptsSignedReadings,
+        anchor: anchorSucceeds,
+        readAnchored: nothingAnchored
+      }),
       /must all belong to one batch/
     );
   });

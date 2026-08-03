@@ -7,7 +7,17 @@
 import { readFile } from "node:fs/promises";
 import { RawTemperatureReading } from "./canonicalise.js";
 
-const REQUIRED_HEADERS = ["batchId", "sensorId", "recordedAt", "celsius"] as const;
+// A reading arrives with the sensor's own signature over it and the position it holds in the run.
+// Both are required rather than optional: a file without them cannot be checked at all, and
+// accepting it would quietly reopen the gap the signatures exist to close.
+export const REQUIRED_HEADERS = [
+  "batchId",
+  "sensorId",
+  "sequence",
+  "recordedAt",
+  "celsius",
+  "signature"
+] as const;
 
 export async function readTemperatureReadingsCsv(
   filePath: string
@@ -43,11 +53,21 @@ export function parseTemperatureReadingsCsv(csv: string): readonly RawTemperatur
       throw new Error(`CSV row ${index + 2} has invalid celsius value: ${row.celsius}`);
     }
 
+    const sequence = Number(row.sequence);
+    if (!Number.isSafeInteger(sequence) || sequence < 1) {
+      throw new Error(`CSV row ${index + 2} has invalid sequence value: ${row.sequence}`);
+    }
+    if (!row.signature) {
+      throw new Error(`CSV row ${index + 2} has no signature.`);
+    }
+
     return {
       batchId: row.batchId,
       sensorId: row.sensorId,
+      sequence,
       recordedAt: row.recordedAt,
-      celsius
+      celsius,
+      signature: row.signature
     };
   });
 }

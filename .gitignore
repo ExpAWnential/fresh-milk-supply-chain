@@ -18,6 +18,12 @@ coverage/
 *.p12
 *.pfx
 
+# The one deliberate exception. This is a simulated sensor's key, used to sign the sample readings
+# that ship with the repository. It is committed so those signatures verify on a teammate's machine
+# rather than only on the one that generated them, and it protects nothing real. See the README
+# beside it.
+!services/oracle/data/demo-sensor/*.key
+
 # The one exception. This is a self-signed organisation generated for the tests, so that reading a
 # certificate and key off disk can be exercised on a clean checkout rather than only after the
 # network has been brought up. It grants nothing: no peer, channel or registry has ever heard of it.
