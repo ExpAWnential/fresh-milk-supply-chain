@@ -50,13 +50,21 @@ attempt() {
   # --waitForEvent is required. A transaction that fails the policy is still ordered and written
   # into a block as invalid, so without waiting for the commit event this reports success for a
   # transaction that was discarded, and every case below would appear to pass.
-  local out
+  local out status
   out=$(peer chaincode invoke -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com \
         --tls --cafile "$ORDERER_CA" -C "${CHANNEL_NAME:-milkchannel}" -n supplychain --waitForEvent \
         -c "{\"function\":\"BatchLifecycleContract:recordDelivery\",\"Args\":[\"${BATCH}\",\"Sydney Depot\"]}" \
         "${peers[@]}" 2>&1)
+  status=$?
 
-  local got=committed
+  # "committed" is only ever concluded from the peer reporting success, never assumed. Defaulting
+  # to it meant any other failure -- the batch not being IN_TRANSIT, an unregistered signer, a
+  # rerun after the accepting case already consumed the batch -- was reported as a clean pass, so
+  # the one script whose job is proving this policy could certify a transaction that was rejected.
+  local got=unexpected-failure
+  if [ $status -eq 0 ] && echo "$out" | grep -q "status:200"; then
+    got=committed
+  fi
   echo "$out" | grep -qi "ENDORSEMENT_POLICY_FAILURE" && got=ENDORSEMENT_POLICY_FAILURE
   echo "$out" | grep -qi "could not assemble\|no combination of peers" && got=policy-unsatisfiable
 
@@ -64,6 +72,9 @@ attempt() {
     printf "  %-44s %-28s PASS\n" "$label" "$got"
   else
     printf "  %-44s %-28s FAIL (expected %s)\n" "$label" "$got" "$expected"
+    # The peer's own words, because "unexpected-failure" on its own does not say whether the batch
+    # was in the wrong state, the signer was not registered, or the policy genuinely bit.
+    printf "    %s\n" "$(echo "$out" | tail -3)"
     FAILURES=$((FAILURES + 1))
   fi
 }
