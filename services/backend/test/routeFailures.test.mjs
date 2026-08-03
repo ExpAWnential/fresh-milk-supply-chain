@@ -144,6 +144,30 @@ test("an unexpected verification failure is reported as a server fault", async (
   });
 });
 
+// The case this endpoint exists for is a retailer checking its supplier's records, so the supplier
+// going quiet is a routine outcome and the most misleading one to get wrong. Reporting it as a
+// fault in the checker blames the wrong company; reporting it as a result would turn "I could not
+// check" into "clean", which is the answer a dishonest holder wants.
+test("a holder that will not hand its readings over is reported as the holder's failure", async () => {
+  const { ReadingsUnavailableError } = await import("../dist/services/readingsSource.js");
+  const readingsSource = {
+    getReadings: async () => {
+      throw new ReadingsUnavailableError("http://localhost:3006", "it answered 503");
+    }
+  };
+
+  await withServer({ readingsSource }, async ({ call }) => {
+    const result = await call("GET", "/temperature/evidence/EV-1/verify");
+
+    assert.equal(result.status, 502);
+    assert.equal(result.body.code, "READINGS_UNAVAILABLE");
+    // Naming the company that would not answer is the point of the code above.
+    assert.match(result.body.error, /http:\/\/localhost:3006/);
+    // Never a verification result, however tempting the shape.
+    assert.equal(result.body.match, undefined);
+  });
+});
+
 test("verification names which precondition failed", async () => {
   const cases = [
     {

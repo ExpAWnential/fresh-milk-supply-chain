@@ -125,6 +125,36 @@ test("a holder answering with readings of the wrong shape raises rather than cra
   }
 });
 
+// A 200 whose body is not JSON at all. The holder answered, so none of the checks above catch it,
+// and letting the parse error escape would report a fault in the checker.
+test("a holder answering with something that is not JSON raises rather than escaping", async () => {
+  const { fetchImpl } = stubFetch(
+    () => new Response("<html>proxy error</html>", { status: 200 })
+  );
+
+  await assert.rejects(
+    remoteReadingsSource("http://localhost:3006", fetchImpl).getReadings("EV-1"),
+    (error) => error instanceof ReadingsUnavailableError
+  );
+});
+
+// fetch itself can reject with something that was never an Error. The reason still has to name
+// something rather than coming out as "[object Object]".
+test("a fetch that rejects with something other than an Error still names a reason", async () => {
+  const { fetchImpl } = stubFetch(() => {
+    throw "the socket closed";
+  });
+
+  await assert.rejects(
+    remoteReadingsSource("http://localhost:3006", fetchImpl).getReadings("EV-1"),
+    (error) => {
+      assert.ok(error instanceof ReadingsUnavailableError);
+      assert.match(error.message, /the socket closed/);
+      return true;
+    }
+  );
+});
+
 // Naming the company that would not answer is the point: without it the checker looks broken when
 // the party being checked is the one that went quiet.
 test("a failure names the company that would not hand the readings over", async () => {

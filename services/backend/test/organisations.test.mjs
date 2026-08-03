@@ -4,6 +4,8 @@ import {
   ORGANISATIONS,
   ORGANISATION_NAMES,
   findOrganisation,
+  originOf,
+  readingsHolder,
   resolveLocalOrganisation,
   walletFor
 } from "../dist/organisations.js";
@@ -106,6 +108,35 @@ test("a process with an unknown ORGANISATION is refused", () => {
   assert.throws(
     () => resolveLocalOrganisation({ ORGANISATION: "smuggler" }, WALLET_ROOT),
     /Unknown organisation 'smuggler'/
+  );
+});
+
+// Two callers have to agree on this: one builds the CORS allowlist and the other builds the
+// directory the demo page dials. If they ever disagreed, every cross-company call would be rejected
+// by the browser and reported as the backend being down, which names nothing.
+test("a company's origin is built from its own port, in one place", () => {
+  assert.equal(originOf(findOrganisation("regulator")), "http://localhost:3001");
+  assert.equal(originOf(findOrganisation("oracle")), "http://localhost:3006");
+});
+
+// The one company the other five have to be able to find: everyone else fetches the readings from
+// it to run their own verification.
+test("the readings are held by the oracle", () => {
+  assert.equal(readingsHolder().name, "oracle");
+  assert.equal(readingsHolder().offChainStore, "readings");
+});
+
+// What a company keeps off-chain is declared in this table rather than decided by name at each
+// wiring point, and the two stores are separate databases holding different things.
+test("only the oracle and the regulator keep anything off-chain, and not the same thing", () => {
+  const stores = ORGANISATIONS.filter((organisation) => organisation.offChainStore);
+
+  assert.deepEqual(
+    stores.map((organisation) => [organisation.name, organisation.offChainStore]),
+    [
+      ["regulator", "verdicts"],
+      ["oracle", "readings"]
+    ]
   );
 });
 
