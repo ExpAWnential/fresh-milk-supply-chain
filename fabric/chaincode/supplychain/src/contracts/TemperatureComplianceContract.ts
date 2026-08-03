@@ -1,10 +1,11 @@
 /**
- * Manages temperature evidence and cold-chain compliance for milk batches.
+ * Anchors a summary of off-chain temperature readings and applies the cold-chain rules on Fabric.
+ *
+ * The oracle supplies the hash and statistics, but it does not get to choose the verdict. This
+ * contract derives compliance itself and places the batch on hold when the recorded range is unsafe.
  */
 
-// Value import, not "import type": @Transaction identifies the ctx parameter by comparing its
-// emitted runtime type against Context, so an erased type import makes Fabric expect an extra
-// argument on every transaction.
+// Fabric's decorators inspect Context at runtime, so it must remain a value import.
 import { Context, Contract, Info, Returns, Transaction } from "fabric-contract-api";
 import type { Batch } from "../models/Batch.js";
 import type {
@@ -24,9 +25,10 @@ const MAX_SAFE_CELSIUS = 5;
   description: "Anchors hashed temperature evidence and decides cold-chain compliance."
 })
 export class TemperatureComplianceContract extends Contract {
-  // Determine whether the temperatures were safe and prepare ledger writes that record the oracle's
-  // evidence. If they were unsafe, also place the batch on hold. Raw sensor readings remain in
-  // PostgreSQL.
+  /**
+   * Stores the evidence anchor and derives the verdict from its statistics.
+   * Unsafe evidence also records the interrupted batch stage before placing the batch on hold.
+   */
   @Transaction()
   public async submitTemperatureEvidence(
     ctx: Context,
@@ -48,9 +50,7 @@ export class TemperatureComplianceContract extends Contract {
       throw new Error(`Temperature evidence '${normalisedEvidenceId}' already exists.`);
     }
 
-    // Milk has to stay cold from the farm's bulk tank to the retailer's fridge, not only in the
-    // truck, so evidence is accepted at every stage. A recalled batch is the exception: it has
-    // been withdrawn, and there is nothing left for a cold-chain verdict to protect.
+    // Cold-chain monitoring covers every active stage, but recalled batches are already withdrawn.
     const batch = await getBatchRecord(ctx, normalisedBatchId);
     if (batch.status === "RECALLED") {
       throw new Error(
@@ -78,8 +78,7 @@ export class TemperatureComplianceContract extends Contract {
       const breachedBatch: Batch = {
         ...batch,
         status: "COLD_CHAIN_BREACH",
-        // Only the first breach records where the batch came from. A second unsafe reading while
-        // the hold is already open must not overwrite it with COLD_CHAIN_BREACH itself.
+        // Preserve the stage interrupted by the first unresolved breach.
         statusBeforeBreach:
           batch.status === "COLD_CHAIN_BREACH" ? batch.statusBeforeBreach : batch.status,
         lastUpdatedByStakeholderId: oracle.stakeholderId,
@@ -122,7 +121,7 @@ export class TemperatureComplianceContract extends Contract {
     );
   }
 
-  // Allow a regulator to resolve a cold-chain breach and lift the hold on the batch.
+  /** Clears an investigated breach and restores the stage that was interrupted by the hold. */
   @Transaction()
   public async resolveTemperatureBreach(
     ctx: Context,
@@ -141,15 +140,11 @@ export class TemperatureComplianceContract extends Contract {
       );
     }
 
-    // Clearing the hold puts the batch back where the breach found it, so a breach in the farm's
-    // tank does not send the batch forward past processing. The IN_TRANSIT fallback covers records
-    // written before the batch carried this field. The original unsafe evidence stays on the
-    // ledger either way.
+    // Records without an interrupted stage use the only safe legacy assumption: transport.
     const metadata = getTransactionMetadata(ctx);
     const resolvedBatch: Batch = {
       ...batch,
       status: batch.statusBeforeBreach ?? "IN_TRANSIT",
-      // The hold is closed, so what it interrupted is no longer pending. JSON.stringify drops it.
       statusBeforeBreach: undefined,
       lastUpdatedByStakeholderId: regulator.stakeholderId,
       lastUpdatedTxId: metadata.txId,
@@ -171,7 +166,7 @@ export class TemperatureComplianceContract extends Contract {
     );
   }
 
-  // Retrieve stored temperature evidence without changing the ledger.
+  /** Returns one immutable evidence anchor for independent comparison with off-chain readings. */
   @Transaction(false)
   @Returns("string")
   public async getTemperatureEvidence(ctx: Context, evidenceId: string): Promise<string> {

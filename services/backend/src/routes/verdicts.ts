@@ -1,9 +1,6 @@
 /**
- * The regulator's archive of what the ledger decided about a batch.
- *
- * Only the regulator's backend has one, because only the regulator runs the event listener that
- * builds it. It is a different database from the oracle's, holding a different thing: the
- * contract's verdicts rather than the readings they were reached from.
+ * Serves the regulator's off-chain verdict archive after Fabric authorises access to the batch.
+ * Other organisations intentionally have no archive and report that capability as unavailable.
  */
 import { Router } from "express";
 import type { VerdictRepository } from "@fresh-milk/storage";

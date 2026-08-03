@@ -171,7 +171,6 @@ test("evidence is accepted at every stage and a breach returns the batch to wher
       "BATCH-STAGE",
       VALID_HASH_A,
       "ref-stage",
-      // Unsafe, so the batch goes on hold from whichever stage it was at.
       statistics(1, 9)
     );
 

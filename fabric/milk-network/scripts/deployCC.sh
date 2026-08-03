@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Installs and approves one chaincode for every consortium organisation, then commits the definition
+# only after the channel reports that the required approvals are present.
+
 source scripts/utils.sh
 
 CHANNEL_NAME=${1:-"mychannel"}
@@ -30,7 +33,6 @@ println "- MAX_RETRY: ${C_GREEN}${MAX_RETRY}${C_RESET}"
 println "- VERBOSE: ${C_GREEN}${VERBOSE}${C_RESET}"
 
 INIT_REQUIRED="--init-required"
-# check if the init fcn should be called
 if [ "$CC_INIT_FCN" = "NA" ]; then
   INIT_REQUIRED=""
 fi
@@ -57,7 +59,6 @@ fi
 
 FABRIC_CFG_PATH=${FABRIC_SAMPLES_HOME}/config/
 
-# import utils
 . scripts/envVar.sh
 . scripts/ccutils.sh
 
@@ -73,15 +74,12 @@ function checkPrereqs() {
   fi
 }
 
-#check for prerequisites
 checkPrereqs
 
-## package the chaincode
 ./scripts/packageCC.sh $CC_NAME $CC_SRC_PATH $CC_SRC_LANGUAGE $CC_VERSION 
 
 PACKAGE_ID=$(peer lifecycle chaincode calculatepackageid ${CC_NAME}.tar.gz)
 
-## Install on every organisation's peer
 for org in $(orgNames); do
   infoln "Installing chaincode on peer0.${org}..."
   installChaincode $org
@@ -89,34 +87,25 @@ done
 
 resolveSequence
 
-## query whether the chaincode is installed
 queryInstalled $(orgNames | head -1)
 
-## approve the definition for every organisation
 for org in $(orgNames); do
   approveForMyOrg $org
 done
 
-## Check the definition is ready to commit, expecting every organisation to have approved.
-## Readiness is computed from channel state, so every peer returns the same answer: one call, once,
-## after all the approvals. The sample re-checked after each individual approval to illustrate the
-## lifecycle, which at six organisations is thirty-six polled round trips for one piece of state.
+# Readiness is channel state, so one check after all approvals avoids thirty-six polled calls.
 EXPECTED_APPROVALS=()
 for org in $(orgNames); do
   EXPECTED_APPROVALS=("${EXPECTED_APPROVALS[@]}" "\"$(orgMsp $org)\": true")
 done
 checkCommitReadiness $(orgNames | head -1) "${EXPECTED_APPROVALS[@]}"
 
-## now that we know every organisation has approved, commit the definition.
-## The commit is validated against the channel's LifecycleEndorsement policy rather than the
-## chaincode's own, so every peer is offered as an endorser to satisfy it with margin.
+# Commit validation uses the channel's LifecycleEndorsement policy, so offer every peer.
 commitChaincodeDefinition $(orgNames)
 
-## The committed definition is channel state too, so one peer confirms it for all of them.
+# The committed definition is channel state, so one peer can confirm it for all organisations.
 queryCommitted $(orgNames | head -1)
 
-## Invoke the chaincode - this does require that the chaincode have the 'initLedger'
-## method defined
 if [ "$CC_INIT_FCN" = "NA" ]; then
   infoln "Chaincode initialization is not required"
 else

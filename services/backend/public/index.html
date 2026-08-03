@@ -1,11 +1,15 @@
 <!doctype html>
+<!--
+  Browser control panel for registration, batch traceability, cold-chain evidence and integrity
+  checks. It talks to each organisation's separate backend, so the selected organisation determines
+  which Fabric identity signs a request.
+-->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Fresh Milk Cold Chain — Demo</title>
     <style>
-      /* Light background and large type: dark themes project poorly in bright rooms. */
       :root {
         --ink: #14213d;
         --muted: #5b6b8c;
@@ -37,7 +41,7 @@
       button { cursor: pointer; }
       button:hover { border-color: var(--ink); }
       button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
-      /* One chip per company. Six separate processes is the claim, and this is the evidence. */
+      /* The chip row shows the health of each organisation's separate backend. */
       #backends { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: 1rem; }
       .chip {
         font-size: .8rem; padding: .25rem .6rem; border-radius: 999px;
@@ -133,22 +137,15 @@
         $("log").prepend(entry);
       }
 
-      // A refusal is the contract enforcing a rule, so it is coloured apart from a genuine failure.
-      // Showing both the same way would make the strongest moment of the demo look like a crash.
+      // Contract refusals are business outcomes, so display them separately from system faults.
       function toneFor(status) {
         if (status >= 200 && status < 300) return "ok";
         if (status >= 400 && status < 500) return "refused";
         return "broken";
       }
 
-      // The demo sensors' public keys, copied from services/oracle/data/demo-sensor/*.pub. Only the
-      // public halves, so there is nothing here worth protecting: they can check a signature and
-      // never produce one.
-      //
-      // Pasted rather than fetched because no backend serves them: the sensor files belong to the
-      // oracle package, and reaching across to read them would tie the backend to a path in another
-      // service for the sake of one demo button. If you regenerate the keys with sensor:keygen, the
-      // script prints a reminder to update these two lines.
+      // Public keys for the bundled sensors. Regenerating the sensor keys requires updating
+      // these values because the backend does not serve files from the oracle package.
       const SENSORS = [
         {
           sensorId: "SENSOR-001",
@@ -160,8 +157,6 @@
         }
       ];
 
-      // Hoisted so editing a user-facing string does not mean editing inside an object inside a
-      // ternary inside a template literal.
       const SIGNATURE_ISSUES = {
         FORGED: (v) => `NO — reading ${v.signatureFailures.join(", ")} was altered`,
         SENSOR_NOT_REGISTERED: () => "no sensor key registered, so nothing to check against",
@@ -177,10 +172,7 @@
 
       let companies = [];
       const originOf = (name) => companies.find((entry) => entry.name === name)?.origin;
-      // Which port answered, which is the only thing that decides who signs. Nothing in the request
-      // says who is calling, because nothing can: each backend holds one key and only that one.
-      // Tolerates a missing origin: new URL("") throws, and this runs while building the log label
-      // before any try block, so an unguarded version killed the click outright with no log line.
+      // The destination backend determines which organisation signs the request.
       const portOf = (origin) => {
         try {
           return `:${new URL(origin).port}`;
@@ -194,8 +186,7 @@
         const company = companies.find((entry) => entry.origin === target);
         const label = `${method} ${portOf(target)}${path}   as ${company?.name ?? "?"}`;
 
-        // Every action needs a company to send to, and until the directory loads there is none.
-        // Saying so is the whole point: the alternative was a button that did nothing at all.
+        // Disable actions until the organisation directory supplies their destinations.
         if (!target) {
           log("broken", `${label}   →   no backend selected`,
             `The company directory has not loaded. Press "Ping all", or check that the backend ` +
@@ -220,15 +211,13 @@
           );
           return { status: response.status, body: parsed };
         } catch (error) {
-          // A cross-origin rejection and a backend that is not running are the same TypeError, so
-          // the port has to be in the message or there is no way to tell which happened.
+          // Network TypeErrors do not identify the failed backend, so include its origin.
           log("broken", `${label}   →   ${target} did not answer`, String(error));
           return { status: 0, body: null };
         }
       }
 
-      // The directory comes from whichever backend served this page. The six certificate IDs do
-      // not: each company reports its own, because that is the only certificate it holds.
+      // Each backend reports its own certificate because no process holds another company's key.
       async function loadConsortium() {
         try {
           const response = await fetch("/organisations");
@@ -237,8 +226,7 @@
           }
           companies = await response.json();
         } catch (error) {
-          // Without this the page rendered an empty dropdown and an empty chip row, looked fine,
-          // and every button did nothing. A demo that is silently dead is the worst failure here.
+          // Surface directory failure instead of leaving an apparently usable but inert panel.
           log("broken", "Could not load the company directory",
             `${String(error)}\n\nThe backend serving this page is not answering. Check it is ` +
               `running, then reload.`);
@@ -276,11 +264,9 @@
         );
       }
 
-      // Bootstrap first: every other registration needs an active regulator to authorise it. The
-      // six requests are made from here rather than server-side so each one appears in the log.
+      // Bootstrap the first regulator before using it to register the remaining organisations.
       async function setUpDemo() {
-        // Half a registry is worse than none, so this refuses rather than registering some
-        // companies and silently skipping the rest.
+        // Refuse incomplete setup rather than creating only part of the registry.
         const missing = companies.filter((entry) => !entry.certificateId);
         if (missing.length > 0) {
           log(
@@ -298,8 +284,7 @@
           body: { stakeholderId: regulator.stakeholderId }
         });
 
-        // Registration is the regulator's to do, so every one of these goes to the regulator's
-        // backend, carrying the certificate ID that company reported for itself.
+        // The regulator registers each certificate reported by its owning organisation.
         for (const entry of companies.filter((candidate) => candidate.name !== "regulator")) {
           await call("POST", "/stakeholders", {
             origin: regulator.origin,
@@ -311,9 +296,7 @@
           });
         }
 
-        // The regulator vouching for the sensors. Without this the oracle could submit any numbers
-        // it liked; with it, a reading it altered no longer matches the signature beside it, and
-        // any company can see that for itself.
+        // Register sensor keys so every organisation can verify readings independently.
         for (const sensor of SENSORS) {
           await call("POST", "/sensors", {
             origin: regulator.origin,
@@ -325,13 +308,8 @@
       const batch = () => encodeURIComponent(batchField.value);
       const evidence = (id) => encodeURIComponent(id);
 
-      // The left column is what PostgreSQL holds, the right is what the ledger holds. Side by side
-      // they are the architecture: bulk readings off-chain, a fingerprint on-chain.
-      //
-      // Two backends answer here. Only the oracle keeps the readings, so the listing goes to it,
-      // while the verification runs on whichever company is selected. That company fetches the
-      // readings from the oracle itself and recomputes the hash, which is the whole point: a
-      // retailer can catch its supplier altering records.
+      // The oracle lists its off-chain rows. The selected organisation independently verifies
+      // those readings against the on-chain fingerprint.
       async function showEvidence() {
         const oracle = originOf("oracle");
         const listed = await call("GET", `/temperature/batches/${batch()}/evidence`, { origin: oracle });
@@ -366,16 +344,10 @@
             (statistics ? `min ${statistics.minCelsius}   max ${statistics.maxCelsius}\n\n` : "") +
             `readings match anchor     ${v.match ? "yes" : "NO — tampered"}\n` +
             `statistics match anchor   ${v.statisticsMatch === null ? "not recorded" : v.statisticsMatch ? "yes" : "NO"}\n` +
-            // The three answer different questions. The hash says nothing was edited after
-            // anchoring; this says the readings were genuine when they arrived, which is the one
-            // thing the oracle computing its own hash could never establish.
-            // Null, not "no", when the sensor's key could not be read: an unreachable ledger has to
-            // look different from a verified reading, or a lie need only make the lookup fail.
-            // A revoked sensor is not a forged reading, so it does not say so. Only FORGED is an
-            // accusation, and only it names rows.
+            // Null means signature verification was unavailable. Only FORGED identifies rows
+            // because registration and revocation are sensor-level issues.
             `signatures match sensor   ${signatureLine(v)}\n` +
-            // Null whenever the checker is not the company holding the readings, which is every
-            // company but the oracle. It never saw the holder's own bookkeeping and does not need to.
+            // Only the oracle can compare Fabric with its own stored hash.
             `holder's own hash         ${v.databaseHashMatchesAnchor === null ? "not disclosed" : v.databaseHashMatchesAnchor ? "matches" : "ALTERED"}\n` +
             `transaction               ${v.fabricTransactionId ?? "—"}\n\n` +
             `checked by ${checker?.name ?? "?"}, readings from the oracle,\n` +
@@ -418,7 +390,7 @@
           ["Clear breach", () => call("POST", `/temperature/batches/${batch()}/resolve-breach`, {
             ...regulator(), body: { reason: "Cold store repaired and stock rechecked" }
           })],
-          // The regulator's own database, which nobody else holds a copy of.
+          // Verdicts come from the regulator's independent archive.
           ["Regulator's archive", () => call("GET", `/verdicts/batches/${batch()}`, regulator())]
         ]],
         ["Consumer", [
@@ -443,15 +415,14 @@
         }
       });
 
-      // Remembered so a refresh mid-demo does not lose your place.
+      // Preserve the selected organisation across a page refresh.
       companyField.addEventListener("change", () =>
         localStorage.setItem("company", companyField.value)
       );
       batchField.addEventListener("change", () => localStorage.setItem("batch", batchField.value));
       batchField.value = localStorage.getItem("batch") ?? "BATCH-001";
 
-      // Only for the refusal demonstrations, which never touch temperature evidence: the sample
-      // reading files name BATCH-001 and BATCH-002, so those two stay as presets.
+      // Use random batch IDs so refused requests do not consume sample evidence IDs.
       $("newBatch").addEventListener("click", () => {
         batchField.value = `BATCH-${Math.floor(1000 + Math.random() * 9000)}`;
         localStorage.setItem("batch", batchField.value);
@@ -461,8 +432,6 @@
       $("ping").addEventListener("click", pingAll);
       $("clear").addEventListener("click", () => { $("log").innerHTML = ""; });
 
-      // Caught inside, but a floating promise with no handler here would still lose anything the
-      // rendering after it threw on.
       loadConsortium().catch((error) =>
         log("broken", "The page could not start up", String(error))
       );

@@ -1,13 +1,8 @@
 /**
- * Reads a sensor's registered public key back off the ledger.
+ * Reads regulator-attested sensor keys from Fabric for signature verification.
  *
- * Verification needs a key from somewhere the party being checked cannot rewrite. Taking it from
- * the company that holds the readings would mean checking their data against their own copy of the
- * key, which proves nothing at all; the regulator's attestation on the ledger is the part they
- * cannot forge.
- *
- * It reads as this company, with this process's own certificate, so what it can see is whatever the
- * contract allows that company to see.
+ * Only the contract's explicit missing-key response means a sensor is unregistered. Network and
+ * registry failures remain inconclusive because treating them as absence would weaken verification.
  */
 import { config } from "../config.js";
 import type { OrganisationIdentity } from "../organisations.js";
@@ -16,9 +11,6 @@ import { createFabricGatewayClient, type FabricGatewayClient } from "./gateway.j
 import { STAKEHOLDER_CONTRACT } from "./contracts.js";
 import type { RegisteredSensorKey, SensorKeyReader } from "../services/evidenceVerification.js";
 
-// Only the contract saying it holds no key means "unregistered". A peer that could not be reached
-// says nothing either way, and reporting it as absent would let an unreachable ledger turn an
-// unverifiable reading into a definite verdict.
 export function describesMissingSensorKey(error: unknown): boolean {
   const message = extractChaincodeMessage(error);
   return message !== undefined && /Sensor '[^']*' has no registered key/i.test(message);

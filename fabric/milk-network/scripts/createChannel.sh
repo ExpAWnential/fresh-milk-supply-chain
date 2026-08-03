@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
-# imports  
+# Creates the application channel, joins every peer, then applies anchor updates in sequence so two
+# organisations never race while modifying the same channel configuration.
+
 . scripts/envVar.sh
 
 CHANNEL_NAME="$1"
@@ -56,14 +58,12 @@ createChannel() {
 	verifyResult $res "Channel creation failed"
 }
 
-# joinChannel ORG
 joinChannel() {
   ORG=$1
   FABRIC_CFG_PATH=${FABRIC_SAMPLES_HOME}/config/
   setGlobals $ORG
 	local rc=1
 	local COUNTER=1
-	## Sometimes Join takes time, hence retry
 	while [ $rc -ne 0 -a $COUNTER -lt $MAX_RETRY ] ; do
     sleep $DELAY
     set -x
@@ -82,7 +82,6 @@ setAnchorPeer() {
   . scripts/setAnchorPeer.sh $ORG $CHANNEL_NAME 
 }
 
-## Create channel genesis block
 FABRIC_CFG_PATH=${FABRIC_SAMPLES_HOME}/config/
 BLOCKFILE="./channel-artifacts/${CHANNEL_NAME}.block"
 
@@ -91,12 +90,10 @@ FABRIC_CFG_PATH=${PWD}/configtx
 createChannelGenesisBlock
 
 
-## Create channel
 infoln "Creating channel ${CHANNEL_NAME}"
 createChannel
 successln "Channel '$CHANNEL_NAME' created"
 
-## Join all the peers to the channel
 for org in $(orgNames); do
   infoln "Joining ${org} peer to the channel..."
   joinChannel $org

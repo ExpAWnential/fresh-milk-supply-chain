@@ -1,7 +1,3 @@
-/**
- * The storage package's public surface. Other packages import from here rather than reaching into
- * its files, so what is shared stays a deliberate choice.
- */
 export { createPool, ORACLE_DATABASE_URL, REGULATOR_DATABASE_URL } from "./pool.js";
 export {
   compareTemperatureReadings,

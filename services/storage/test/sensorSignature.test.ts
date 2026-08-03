@@ -31,8 +31,6 @@ describe("signing a reading", () => {
     assert.equal(verifyReadingSignature(READING, signReading(READING, privateKey), publicKey), true);
   });
 
-  // The whole point. The oracle can change the number, but it holds no private key, so it cannot
-  // produce a signature that fits the number it wrote.
   it("refuses a reading whose temperature was changed", () => {
     const { privateKey, publicKey } = keypair();
     const signature = signReading(READING, privateKey);
@@ -43,9 +41,7 @@ describe("signing a reading", () => {
     );
   });
 
-  // The sequence is what makes a deleted reading visible, so it has to be inside the signature.
-  // If it were merely stored beside it, the oracle would renumber 1,3 back to 1,2 and the gap
-  // would vanish.
+  // Signing the sequence prevents the oracle hiding a gap by renumbering later readings.
   it("refuses a reading whose sequence was renumbered", () => {
     const { privateKey, publicKey } = keypair();
     const signature = signReading(READING, privateKey);
@@ -67,7 +63,6 @@ describe("signing a reading", () => {
     );
   });
 
-  // Registering your own key against someone else's sensor ID has to buy nothing.
   it("refuses a signature made by a different key", () => {
     const impostor = keypair();
     const genuine = keypair();
@@ -78,8 +73,7 @@ describe("signing a reading", () => {
     );
   });
 
-  // These arrive from a CSV column and from a ledger record, so both are attacker-influenced. A
-  // throw here would crash the regulator's event listener mid-stream rather than failing one row.
+  // Malformed external values fail one verification without crashing the event listener.
   it("reports malformed input as unverified rather than throwing", () => {
     const { privateKey, publicKey } = keypair();
     const signature = signReading(READING, privateKey);
@@ -95,8 +89,6 @@ describe("signing a reading", () => {
 });
 
 describe("the signed payload", () => {
-  // The signer and the verifier normalise independently. If one of them wrote 08:15:00Z and the
-  // other 08:15:00.000Z, every signature would fail against readings nobody had touched.
   it("is unchanged by timestamp format or trailing precision", () => {
     assert.equal(
       signablePayload(READING),

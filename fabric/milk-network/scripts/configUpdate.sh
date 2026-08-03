@@ -4,19 +4,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
+# Fetches the current channel configuration and produces the protobuf update needed to move from an
+# original JSON configuration to a modified one.
 
-# import utils
-# test network home var targets to test network folder
-# the reason we use a var here is considering with org3 specific folder
-# when invoking this for org3 as test-network/scripts/org3-scripts
-# the value is changed from default as $PWD(test-network)
-# to .. as relative path to make the import works
 MILK_NETWORK_HOME=${MILK_NETWORK_HOME:-${PWD}}
 . ${MILK_NETWORK_HOME}/scripts/envVar.sh
 
-# fetchChannelConfig <org> <channel_id> <output_json>
-# Writes the current channel config for a given channel to a JSON file
-# NOTE: this requires jq and configtxlator for execution.
+# Requires jq and configtxlator.
 fetchChannelConfig() {
   ORG=$1
   CHANNEL=$2
@@ -38,10 +32,6 @@ fetchChannelConfig() {
   verifyResult $res "Failed to parse channel configuration, make sure you have jq installed"
 }
 
-# createConfigUpdate <channel_id> <original_config.json> <modified_config.json> <output.pb>
-# Takes an original and modified config, and produces the config update tx
-# which transitions between the two
-# NOTE: this requires jq and configtxlator for execution.
 createConfigUpdate() {
   CHANNEL=$1
   ORIGINAL=$2
@@ -58,8 +48,6 @@ createConfigUpdate() {
   { set +x; } 2>/dev/null
 }
 
-# signConfigtxAsPeerOrg <org> <configtx.pb>
-# Set the peerOrg admin of an org and sign the config update
 signConfigtxAsPeerOrg() {
   ORG=$1
   CONFIGTXFILE=$2

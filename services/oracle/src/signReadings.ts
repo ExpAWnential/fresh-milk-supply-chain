@@ -1,18 +1,8 @@
 /**
- * Stands in for the sensor. A real cold-chain logger holds a private key and signs each reading as
- * it measures it; this does the same thing to a CSV so the rest of the system can be built and
- * demonstrated against genuinely signed data.
+ * Acts as a sensor-side process by generating Ed25519 keys and signing CSV readings.
  *
- *   pnpm sensor:keygen                        generate the demo sensor keys
- *   pnpm sensor:sign data/readings.csv        add the sequence and signature columns
- *
- * Both are explicit subcommands because both overwrite files, and neither should ever be something
- * that happens as a side effect of running something else.
- *
- * The keys this writes are committed to the repository. That is deliberate and it is the opposite
- * of what a real deployment would do: the signed fixtures have to verify on a teammate's machine,
- * and they cannot if everyone generates their own key. Nothing else in this system trusts these
- * keys for anything.
+ * Only the public key is registered on Fabric. The private key remains with this sensor-side tool,
+ * which lets the oracle verify a reading without being able to forge a changed measurement.
  */
 import { generateKeyPairSync } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -21,18 +11,14 @@ import { fileURLToPath } from "node:url";
 import { signReading, type SignableReading } from "@fresh-milk/storage";
 import { REQUIRED_HEADERS } from "./csvReader.js";
 
-// Resolves the same way from src/ under tsx and from dist/ after a build, since both sit one level
-// below the package root.
+// Both src and dist sit one level below the oracle package root.
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const keyDirectory = join(packageRoot, "data", "demo-sensor");
 
-// Taken from the reader rather than written out again, so the signer cannot emit a file its own
-// parser would reject.
+// Reuse the reader's schema so signed output remains valid input.
 const SIGNED_HEADER = REQUIRED_HEADERS.join(",");
 
-// The sensors the sample data uses. A list, not a scan of the CSVs: the keys it generates have to
-// be pasted into the demo page by hand anyway, so discovering the IDs automatically saved nobody
-// the work it looked like it saved.
+// These IDs must match the sensor keys registered through the browser client.
 const DEMO_SENSORS = ["SENSOR-001", "SENSOR-002"];
 
 function keyPaths(sensorId: string): { privatePath: string; publicPath: string } {
@@ -60,18 +46,14 @@ async function keygen(sensorIds: readonly string[]): Promise<void> {
     console.log(`[sensor] wrote ${privatePath} and ${publicPath}`);
   }
 
-  // The demo page registers these keys with the regulator and has no way to read these files, so a
-  // regenerated key that nobody copies across leaves every signature failing to verify against a
-  // record the regulator believes is correct.
+  // The control panel keeps its own copy of these public keys.
   console.log(
     "\n[sensor] Re-sign the readings, then copy the new public keys into SENSORS in\n" +
       "         services/backend/public/index.html, or the demo will register the old ones."
   );
 }
 
-// Only ever the four columns a sensor actually produces. Re-signing an already-signed file would
-// mean signing over a signature, so the second run is refused rather than quietly doing something
-// different from the first.
+// Refuse already-signed input instead of accidentally signing its signature columns.
 function parseUnsignedCsv(csv: string): readonly Record<string, string>[] {
   const lines = csv
     .split(/\r?\n/)
@@ -113,8 +95,7 @@ async function signCsv(inputPath: string): Promise<void> {
   const keys = new Map<string, string>();
 
   const signed: string[] = [];
-  // Numbered in file order, from 1. A gap in this is what makes a deleted reading visible later,
-  // so it is assigned here once and never recomputed downstream.
+  // Sign the one-based file position so later deletion creates a detectable gap.
   for (const [index, row] of rows.entries()) {
     const celsius = Number(row.celsius);
     if (!Number.isFinite(celsius)) {

@@ -1,18 +1,8 @@
-/**
- * Who this backend is, and who else is on the network.
- *
- * Two questions, deliberately separate. The directory is the same from all six ports and is what
- * lets the demo page find them; the identity is different from each one and is what proves a given
- * port really answers as the company the directory claims.
- *
- * Registering a stakeholder means naming the certificate it signs with, and nothing else in the
- * system reports that string. A company reports its own, which is the only one it holds.
- */
+/** Exposes public consortium identity without wallet paths or private material. */
 import { Router } from "express";
 import { ORGANISATIONS, originOf, type Organisation } from "../organisations.js";
 
-// Public directory information only: names, ports and MSP IDs. No certificates, because a process
-// only ever reads its own, and no paths on disk.
+// Expose public connection details only. Never publish wallet paths or private material.
 function entryFor(organisation: Organisation) {
   return {
     name: organisation.name,
@@ -25,8 +15,7 @@ function entryFor(organisation: Organisation) {
 
 export interface IdentityRouterDependencies {
   readonly identity: Organisation;
-  // Derived once at startup rather than per request. A process whose wallet cannot be read has no
-  // business starting at all, since it could not sign anything, so this can never fail here.
+  // Certificate identity was validated before the server started.
   readonly certificateId: string;
 }
 
@@ -42,9 +31,7 @@ export function createIdentityRouter({
     res.json(directory);
   });
 
-  // The same entry, plus the one thing only this process can report. Built from the shared mapper
-  // so the page's directory and a company's own answer cannot disagree about what a company
-  // publishes.
+  // Extend the shared directory shape with this process's certificate ID.
   router.get("/identity", (_req, res) => {
     res.json({ ...entryFor(identity), certificateId });
   });

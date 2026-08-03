@@ -3,7 +3,7 @@
  *
  * Registering a stakeholder means naming the certificate it will sign with, and the only place that
  * string otherwise exists is inside a transaction the caller has not made yet. Deriving it here is
- * what lets the demo register every role without anyone copying distinguished names by hand.
+ * what lets the registry use the exact identity Fabric will authenticate later.
  */
 import { X509Certificate } from "node:crypto";
 import { readFile } from "node:fs/promises";

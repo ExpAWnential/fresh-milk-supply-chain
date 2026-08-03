@@ -12,8 +12,6 @@ import {
 try {
   assertNetworkAvailable();
 
-  // One invocation brings the peers and orderer up and creates the channel, which avoids the
-  // network being left half configured if the second step is forgotten.
   await runCommand(
     "./network.sh",
     ["up", "createChannel", "-c", channelName, "-s", stateDatabase],

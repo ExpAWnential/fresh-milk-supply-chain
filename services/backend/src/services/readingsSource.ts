@@ -1,11 +1,8 @@
 /**
- * The two ways a company can get hold of the readings behind a piece of evidence: out of its own
- * database, or over HTTP from the company that keeps them.
+ * Gives verification one interface for obtaining raw readings.
  *
- * The oracle collects the readings, so only the oracle has them locally. Everyone else asks it,
- * recomputes the fingerprint themselves and compares it against the ledger. A dishonest oracle
- * cannot make altered readings verify: the most it can do is refuse to hand them over, which is
- * why an unreachable source has to raise rather than read as "no readings".
+ * The data holder reads its own PostgreSQL database. Other organisations request the same readings
+ * from that holder, with validation and a timeout so untrusted or stalled responses stay failures.
  */
 import type { StoredTemperatureReading, TemperatureRepository } from "@fresh-milk/storage";
 import {
@@ -17,8 +14,7 @@ import {
 export function localReadingsSource(repository: TemperatureRepository): ReadingsSource {
   return {
     async getReadings(evidenceId: string): Promise<SourcedReadings | undefined> {
-      // Only a company holding the row can tell "never recorded" from "recorded but never
-      // anchored", so those two are raised from here rather than from the verification itself.
+      // Only the holder can distinguish missing evidence from an unanchored local record.
       const evidence = await repository.getEvidence(evidenceId);
       if (!evidence) {
         throw new EvidenceVerificationError(
@@ -41,9 +37,7 @@ export function localReadingsSource(repository: TemperatureRepository): Readings
   };
 }
 
-// The company holding the readings would not hand them over. Distinct from a verification result
-// and from a fault in the checker, because it is neither: it names the party that did not answer,
-// which is the only thing that tells an operator whose problem it is.
+// Distinguishes unavailable remote data from a completed verification result.
 export class ReadingsUnavailableError extends Error {
   public constructor(
     public readonly origin: string,
@@ -71,9 +65,6 @@ function isReading(value: unknown): value is StoredTemperatureReading {
     typeof candidate.recordedAt === "string" &&
     typeof candidate.celsius === "number" &&
     Number.isFinite(candidate.celsius) &&
-    // Checked here rather than trusted later. A holder that dropped these two would leave the
-    // signature check with nothing to work on, and silently returning "verified" for readings that
-    // carried no signature is precisely the failure this whole change exists to prevent.
     typeof candidate.sequence === "number" &&
     Number.isSafeInteger(candidate.sequence) &&
     typeof candidate.signature === "string" &&
@@ -81,14 +72,9 @@ function isReading(value: unknown): value is StoredTemperatureReading {
   );
 }
 
-// fetch is a parameter for the same reason the gateway connector is one: it is the seam that lets
-// this be exercised without another process running.
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
-// The gateway calls all carry a deadline because a peer that stalls would otherwise hold a request
-// open forever. The same is true of a company that accepts the connection and then says nothing,
-// and it is a company with a motive: hanging is how a holder would stop a check finishing without
-// ever returning an error.
+// A holder that stops responding must not leave verification pending indefinitely.
 const READINGS_TIMEOUT_MS = 30_000;
 
 export function remoteReadingsSource(
@@ -105,17 +91,13 @@ export function remoteReadingsSource(
         throw new ReadingsUnavailableError(origin, describe(error));
       }
 
-      // The holder saying it has no such evidence is the same condition its own backend reports as
-      // EVIDENCE_NOT_FOUND, so it is raised under the same code. Answering differently depending on
-      // which company was asked would make a mistyped evidence ID look like missing data.
       if (response.status === 404) {
         throw new EvidenceVerificationError(
           "EVIDENCE_NOT_FOUND",
           `Evidence '${evidenceId}' does not exist.`
         );
       }
-      // Anything else has to raise rather than read as "no readings": a company that simply stopped
-      // answering must never look like one with nothing to hide.
+      // Transport failure is not evidence absence and must remain distinguishable.
       if (!response.ok) {
         throw new ReadingsUnavailableError(origin, `it answered ${response.status}`);
       }
@@ -127,15 +109,11 @@ export function remoteReadingsSource(
         throw new ReadingsUnavailableError(origin, describe(error));
       }
 
-      // Checked element by element, not just that it is an array. This data comes from the party
-      // being audited, so a malformed reading is exactly the input a dishonest holder controls,
-      // and casting it would crash the check with a TypeError instead of reporting a mismatch.
+      // Validate every untrusted reading before passing it to hashing and signature code.
       if (!Array.isArray(body) || !body.every(isReading)) {
         throw new ReadingsUnavailableError(origin, "its readings were not in the expected shape");
       }
 
-      // No declaredHash. The company that publishes readings does not publish its own bookkeeping,
-      // and the check does not need it.
       return { readings: body };
     }
   };

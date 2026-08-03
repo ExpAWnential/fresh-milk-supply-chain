@@ -1,15 +1,11 @@
 /**
- * The six companies on the network: who they are, where their peer is, and which port their own
- * backend listens on.
+ * Defines the six consortium organisations and the local resources each backend may use.
  *
- * Each company runs its own backend process holding only its own private key. This table is how a
- * process finds itself, and how it describes the rest of the consortium to the demo page.
+ * Peer addresses, public backend origins and wallet paths come from this one directory so the
+ * browser client, CORS policy and Fabric connections cannot silently disagree about the topology.
  */
 import { join } from "node:path";
 
-// What a company keeps off-chain, if anything. Only two of the six do, and they keep different
-// things in separate databases. Declared here rather than decided by name at each wiring point,
-// so moving the archive or adding a company is an edit to this table and nowhere else.
 export type OffChainStore = "readings" | "verdicts";
 
 export interface Organisation {
@@ -30,10 +26,7 @@ export interface OrganisationIdentity extends Organisation {
   readonly peerTlsCaPath: string;
 }
 
-// One organisation per company, matching fabric/milk-network/scripts/orgs.sh. Each has its own
-// certificate authority, so no company can issue an identity for another.
-//
-// The regulator is first because it has to be bootstrapped before it can register anybody.
+// Keep the regulator first because registry setup must bootstrap it before registering the others.
 export const ORGANISATIONS: readonly Organisation[] = [
   {
     name: "regulator",
@@ -87,24 +80,18 @@ export const ORGANISATIONS: readonly Organisation[] = [
   }
 ];
 
-// A Map rather than an object, so a lookup for an inherited key such as 'constructor' misses
-// instead of returning something off the prototype.
 const byName = new Map(ORGANISATIONS.map((organisation) => [organisation.name, organisation]));
 
 export const ORGANISATION_NAMES: readonly string[] = ORGANISATIONS.map(
   (organisation) => organisation.name
 );
 
-// Where a company's backend answers. Built in one place because two of the callers have to agree:
-// one builds the CORS allowlist and the other builds the directory the demo page dials. If those
-// ever disagreed, every cross-company call would be rejected by the browser and reported as the
-// backend being down, which names nothing.
+// Shared by the CORS allowlist and the browser client's organisation directory.
 export function originOf(organisation: Organisation): string {
   return `http://localhost:${organisation.backendPort}`;
 }
 
-// The company that publishes the raw readings. Everyone else fetches from it to run their own
-// verification, so this is the one company the other five need to be able to find.
+// Locate the company that publishes raw readings for independent verification.
 export function readingsHolder(): Organisation {
   const holder = ORGANISATIONS.find(
     (organisation) => organisation.offChainStore === "readings"
@@ -127,9 +114,7 @@ export function findOrganisation(name: string): Organisation {
   return organisation;
 }
 
-// Every company signs as its own User1. Deliberately not Admin: an organisation's administrator
-// can change channel configuration, and no company's ordinary business traffic should be carrying
-// that authority.
+// Ordinary backend traffic must not carry a channel administrator identity.
 const NETWORK_USER = "User1";
 
 export function walletFor(
@@ -146,8 +131,7 @@ export function walletFor(
   };
 }
 
-// Which company this process is. Called from the entry point rather than at import time: as a
-// module-level constant it would throw in every test that loads the app without ORGANISATION set.
+// Resolve at startup rather than import time so the app remains testable without an environment identity.
 export function resolveLocalOrganisation(
   env: NodeJS.ProcessEnv,
   organizationsPath: string

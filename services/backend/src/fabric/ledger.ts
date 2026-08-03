@@ -1,11 +1,9 @@
 /**
- * The two things most routes need before they can talk to a contract: a chaincode and contract
- * bound once, and a check that a request field really is a non-empty string.
+ * Binds routes to a known Fabric chaincode and contract.
+ * Callers choose only a transaction and its arguments, while connection cleanup stays centralised.
  */
 import { withGateway, type GatewayConnector } from "./connection.js";
 
-// Every route talks to one chaincode and one contract, so binding both once removes them from
-// each call site and leaves the handler showing only the transaction it runs.
 export interface BoundLedger {
   submit(transaction: string, ...args: string[]): Promise<void>;
   evaluateJson(transaction: string, ...args: string[]): Promise<unknown>;

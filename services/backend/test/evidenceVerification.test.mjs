@@ -9,9 +9,7 @@ import {
 import { localReadingsSource } from "../dist/services/readingsSource.js";
 import { repositoryStub, storedEvidence } from "./harness.mjs";
 
-// These tests are about the hash and the statistics. An unreadable key reports signaturesMatch
-// as null and leaves them measuring what they always measured; the signature check has its own
-// tests below, with real keys.
+// Hash and statistics cases use an unavailable sensor key. Real signature checks appear below.
 const noKeyAvailable = { getSensorKey: async () => undefined };
 
 const originalReadings = [
@@ -20,7 +18,7 @@ const originalReadings = [
 ];
 const anchoredHash = sha256TemperatureReadings("MILK-001", originalReadings);
 
-// The oracle's own view: it holds the row, so it can report what its record claims the hash is.
+// Local source includes the holder's stored hash.
 function heldLocally(readings = originalReadings, overrides = {}) {
   return localReadingsSource(
     repositoryStub({
@@ -31,8 +29,7 @@ function heldLocally(readings = originalReadings, overrides = {}) {
   );
 }
 
-// Any other company's view: readings arrive over HTTP and nothing is claimed about the holder's
-// own bookkeeping.
+// Remote source includes readings only.
 function fetchedFromTheHolder(readings = originalReadings) {
   return { getReadings: async () => ({ readings }) };
 }
@@ -70,9 +67,7 @@ test("unchanged readings still hash to what the ledger anchored", async () => {
   assert.equal(result.fabricTransactionId, "tx-on-ledger");
 });
 
-// The case the hash cannot see. The oracle stores the readings honestly, so nothing is tampered
-// with and the hash agrees, but it anchors a summary that hides the spike. The contract judged
-// that summary, so the ledger says COMPLIANT for milk that was not.
+// A valid hash cannot detect a dishonest summary anchored beside it.
 test("an honest reading set with a flattering summary is caught", async () => {
   const readingsWithASpike = [
     { sensorId: "SENSOR-01", recordedAt: "2026-07-20T09:00:00Z", celsius: 3.2 },
@@ -109,7 +104,7 @@ test("an honest reading set with a flattering summary is caught", async () => {
 test("a record anchored without statistics reports the check as unavailable", async () => {
   const result = await verifyTemperatureEvidence("EV-1", {
     readingsSource: heldLocally(),
-    // Built inline rather than through the helper, whose default would fill the statistics back in.
+    // Build directly to omit statistics from this compatibility case.
     sensorKeyReader: noKeyAvailable,
     anchoredEvidenceReader: {
       getAnchoredEvidence: async () => ({
@@ -120,7 +115,7 @@ test("a record anchored without statistics reports the check as unavailable", as
     }
   });
 
-  // Not false, which would read as a detected lie rather than a check that could not be run.
+  // Missing statistics is inconclusive, not a mismatch.
   assert.equal(result.statisticsMatch, null);
   assert.equal(result.anchoredStatistics, null);
   assert.equal(result.match, true);
@@ -181,9 +176,7 @@ test("evidence that was never anchored is refused rather than checked", async ()
   );
 });
 
-// The whole point of the split. The company being checked publishes only the readings, and the
-// checker still catches an alteration, because the fingerprint it compares against came off the
-// ledger rather than from the holder.
+// A remote verifier detects changed readings using Fabric's independent anchor.
 test("a company holding no database still catches altered readings", async () => {
   const changed = [{ ...originalReadings[0], celsius: 4.2 }, originalReadings[1]];
   const result = await verifyTemperatureEvidence("EV-1", {
@@ -194,8 +187,7 @@ test("a company holding no database still catches altered readings", async () =>
 
   assert.equal(result.match, false);
   assert.notEqual(result.recomputedHash, anchoredHash);
-  // Reported as unavailable rather than false. The checker never saw the holder's own record, and
-  // saying "does not match" about a value it was never given would be an accusation it cannot make.
+  // A remote checker cannot judge the holder's undisclosed stored hash.
   assert.equal(result.databaseHash, null);
   assert.equal(result.databaseHashMatchesAnchor, null);
 });
@@ -211,8 +203,7 @@ test("readings fetched from another company are verified against the ledger's ow
   assert.equal(result.batchId, "MILK-001");
 });
 
-// The batch ID goes into the fingerprint, so taking it from the holder would let a company that
-// rewrote its own batch column produce readings that still hash correctly.
+// The batch ID used for hashing must come from Fabric.
 test("the batch the fingerprint covers comes from the ledger, not the readings holder", async () => {
   const result = await verifyTemperatureEvidence("EV-1", {
     readingsSource: heldLocally(originalReadings, { batchId: "MILK-999" }),
@@ -235,10 +226,7 @@ test("evidence with no readings anywhere is refused rather than reported as matc
   );
 });
 
-// ---------------------------------------------------------------------------------------------
-// The signature check. The hash proves the readings are unchanged since they were anchored; this
-// proves they were true when they arrived, which the oracle computing its own hash never could.
-// ---------------------------------------------------------------------------------------------
+// Signature verification uses the sensor key registered on Fabric.
 
 const SENSOR = generateKeyPairSync("ed25519");
 const SENSOR_PUBLIC_KEY = SENSOR.publicKey.export({ format: "der", type: "spki" }).toString("base64");
@@ -283,8 +271,7 @@ test("readings the registered sensor signed are reported as verified", async () 
   assert.equal(result.match, true);
 });
 
-// The lie the hash cannot catch. A dishonest oracle recomputes its own fingerprint over whatever it
-// stored, so the hash agrees with it perfectly; only the signature disagrees.
+// Rehashing altered data still passes when the oracle also controls the anchor. The signature fails.
 test("a reading altered before anchoring fails the signature even though the hash agrees", async () => {
   const tampered = [SIGNED_READINGS[0], { ...SIGNED_READINGS[1], celsius: 3.4 }];
   const recomputed = sha256TemperatureReadings("MILK-001", tampered);
@@ -297,8 +284,7 @@ test("a reading altered before anchoring fails the signature even though the has
   assert.deepEqual(result.signatureFailures, [2], "and the failing reading is named");
 });
 
-// Not verified, but not accused either. Neither of these is a forged reading, and naming every row
-// as failed would tell an auditor a company tampered with data it never touched.
+// Missing registration is not reported as a forged reading.
 test("an unregistered sensor is unverified without accusing anyone of forgery", async () => {
   const result = await verifySigned(SIGNED_READINGS, { getSensorKey: async () => undefined });
 
@@ -307,8 +293,7 @@ test("an unregistered sensor is unverified without accusing anyone of forgery", 
   assert.deepEqual(result.signatureFailures, [], "no reading failed its own signature");
 });
 
-// A revoked sensor's signatures may still be mathematically valid. They are simply no longer
-// accepted, which is a different statement from "these were altered".
+// Revocation and signature forgery remain distinct outcomes.
 test("a revoked sensor is unverified for revocation, not for forgery", async () => {
   const result = await verifySigned(SIGNED_READINGS, registeredKey({ active: false }));
 
@@ -317,8 +302,7 @@ test("a revoked sensor is unverified for revocation, not for forgery", async () 
   assert.deepEqual(result.signatureFailures, []);
 });
 
-// Null, never true. Reporting an unreadable ledger as verified would mean a dishonest oracle need
-// only make the lookup fail; reporting it as false would accuse a holder on no evidence.
+// An unavailable key lookup produces no signature verdict.
 test("a ledger that cannot be read reports null rather than a verdict", async () => {
   const unreachable = {
     getSensorKey: async () => {

@@ -95,18 +95,16 @@ test("a role change to the role already held is refused", async () => {
   );
 });
 
-// The registry must never reach a state where nobody can administer it.
+// Regulator count changes must never leave the registry without an administrator.
 test("the regulator count follows promotions, demotions and suspensions", async () => {
   const { contract, stub, regulator } = await registryWithRegulator();
   await contract.registerStakeholder(regulator, "farm-001", "FARM", "cert-farm");
 
-  // Only one regulator so far, so it cannot step down.
   await assert.rejects(
     contract.updateStakeholderRole(regulator, "regulator-001", "FARM"),
     /final active regulator/
   );
 
-  // Promote a second, after which the first may step down.
   await contract.updateStakeholderRole(regulator, "farm-001", "REGULATOR");
   await contract.updateStakeholderRole(regulator, "regulator-001", "FARM");
 
@@ -114,7 +112,6 @@ test("the regulator count follows promotions, demotions and suspensions", async 
   const demoted = JSON.parse(await contract.getStakeholder(promoted, "regulator-001"));
   assert.equal(demoted.role, "FARM");
 
-  // The promoted one is now the last, and is protected in turn.
   await assert.rejects(
     contract.suspendStakeholder(promoted, "farm-001"),
     /final active regulator/
@@ -126,21 +123,18 @@ test("a suspended regulator does not count towards the minimum", async () => {
   await contract.registerStakeholder(regulator, "regulator-002", "REGULATOR", "cert-regulator-2");
   await contract.suspendStakeholder(regulator, "regulator-002");
 
-  // Two regulators exist but only one is active, so the active one is still protected.
   await assert.rejects(
     contract.suspendStakeholder(regulator, "regulator-001"),
     /final active regulator/
   );
 });
 
-// Reactivating one is the only way back up, and the count has to follow it. If it did not, a
-// registry with two active regulators would still believe it had one and refuse to let either go.
+// Reactivation restores the active-regulator count.
 test("reactivating a regulator puts it back into the count", async () => {
   const { contract, regulator } = await registryWithRegulator();
   await contract.registerStakeholder(regulator, "regulator-002", "REGULATOR", "cert-regulator-2");
   await contract.suspendStakeholder(regulator, "regulator-002");
 
-  // While it is suspended the remaining one is the last, and protected.
   await assert.rejects(
     contract.suspendStakeholder(regulator, "regulator-001"),
     /final active regulator/
@@ -148,27 +142,23 @@ test("reactivating a regulator puts it back into the count", async () => {
 
   await contract.reactivateStakeholder(regulator, "regulator-002");
 
-  // Two active again, so the first may now step aside.
   await contract.suspendStakeholder(regulator, "regulator-001");
 });
 
-// Reactivating anyone else must leave the count alone, or suspending a farm would eventually
-// convince the registry it had regulators it never had.
+// Reactivating a non-regulator must not change the regulator count.
 test("reactivating anyone else leaves the regulator count where it was", async () => {
   const { contract, regulator } = await registryWithRegulator();
   await contract.registerStakeholder(regulator, "farm-001", "FARM", "cert-farm");
   await contract.suspendStakeholder(regulator, "farm-001");
   await contract.reactivateStakeholder(regulator, "farm-001");
 
-  // Still exactly one regulator, so it is still the last one.
   await assert.rejects(
     contract.suspendStakeholder(regulator, "regulator-001"),
     /final active regulator/
   );
 });
 
-// A stakeholder ID nobody holds. Distinct from a certificate nobody holds, which is the caller
-// being unknown rather than the subject, and reported separately above.
+// Distinguish an unknown subject ID from an unknown caller certificate.
 test("an operation on a stakeholder that does not exist names the one it looked for", async () => {
   const { contract, regulator } = await registryWithRegulator();
 
@@ -184,8 +174,7 @@ test("an operation on a stakeholder that does not exist names the one it looked 
 
 const COUNT_KEY = "registry.activeRegulatorCount";
 
-// The counter is the only thing standing between the registry and a state nobody can administer,
-// so it is never inferred from an absent or unreadable value.
+// Missing or corrupt regulator counts cannot be used for lockout decisions.
 test("an uninitialised registry is reported rather than treated as having no regulators", async () => {
   const { contract, stub, regulator } = await registryWithRegulator();
   await contract.registerStakeholder(regulator, "regulator-002", "REGULATOR", "cert-regulator-2");
@@ -219,7 +208,6 @@ test("every stakeholder record carries who created it, when, and in which transa
   assert.equal(farm.createdByCertificateId, "cert-regulator");
   assert.equal(farm.createdTxId, "tx-1");
   assert.equal(farm.createdAt, new Date(1_750_000_001_123).toISOString());
-  // Until it is changed, the update details mirror the creation details.
   assert.equal(farm.updatedTxId, farm.createdTxId);
 });
 
@@ -236,8 +224,6 @@ test("identity and metadata refuse values Fabric could not supply", () => {
   noTxId.stub = { ...stub, getTxID: () => "   ", getTxTimestamp: () => stub.getTxTimestamp() };
   assert.throws(() => getTransactionMetadata(noTxId), /empty transaction ID/);
 
-  // Whole numbers on their own, but past the range a date can represent. Left through, this would
-  // write "Invalid Date" into a record that exists to be an audit trail.
   const outOfRange = context(stub, "cert-regulator", REGULATOR_MSP_ID);
   outOfRange.stub = { ...stub, getTxTimestamp: () => ({ seconds: 1e15, nanos: 0 }) };
   assert.throws(() => getTransactionMetadata(outOfRange), /invalid transaction timestamp/);

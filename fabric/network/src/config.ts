@@ -1,6 +1,8 @@
 /**
- * Where the network lives and what this project deploys onto it. One place for the paths, channel
- * and chaincode list that all the network scripts share.
+ * Centralises the paths, topology and endorsement settings used to manage the Fabric network.
+ *
+ * The TypeScript wrappers and shell scripts consume the same values so chaincode order, channel
+ * policy and local file locations cannot drift between separate commands.
  */
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -18,68 +20,45 @@ export interface ChaincodeDefinition {
 const REGULATOR_MSP = "RegulatorMSP";
 const OTHER_MSPS = ["FarmMSP", "ProcessorMSP", "LogisticsMSP", "RetailerMSP", "OracleMSP"];
 
-// The regulator's own peer has to run the transaction and agree, on top of enough of the others to
-// still make a majority of the whole network. Four organisations satisfy the channel default on
-// their own, so without the regulator term the other five could record a cold-chain verdict
-// between themselves and the regulator would never see it. Being able to name a single role like
-// this is the reason each company has its own organisation.
-//
-// The threshold is computed rather than written down: a majority of N organisations is N/2 + 1, and
-// one of those is always the regulator. Adding a company would otherwise leave a literal here that
-// quietly stopped being a majority.
+// Require the regulator plus enough other organisations to form a network majority. Compute the
+// threshold so adding an organisation cannot silently weaken the policy.
 const othersRequired = Math.floor((OTHER_MSPS.length + 1) / 2);
 
-// Deliberately free of spaces. The deploy script passes this through an unquoted shell expansion,
-// so a space would split the policy across arguments and the peer would reject it with an error
-// that says nothing about whitespace.
+// Keep the policy free of spaces because the deployment shell expands it as one argument.
 const regulatorMustEndorse =
   `AND('${REGULATOR_MSP}.peer',` +
   `OutOf(${othersRequired},${OTHER_MSPS.map((msp) => `'${msp}.peer'`).join(",")}))`;
 
-// Resolves the same way from src/ under tsx and from dist/ after a build, since both sit one
-// level below the package root and two below fabric/.
+// Both src and dist sit one level below the network package root.
 const networkPackageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const fabricDirectory = resolve(networkPackageDirectory, "..");
 
-// Chaincode is packaged from a staging copy rather than straight from the workspace. Fabric's
-// packaging step runs npm against the source directory, and npm resolves pnpm's symlinked
-// node_modules into a lockfile of link: entries that do not exist inside the peer's build
-// container. Staging a clean copy keeps the two package managers out of each other's way.
+// Stage compiled chaincode separately so Fabric's npm build does not consume pnpm workspace links.
 export const buildDirectory = join(networkPackageDirectory, "build");
 
-// The network is kept in the repository rather than used from fabric-samples, so its topology is
-// version controlled and every teammate brings up the same one.
+// The version-controlled network definition keeps local topology consistent.
 export const networkPath =
   process.env.FABRIC_NETWORK_PATH ?? join(fabricDirectory, "milk-network");
 
-// Only the binaries and Fabric's default core.yaml still come from the sample distribution. The
-// network scripts read this through FABRIC_SAMPLES_HOME, which they inherit from this process.
+// Fabric binaries and core.yaml still come from the local fabric-samples installation.
 export const fabricSamplesPath =
   process.env.FABRIC_SAMPLES_HOME ?? join(homedir(), "fabric-samples");
 
-// Where the backends write their ledger event checkpoints. Tearing the network down has to remove
-// them, because they hold block numbers from a chain that is about to stop existing.
+// Network teardown removes checkpoints whose block numbers belong to the discarded ledger.
 export const backendPath = resolve(fabricDirectory, "..", "services", "backend");
 
 export const channelName = process.env.FABRIC_CHANNEL_NAME ?? "milkchannel";
 
-// CouchDB rather than LevelDB, because the traceability lookups need rich queries.
+// Traceability lookups require CouchDB rich queries.
 export const stateDatabase = "couchdb";
 
-// Order matters on deployment: the supply-chain contracts delegate authorisation to the
-// stakeholder registry, so the registry has to be committed first.
+// Deploy the registry first because supply-chain authorisation calls it across chaincodes.
 export const chaincodes: readonly ChaincodeDefinition[] = [
   {
     name: "stakeholder",
     packageName: "@fresh-milk/chaincode-stakeholder",
     sourcePath: join(fabricDirectory, "chaincode", "stakeholder"),
-    // Every write here is a regulator-only attestation: who holds which role, and which public key
-    // belongs to which sensor. The contract checks the submitter's certificate, but without this
-    // the regulator's own peer need not have run the transaction and agreed, so the ledger would
-    // record an attestation the attesting party never executed.
-    //
-    // Reads are unaffected. A cross-chaincode read runs inside the calling transaction and is
-    // covered by that chaincode's policy, which is why this costs nothing on the hot path.
+    // Registry writes are regulator attestations, so the regulator's peer must endorse them.
     endorsementPolicy: regulatorMustEndorse
   },
   {
@@ -98,8 +77,7 @@ export function assertNetworkAvailable(): void {
     );
   }
 
-  // Checked here rather than letting the peer CLI fail forty seconds into a deploy with an error
-  // that names neither the missing file nor the directory it was looked for in.
+  // Fail before deployment work starts if the Fabric CLI is unavailable.
   if (!existsSync(join(fabricSamplesPath, "bin", "peer"))) {
     throw new Error(
       `Could not find Fabric's binaries at ${fabricSamplesPath}. Install them using the command ` +

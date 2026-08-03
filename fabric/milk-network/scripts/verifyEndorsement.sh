@@ -2,14 +2,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# Proves the supply-chain chaincode's endorsement policy actually rejects a transaction that the
-# regulator has not endorsed. Run against a network with the chaincode deployed and a batch that
-# is IN_TRANSIT.
+# Checks that delivery needs the regulator's endorsement and a network majority. Run against a
+# deployed network with an IN_TRANSIT batch.
 #
 #   ./scripts/verifyEndorsement.sh BATCH-001
 #
-# The rejecting cases run first because they leave the batch untouched; the accepting case moves it
-# to DELIVERED and can only run once.
+# Rejecting cases run first because the successful case delivers the batch and cannot be repeated.
 
 set -u
 
@@ -24,9 +22,7 @@ cd "$ROOTDIR"
 
 BATCH=${1:-BATCH-001}
 
-# Signs as the retailer's registered user rather than an organisation admin. Only the users in the
-# stakeholder registry can call the contract at all, so an admin would be refused by the role check
-# before the endorsement policy was ever reached, and every case would fail for the wrong reason.
+# Use the registered retailer identity so failures exercise endorsement rather than role checks.
 signAsRetailer() {
   export CORE_PEER_LOCALMSPID=$(orgMsp retailer)
   export CORE_PEER_TLS_ROOTCERT_FILE=$(orgTlsCa retailer)
@@ -39,17 +35,14 @@ attempt() {
   local label=$1 orgs=$2 expected=$3
 
   signAsRetailer
-  # Built with += rather than by re-expanding the array: bash 3.2 treats expanding an empty array
-  # as an unbound variable, which set -u turns into a fatal error on the first iteration.
+  # Bash 3.2 and set -u require appending instead of re-expanding an empty array.
   local peers=()
   for org in $orgs; do
     requireOrg "$org"
     peers+=(--peerAddresses "localhost:$(orgPeerPort $org)" --tlsRootCertFiles "$(orgTlsCa $org)")
   done
 
-  # --waitForEvent is required. A transaction that fails the policy is still ordered and written
-  # into a block as invalid, so without waiting for the commit event this reports success for a
-  # transaction that was discarded, and every case below would appear to pass.
+  # Wait for commit because an ordered transaction may still be invalidated by endorsement policy.
   local out status
   out=$(peer chaincode invoke -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com \
         --tls --cafile "$ORDERER_CA" -C "${CHANNEL_NAME:-milkchannel}" -n supplychain --waitForEvent \
@@ -57,10 +50,7 @@ attempt() {
         "${peers[@]}" 2>&1)
   status=$?
 
-  # "committed" is only ever concluded from the peer reporting success, never assumed. Defaulting
-  # to it meant any other failure -- the batch not being IN_TRANSIT, an unregistered signer, a
-  # rerun after the accepting case already consumed the batch -- was reported as a clean pass, so
-  # the one script whose job is proving this policy could certify a transaction that was rejected.
+  # Treat only an explicit successful commit as committed. Other errors remain unexpected failures.
   local got=unexpected-failure
   if [ $status -eq 0 ] && echo "$out" | grep -q "status:200"; then
     got=committed
@@ -72,8 +62,7 @@ attempt() {
     printf "  %-44s %-28s PASS\n" "$label" "$got"
   else
     printf "  %-44s %-28s FAIL (expected %s)\n" "$label" "$got" "$expected"
-    # The peer's own words, because "unexpected-failure" on its own does not say whether the batch
-    # was in the wrong state, the signer was not registered, or the policy genuinely bit.
+    # Include the peer's diagnostic for unexpected failures.
     printf "    %s\n" "$(echo "$out" | tail -3)"
     FAILURES=$((FAILURES + 1))
   fi

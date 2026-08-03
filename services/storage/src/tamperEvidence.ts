@@ -1,8 +1,8 @@
 /**
- * `pnpm demo:tamper`. Alters one stored reading and shows the fingerprint stop matching the ledger.
+ * Implements a deliberate database tamper for validating evidence-integrity checks.
  *
- * The decision logic takes its database access as a parameter so the refusals can be exercised
- * without a database. The command entry point at the bottom supplies the real one.
+ * It first proves that the selected readings still match their Fabric anchor, then changes one
+ * deterministic row and verifies that the same immutable anchor now exposes the mismatch.
  */
 import { pathToFileURL } from "node:url";
 import type { Pool } from "pg";
@@ -52,16 +52,17 @@ export interface ChangedReading {
 
 export interface TamperDependencies {
   readonly repository: TemperatureRepository;
-  // Alters the earliest reading and reports what it changed. Separate from the checks around it
-  // so the refusals below can be exercised without a database.
+  // Change the earliest reading so repeated runs select the same target.
   readonly alterEarliestReading: (
     evidenceId: string,
     deltaCelsius: number
   ) => Promise<ChangedReading | undefined>;
 }
 
-// Refuses unless the evidence is anchored and currently verifies, because the point of the demo is
-// to show a match turning into a mismatch. Tampering with something already broken shows nothing.
+/**
+ * Changes one stored reading only after confirming that the original evidence matches Fabric.
+ * The returned report shows the same ledger hash matching before the update and failing afterwards.
+ */
 export async function tamperWithEvidence(
   options: TamperArguments,
   dependencies: TamperDependencies
@@ -166,8 +167,7 @@ async function alterEarliestReading(
   }
 }
 
-// Only run when invoked as a command. Importing the module, as the tests do, must not connect to
-// a database or start modifying rows.
+// Importing this module must not connect to the database or modify evidence.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);

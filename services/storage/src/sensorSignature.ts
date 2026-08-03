@@ -1,19 +1,8 @@
 /**
- * What a sensor signs, and how anyone checks it.
+ * Defines how a sensor reading is signed and independently verified with Ed25519.
  *
- * The hash proves the readings were not edited after they were anchored. It cannot say anything
- * about whether they were true when they arrived, because the oracle computes the hash itself and
- * can compute it over whatever it likes. A signature the oracle cannot produce is the only thing
- * that constrains it: it can still alter a reading, but it cannot make the signature fit, and any
- * other company can see that.
- *
- * The signer and every verifier build the payload through this one function for the same reason
- * they round through roundCelsius: two ideas of what a reading is would eventually diverge and
- * report a forged signature on a reading nobody had touched.
- *
- * Ed25519 through node:crypto, so no dependency is added and a signature is 64 bytes, which is 88
- * base64 characters with no comma in the alphabet. That matters because the readings arrive through
- * a CSV parser that splits on commas and cannot quote.
+ * The payload format is deliberately shared by the sensor, oracle and regulator. Changing its
+ * field order or normalisation would invalidate signatures that were created with the earlier form.
  */
 import { createPrivateKey, createPublicKey, sign, verify, type KeyObject } from "node:crypto";
 import { normaliseRecordedAt, requireText, roundCelsius } from "./evidenceHash.js";
@@ -21,8 +10,7 @@ import { normaliseRecordedAt, requireText, roundCelsius } from "./evidenceHash.j
 export interface SignableReading {
   readonly batchId: string;
   readonly sensorId: string;
-  // Counts from 1 within a reading set. Inside the signature rather than beside it, because a
-  // sequence the oracle could renumber would not show the gap left by a deleted reading.
+  // Signing the sequence makes missing readings detectable without trusting the oracle's numbering.
   readonly sequence: number;
   readonly recordedAt: string;
   readonly celsius: number;
@@ -35,8 +23,7 @@ export function requireSequence(value: number, label = "Reading sequence"): numb
   return value;
 }
 
-// Key order is the declaration order of this literal, which JSON.stringify preserves. It is part of
-// the signed bytes, so reordering these lines invalidates every signature ever produced.
+// Property order is part of the signed JSON payload. Reordering these fields breaks old signatures.
 export function signablePayload(reading: SignableReading): string {
   if (!Number.isFinite(reading.celsius)) {
     throw new Error("Temperature reading must be a finite number.");
@@ -51,8 +38,6 @@ export function signablePayload(reading: SignableReading): string {
   });
 }
 
-// Throws on anything that is not a usable key, so a caller hoisting this out of a loop finds out
-// once rather than per reading.
 export function sensorPublicKey(publicKeyBase64: string): KeyObject {
   return createPublicKey({
     key: Buffer.from(publicKeyBase64, "base64"),
@@ -61,6 +46,7 @@ export function sensorPublicKey(publicKeyBase64: string): KeyObject {
   });
 }
 
+/** Signs one canonical reading payload with the sensor's private Ed25519 key. */
 export function signReading(reading: SignableReading, privateKeyBase64: string): string {
   const key = createPrivateKey({
     key: Buffer.from(privateKeyBase64, "base64"),
@@ -68,21 +54,15 @@ export function signReading(reading: SignableReading, privateKeyBase64: string):
     type: "pkcs8"
   });
 
-  // Ed25519 takes its digest algorithm as null: the scheme fixes it, and passing one is an error.
+  // Ed25519 fixes its own digest algorithm, represented by null in Node's API.
   return sign(null, Buffer.from(signablePayload(reading), "utf8"), key).toString("base64");
 }
 
-/**
- * False rather than throwing, for every way this can fail: a malformed key, a malformed signature,
- * a reading whose timestamp cannot be parsed. A caller deciding whether to trust a reading has no
- * use for the distinction, and an exception escaping here would turn one bad row into a crash in
- * the middle of the regulator's event listener.
- */
+/** Returns false for invalid readings, signatures and keys instead of interrupting a verification run. */
 export function verifyReadingSignature(
   reading: SignableReading,
   signature: string,
-  // A KeyObject as well as base64, because both callers check a whole run against one key and
-  // parsing it per reading is work with no purpose.
+  // Accept a parsed key so callers can reuse it across a complete run.
   publicKey: string | KeyObject
 ): boolean {
   try {

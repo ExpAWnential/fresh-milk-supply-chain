@@ -1,12 +1,4 @@
-/**
- * The one endpoint a shopper can reach.
- *
- * Consumers hold no Fabric identity, so this route reads the ledger on their behalf and returns
- * only the filtered view, in wording written for them rather than for an operator.
- *
- * "On their behalf" means as the company running this backend. A shopper scanning a pack reaches
- * the retailer's, and the retailer's own read permissions are what decide the answer.
- */
+/** Serves a privacy-filtered view through the host organisation's ledger permissions. */
 import { Router, type Response } from "express";
 import { config } from "../config.js";
 import { BATCH_CONTRACT } from "../fabric/contracts.js";
@@ -18,7 +10,6 @@ export function createPublicRouter(connect: GatewayConnector): Router {
   const router = Router();
 
   router.get("/batches/:batchId", async (req, res) => {
-    // Inside the try, so a connection failure is reported rather than escaping the handler.
     let client: FabricGatewayClient | undefined;
     try {
       client = await connect();
@@ -32,8 +23,7 @@ export function createPublicRouter(connect: GatewayConnector): Router {
         return JSON.parse(Buffer.from(bytes).toString());
       };
 
-      // Neither read depends on the other, and the public page is the most expensive request in
-      // the system, so they go together.
+      // Batch state and history are independent reads.
       const [batch, history] = await Promise.all([
         read("getBatch") as Promise<LedgerBatch>,
         read("getBatchHistory") as Promise<readonly LedgerHistoryEntry[]>
@@ -50,9 +40,7 @@ export function createPublicRouter(connect: GatewayConnector): Router {
   return router;
 }
 
-// The contract's own wording never reaches a consumer. It names stakeholders and registry state,
-// which is exactly what consumerView strips out of the successful response, and it is written for
-// an operator rather than someone holding a carton of milk.
+// Replace operator-facing contract details with a safe message for shoppers.
 function sendPublicError(response: Response, error: unknown): void {
   const message = extractChaincodeMessage(error);
   if (message && /^Batch '.*' does not exist\.?$/i.test(message)) {

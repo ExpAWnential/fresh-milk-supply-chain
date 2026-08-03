@@ -1,9 +1,4 @@
-/**
- * Assembles the Express app from its routers.
- *
- * Dependencies are passed in rather than constructed here, which is what lets the whole API be
- * exercised without a Fabric network or a database.
- */
+/** Assembles the API while keeping ledger and storage dependencies explicit for testing. */
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { type Express, type RequestHandler } from "express";
@@ -27,10 +22,7 @@ export interface AppDependencies extends TemperatureRouterDependencies {
   readonly verdictRepository?: VerdictRepository;
 }
 
-// The demo page is served by one company's backend and drives all six, so five of every six calls
-// it makes are cross-origin. Both spellings of the loopback address are listed, because a browser
-// treats them as different origins and opening the page on 127.0.0.1 would otherwise fail every
-// cross-company call in a way that looks exactly like the other five backends being down.
+// The browser client calls all six backends. Browsers treat the two loopback spellings as distinct origins.
 const KNOWN_ORIGINS = new Set(
   ORGANISATIONS.flatMap((organisation) => [
     originOf(organisation),
@@ -38,12 +30,8 @@ const KNOWN_ORIGINS = new Set(
   ])
 );
 
-// Anything that is not a read. These are the requests where being wrong about the origin means a
-// transaction, not a leak.
 const READ_ONLY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-// Written out rather than taken from a package, and deliberately not "*". Echoing back only the
-// origins this network runs keeps the allowance as narrow as the thing it exists for.
 const allowKnownOrigins: RequestHandler = (req, res, next) => {
   const origin = req.header("origin");
   const allowed = origin !== undefined && KNOWN_ORIGINS.has(origin);
@@ -51,11 +39,9 @@ const allowKnownOrigins: RequestHandler = (req, res, next) => {
   if (allowed) {
     res.setHeader("access-control-allow-origin", origin);
   }
-  // The answer differs per origin, so a cache keyed on the URL alone would serve the wrong one.
+  // CORS responses vary by request origin.
   res.setHeader("vary", "Origin");
 
-  // POST with a JSON body and PATCH are both preflighted, so without this the browser never sends
-  // the real request and the failure looks like the backend being down.
   if (req.method === "OPTIONS") {
     res.setHeader("access-control-allow-methods", "GET, POST, PATCH, OPTIONS");
     res.setHeader("access-control-allow-headers", "content-type");
@@ -63,13 +49,8 @@ const allowKnownOrigins: RequestHandler = (req, res, next) => {
     return;
   }
 
-  // Withholding the allow-origin header only stops the caller *reading* the reply. A POST with no
-  // body is a simple request, so it is never preflighted and the transaction commits before the
-  // browser discards the response: any page open in another tab could suspend a stakeholder.
-  // Writes therefore have to be refused outright, not merely made unreadable.
-  //
-  // A request with no Origin at all is not from a browser. curl and the oracle land here, and they
-  // were never the thing at risk.
+  // Reject unknown browser writes outright. CORS headers alone would not prevent a simple POST.
+  // Non-browser clients omit Origin and remain allowed.
   if (!READ_ONLY_METHODS.has(req.method) && origin !== undefined && !allowed) {
     res.status(403).json({ error: "this backend does not accept requests from that origin" });
     return;
@@ -78,15 +59,13 @@ const allowKnownOrigins: RequestHandler = (req, res, next) => {
   next();
 };
 
+/** Creates the HTTP application without opening network or database connections at import time. */
 export function createApp(dependencies: AppDependencies): Express {
   const app = express();
 
-  // Before the routers and before the body parser, so a preflight is answered without either.
   app.use(allowKnownOrigins);
   app.use(express.json());
 
-  // Resolves the same from src/ under tsx and from dist/ after a build, since both sit one level
-  // below the package root.
   app.use(express.static(join(dirname(fileURLToPath(import.meta.url)), "..", "public")));
 
   app.get("/health", (_req, res) => {

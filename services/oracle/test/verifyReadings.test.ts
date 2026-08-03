@@ -19,8 +19,7 @@ function keypair() {
 
 const SENSOR = keypair();
 
-// The three readings from the unsafe fixture, genuinely signed. The third breaches the cold chain,
-// so it is the one a dishonest oracle would want gone.
+// Genuinely signed unsafe fixture whose third reading breaches the cold chain.
 function signedRun(privateKey = SENSOR.privateKey): RawTemperatureReading[] {
   return [
     { sequence: 1, recordedAt: "2026-07-14T08:00:00Z", celsius: 4.1 },
@@ -53,8 +52,6 @@ describe("verifying a signed run of readings", () => {
     await verify(signedRun());
   });
 
-  // The whole point. The oracle can change the number, but it holds no private key, so it cannot
-  // produce a signature that fits what it wrote.
   it("refuses a run where one temperature was changed", async () => {
     const readings = signedRun();
     readings[2] = { ...readings[2], celsius: 3.4 };
@@ -62,8 +59,6 @@ describe("verifying a signed run of readings", () => {
     await assert.rejects(verify(readings), /Reading 3 .* does not match its signature/);
   });
 
-  // A signature says nothing about a reading that was removed: everything left still verifies
-  // perfectly. The sequence is what makes the hole visible.
   it("refuses a run with a reading removed from the middle", async () => {
     const readings = signedRun();
 
@@ -79,8 +74,6 @@ describe("verifying a signed run of readings", () => {
     await assert.rejects(verify([readings[1], readings[2]]), /starts at reading 2 rather than 1/);
   });
 
-  // Renumbering is the obvious way to hide the hole above, which is exactly why the sequence is
-  // inside the signature rather than a column beside it.
   it("refuses a run whose sequence numbers were rewritten to close a gap", async () => {
     const readings = signedRun();
     const closed = [readings[0], { ...readings[2], sequence: 2 }];
@@ -94,8 +87,6 @@ describe("verifying a signed run of readings", () => {
     await assert.rejects(verify([readings[0], readings[1], readings[1]]), /reported reading 2 more than once/);
   });
 
-  // Registering your own key against someone else's sensor buys nothing, because the key checked
-  // against is the one the regulator put on the ledger.
   it("refuses readings signed by a key the ledger does not vouch for", async () => {
     await assert.rejects(verify(signedRun(keypair().privateKey)), /does not match its signature/);
   });
@@ -104,8 +95,6 @@ describe("verifying a signed run of readings", () => {
     await assert.rejects(verify(signedRun(), notRegistered), /has no key registered on the ledger/);
   });
 
-  // A revoked sensor is one the regulator has disowned, so its readings stop being accepted even
-  // though the signatures on them are still mathematically valid.
   it("refuses readings from a revoked sensor", async () => {
     await assert.rejects(
       verify(signedRun(), registered({ active: false })),
@@ -113,8 +102,6 @@ describe("verifying a signed run of readings", () => {
     );
   });
 
-  // The sequence is only contiguous within one device's run, and the evidence record names a single
-  // sensor, so a mixed file would be checked against the wrong key and the wrong sequence at once.
   it("refuses a file mixing two sensors", async () => {
     const readings = signedRun();
     readings[1] = { ...readings[1], sensorId: "SENSOR-999" };
@@ -126,9 +113,6 @@ describe("verifying a signed run of readings", () => {
     await assert.rejects(verifyReadings([], registered()), /no readings to verify/);
   });
 
-  // The distinction the whole check rests on. Being unable to reach the ledger says nothing about
-  // whether a sensor is registered; treating it as "not registered" would refuse honest readings,
-  // and treating it as "fine" would wave through forged ones. It has to stop the run either way.
   it("refuses rather than fails open when the ledger cannot be reached", async () => {
     const unreachable = async () => {
       throw new Error("14 UNAVAILABLE: no connection established");

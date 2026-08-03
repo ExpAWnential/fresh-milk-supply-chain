@@ -1,19 +1,13 @@
 /**
- * HTTP for the sensor key registry. The regulator vouches for which public key belongs to which
- * sensor; everyone else reads it to check that a temperature reading really came from the device
- * that measured it.
- *
- * Registered on all six backends like every other router. Only the regulator's calls will get past
- * the contract, and that decision stays on the ledger rather than being predicted here.
+ * Exposes the regulator-managed sensor key registry.
+ * Public keys are readable for independent verification, while registration and revocation remain
+ * protected by the contract's regulator role check.
  */
 import { Router } from "express";
 import { config } from "../config.js";
 import { STAKEHOLDER_CONTRACT } from "../fabric/contracts.js";
 import { bindLedger, requireString } from "../fabric/ledger.js";
 import { sendGatewayError, type GatewayConnector } from "../fabric/connection.js";
-// Shared with the reader that verification uses, so the two cannot come to different conclusions
-// about what "this sensor has no key" looks like. The regex tracks the contract's exact wording,
-// which is not something to track from two places.
 import { describesMissingSensorKey } from "../fabric/sensorKeys.js";
 
 export function createSensorRouter(connect: GatewayConnector): Router {

@@ -1,9 +1,9 @@
 /**
- * One oracle run, end to end: canonicalise, hash, store off-chain, anchor on-chain, record the
- * result.
+ * Runs the complete oracle workflow for one set of sensor readings.
  *
- * Written so a run that fails part way through can be repeated and repaired, rather than leaving
- * evidence stranded between the database and the ledger.
+ * Readings are verified and stored before their summary is submitted to Fabric. The workflow also
+ * handles the awkward case where Fabric commits a transaction but the client loses the response,
+ * so a retry can recover without replacing evidence that is already anchored.
  */
 import {
   calculateTemperatureStatistics,
@@ -24,13 +24,9 @@ import type { AnchoredEvidence, TemperatureEvidenceSubmission } from "./oracleCl
 export interface OracleDependencies {
   readonly repository: TemperatureRepository;
   readonly anchor: (submission: TemperatureEvidenceSubmission) => Promise<AnchoredEvidence>;
-  // Reads what is already on the ledger for an evidence ID. The ID is derived from the readings,
-  // so the contract refuses a second submission of the same run: when anchoring fails after the
-  // transaction landed, adopting the existing record is the only way the run can finish.
+  // Used to recover when Fabric commits a transaction but the client misses the response.
   readonly readAnchored: (evidenceId: string) => Promise<AnchoredEvidence | undefined>;
-  // Throws if any reading was altered, removed or came from a sensor the ledger does not vouch for.
-  // Required rather than optional: a run that skipped it would anchor unchecked readings and look
-  // exactly like one that passed.
+  // Rejects readings that fail the registered sensor's signature checks.
   readonly verifyReadings: (readings: readonly CanonicalTemperatureReading[]) => Promise<void>;
 }
 
@@ -45,8 +41,7 @@ export interface OracleResult {
   readonly fabricTransactionId: string;
 }
 
-// Every reading in one run must describe the same batch, otherwise the fingerprint would cover
-// readings from several batches and could never be verified against a single ledger record.
+// An evidence record belongs to exactly one batch.
 function singleBatchId(batchIds: readonly string[]): string {
   const unique = [...new Set(batchIds)];
   if (unique.length !== 1) {
@@ -57,23 +52,24 @@ function singleBatchId(batchIds: readonly string[]): string {
   return unique[0];
 }
 
+/**
+ * Verifies and stores a complete sensor run before anchoring its evidence on Fabric.
+ * A retry reconciles uncertain submissions against the ledger before changing local status.
+ */
 export async function runOracle(
   rawReadings: readonly RawTemperatureReading[],
   dependencies: OracleDependencies
 ): Promise<OracleResult> {
   const canonicalReadings = canonicaliseReadings(rawReadings);
 
-  // Before the fingerprint, before the statistics, and well before anything is written. A reading
-  // that fails here never contributes to a hash, never reaches the database and never reaches the
-  // ledger, so a refused run leaves nothing behind to clean up or explain.
+  // Verify first so invalid sensor data is never stored or anchored.
   await dependencies.verifyReadings(canonicalReadings);
 
   const batchId = singleBatchId(canonicalReadings.map((reading) => reading.batchId));
   const statistics = calculateTemperatureStatistics(canonicalReadings);
 
-  // The batch ID is dropped because the evidence record already names it. The sequence and the
-  // signature are kept, so whoever fetches these rows later can check them against the sensor's
-  // registered key rather than trusting that this process did.
+  // The parent evidence row stores the batch ID. Each reading keeps the fields needed for an
+  // independent signature check.
   const readings: readonly StoredTemperatureReading[] = canonicalReadings.map((reading) => ({
     sensorId: reading.sensorId,
     sequence: reading.sequence,
@@ -82,16 +78,13 @@ export async function runOracle(
     signature: reading.signature
   }));
 
-  // Hashed with the storage package's function, the same one verification and the tamper demo
-  // use, so the three can never disagree about what the fingerprint covers.
+  // Verification uses the same canonical hash function to detect later changes.
   const evidenceHash = sha256TemperatureReadings(batchId, readings);
 
-  // Derived from the content so the same readings always produce the same ID, and resubmitting
-  // them is rejected as a duplicate rather than silently anchored twice.
+  // A content-derived ID makes retries refer to the same evidence record.
   const evidenceId = `EV-${batchId}-${evidenceHash.slice(0, 8)}`;
 
-  // Saved before anchoring and left PENDING, so a failed submission is never mistaken for
-  // evidence that made it onto the ledger.
+  // Store first as PENDING. Only a confirmed Fabric transaction changes it to ANCHORED.
   await dependencies.repository.saveEvidence(
     {
       evidenceId,
@@ -116,9 +109,7 @@ export async function runOracle(
     statistics
   });
 
-  // Deliberately outside the failure handling above. If this write fails the anchor is not lost,
-  // and the row stays PENDING for the next run to repair from the ledger, rather than committed
-  // evidence being recorded as a failure.
+  // If this update fails, a retry can recover the committed transaction from Fabric.
   await dependencies.repository.markAnchored(evidenceId, anchored.submittedTxId);
 
   return {
@@ -139,24 +130,21 @@ async function anchorEvidence(
   try {
     return await dependencies.anchor(submission);
   } catch (error) {
-    // Anchoring reports failure for reasons that do not tell us whether the transaction reached
-    // the ledger, so the ledger itself is asked before anything is written off as a failure.
+    // A client error may occur after commit, so check the ledger before marking the row failed.
     let onLedger: AnchoredEvidence | undefined;
     let ledgerAnswered = false;
     try {
       onLedger = await dependencies.readAnchored(submission.evidenceId);
       ledgerAnswered = true;
     } catch {
-      // Being unable to check is not evidence of anything, so the row is left alone below.
+      // Leave the row PENDING when Fabric cannot confirm either outcome.
     }
 
     if (onLedger) {
       return onLedger;
     }
 
-    // Marked failed only on positive proof: the anchor step reported the transaction never landed
-    // and the ledger confirms nothing is there. Anything less leaves the row PENDING, which the
-    // next run can still repair.
+    // Mark FAILED only when Fabric answered and no committed record exists.
     if (ledgerAnswered && (!(error instanceof AnchorError) || !error.anchored)) {
       await dependencies.repository.markFailed(submission.evidenceId);
     }

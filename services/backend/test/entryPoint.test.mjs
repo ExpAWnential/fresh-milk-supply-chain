@@ -9,7 +9,7 @@ const entryPoint = join(packageRoot, "dist", "index.js");
 
 // Run as a real process, because what is being checked is that these are refused before the port is
 // bound. A backend that started and then answered everything with a fault would look like a running
-// company to the demo page and to the other five.
+// company to the browser client and to the other five.
 function start(env) {
   return spawnSync(process.execPath, [entryPoint], {
     cwd: packageRoot,

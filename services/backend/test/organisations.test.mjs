@@ -13,8 +13,7 @@ import {
 const WALLET_ROOT = "/tmp/organizations";
 const wallet = (name) => walletFor(findOrganisation(name), WALLET_ROOT);
 
-// One organisation per company, so no certificate authority issues identities for a company it has
-// no relationship with, and an endorsement policy can name a single role.
+// Every company has its own Fabric organisation and identity boundary.
 test("every company has an organisation, a certificate, a peer and a port of its own", () => {
   const identities = ORGANISATION_NAMES.map(wallet);
   const distinct = (field) => new Set(identities.map((identity) => identity[field])).size;
@@ -30,8 +29,6 @@ test("every company has an organisation, a certificate, a peer and a port of its
   );
 });
 
-// The regulator has to be bootstrapped before it can register anybody, so the page walks this list
-// in order when setting the demo up.
 test("the six companies are listed with the regulator first", () => {
   assert.deepEqual(ORGANISATION_NAMES, [
     "regulator",
@@ -55,7 +52,7 @@ test("a known company resolves to its own wallet material", () => {
   assert.equal(regulator.mspId, "RegulatorMSP");
   assert.equal(regulator.peerEndpoint, "localhost:7051");
   assert.equal(regulator.peerHostAlias, "peer0.regulator.example.com");
-  // User1 rather than Admin: no company's ordinary traffic should carry channel-admin authority.
+  // Backend traffic must use an ordinary user rather than a channel administrator.
   assert.match(
     regulator.userPath,
     /regulator\.example\.com\/users\/User1@regulator\.example\.com\/msp$/
@@ -79,8 +76,6 @@ test("an unknown company is refused and the message lists the valid ones", () =>
   });
 });
 
-// A plain object lookup answers inherited keys from the prototype, and a truthy answer would slip
-// past the unknown-company guard and crash on the next line instead of naming the valid options.
 test("an inherited property name is refused like any other unknown company", () => {
   for (const name of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
     assert.throws(() => findOrganisation(name), (error) => {
@@ -90,8 +85,7 @@ test("an inherited property name is refused like any other unknown company", () 
   }
 });
 
-// Which company a process acts for is the one thing it cannot be wrong about: it decides which
-// private key signs every transaction the process makes.
+// ORGANISATION selects the identity used to sign every transaction from that process.
 test("a process with no ORGANISATION set is refused, and told the six valid names", () => {
   assert.throws(() => resolveLocalOrganisation({}, WALLET_ROOT), (error) => {
     assert.match(error.message, /Set ORGANISATION/);
@@ -111,23 +105,18 @@ test("a process with an unknown ORGANISATION is refused", () => {
   );
 });
 
-// Two callers have to agree on this: one builds the CORS allowlist and the other builds the
-// directory the demo page dials. If they ever disagreed, every cross-company call would be rejected
-// by the browser and reported as the backend being down, which names nothing.
+// The browser directory and CORS allowlist must use the same origin builder.
 test("a company's origin is built from its own port, in one place", () => {
   assert.equal(originOf(findOrganisation("regulator")), "http://localhost:3001");
   assert.equal(originOf(findOrganisation("oracle")), "http://localhost:3006");
 });
 
-// The one company the other five have to be able to find: everyone else fetches the readings from
-// it to run their own verification.
 test("the readings are held by the oracle", () => {
   assert.equal(readingsHolder().name, "oracle");
   assert.equal(readingsHolder().offChainStore, "readings");
 });
 
-// What a company keeps off-chain is declared in this table rather than decided by name at each
-// wiring point, and the two stores are separate databases holding different things.
+// Off-chain ownership is explicit and the two stores remain separate.
 test("only the oracle and the regulator keep anything off-chain, and not the same thing", () => {
   const stores = ORGANISATIONS.filter((organisation) => organisation.offChainStore);
 

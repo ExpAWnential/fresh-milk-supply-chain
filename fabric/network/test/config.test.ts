@@ -10,9 +10,7 @@ import * as config from "../src/config.js";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-// The paths and the channel name are read from the environment once, when the module first loads,
-// so an override only has an effect on a process started with it set. Each case runs as one for
-// that reason, which is also how the other packages test their env-driven config.
+// Environment overrides run in child processes because config is evaluated at module load time.
 function inProcessWith(env: Record<string, string | undefined>, expression: string): string {
   const child = spawnSync(
     process.execPath,
@@ -30,8 +28,7 @@ function inProcessWith(env: Record<string, string | undefined>, expression: stri
   return JSON.parse(child.stdout);
 }
 
-// Runs the check in a process configured by env and reports what it did, so a throw can be
-// inspected rather than crashing the child.
+// Report child-process checks as JSON so thrown errors remain inspectable.
 function networkCheckWith(env: Record<string, string | undefined>): {
   ok: boolean;
   message: string;
@@ -49,7 +46,7 @@ function networkCheckWith(env: Record<string, string | undefined>): {
   ) as unknown as { ok: boolean; message: string };
 }
 
-// A place that looks enough like the network and the Fabric distribution to satisfy the checks.
+// Minimal fixture containing the files checked by assertNetworkAvailable.
 async function fakeInstallation({ networkScript = true, peerBinary = true } = {}) {
   const root = await mkdtemp(join(tmpdir(), "fabric-"));
   const networkPath = join(root, "milk-network");
@@ -68,8 +65,7 @@ async function fakeInstallation({ networkScript = true, peerBinary = true } = {}
 }
 
 describe("what gets deployed", () => {
-  // The supply-chain contracts delegate every authorisation decision to the registry, and a
-  // chaincode cannot call one that has not been committed yet.
+  // Cross-chaincode authorisation requires the registry to be deployed first.
   it("commits the stakeholder registry before the supply chain that reads it", () => {
     assert.deepEqual(
       config.chaincodes.map((chaincode) => chaincode.name),
@@ -89,15 +85,11 @@ describe("the endorsement policy", () => {
   const supplychain = config.chaincodes.find((chaincode) => chaincode.name === "supplychain");
   const policy = supplychain?.endorsementPolicy ?? "";
 
-  // The reason each company has an organisation of its own: a policy can name a single role. The
-  // channel default is a majority of any organisations, which four of the other five satisfy
-  // between themselves, so without this term they could record a cold-chain verdict the regulator
-  // never saw.
   it("requires the regulator's own peer to have run and agreed", () => {
     assert.match(policy, /^AND\('RegulatorMSP\.peer',/);
   });
 
-  // A majority of six is four, one of which is always the regulator, so three of the other five.
+  // A six-organisation majority is the regulator plus three others.
   it("requires enough of the others to still make a majority of the network", () => {
     assert.match(policy, /OutOf\(3,/);
 
@@ -119,17 +111,10 @@ describe("the endorsement policy", () => {
     }
   });
 
-  // The deploy script passes this through an unquoted shell expansion, so a space would split the
-  // policy across arguments and the peer would reject it with an error about neither.
   it("carries no whitespace, because it is expanded unquoted by the shell", () => {
     assert.doesNotMatch(policy, /\s/);
   });
 
-  // Every registry write is an attestation the regulator makes about somebody else: what role a
-  // company holds, which public key belongs to which sensor. Without this the regulator's own peer
-  // need not have run the transaction, so the ledger could record an attestation the attesting
-  // party never executed. Both chaincodes share one policy rather than two literals that could
-  // drift apart.
   it("holds the registry to the same policy, because its writes are attestations too", () => {
     const stakeholder = config.chaincodes.find((chaincode) => chaincode.name === "stakeholder");
     assert.equal(stakeholder?.endorsementPolicy, policy);
@@ -156,8 +141,6 @@ describe("where the network lives", () => {
     );
   });
 
-  // Tearing the network down has to remove the backends' event checkpoints, so it needs to know
-  // where they are written.
   it("knows where the backends write their event checkpoints", () => {
     assert.match(config.backendPath, /services\/backend$/);
   });
@@ -175,8 +158,6 @@ describe("checking the network can be reached before running anything", () => {
     assert.equal(checked.ok, true, checked.message);
   });
 
-  // The network is part of this repository, so its absence means something different from a missing
-  // dependency and the message says so.
   it("names the missing network, and that it should have been checked out", async () => {
     const { networkPath, samplesPath } = await fakeInstallation({ networkScript: false });
 
@@ -191,8 +172,6 @@ describe("checking the network can be reached before running anything", () => {
     assert.match(checked.message, /working tree is incomplete/);
   });
 
-  // Checked here rather than letting the peer CLI fail forty seconds into a deploy with an error
-  // that names neither the missing file nor where it was looked for.
   it("names the missing binaries and how to install them", async () => {
     const { networkPath, samplesPath } = await fakeInstallation({ peerBinary: false });
 

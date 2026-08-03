@@ -1,9 +1,4 @@
-/**
- * Reading, validating and writing a batch record.
- *
- * Both contracts change a batch's status, so this is single-sourced. Keeping it in one place is
- * what stops the two from disagreeing about which statuses are valid.
- */
+/** Shares batch parsing and persistence rules between the lifecycle and compliance contracts. */
 import type { Context } from "fabric-contract-api";
 import { BATCH_STATUSES, type Batch, type BatchStatus } from "../models/Batch.js";
 import { batchKey } from "./ledgerKeys.js";

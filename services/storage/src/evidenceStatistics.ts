@@ -1,12 +1,9 @@
 /**
- * The summary of a reading set that goes on the ledger and that the contract's verdict is derived
- * from.
+ * Computes the temperature summary that is stored on Fabric and used to derive compliance.
  *
- * Shared for the same reason the hash and its comparator are: the oracle computes these before
- * anchoring and verification recomputes them afterwards to check the anchored copy was honest. Two
- * implementations would eventually round differently and report a lie where there was none.
+ * Submission and later verification share this implementation so they apply exactly the same
+ * rounding to the minimum, maximum and reading count.
  */
-
 import { roundCelsius } from "./evidenceHash.js";
 
 export interface TemperatureStatistics {
@@ -15,6 +12,7 @@ export interface TemperatureStatistics {
   readonly readingCount: number;
 }
 
+/** Summarises a non-empty reading set using the rounding shared with later verification. */
 export function calculateTemperatureStatistics(
   readings: readonly { readonly celsius: number }[]
 ): TemperatureStatistics {

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-
+# Joins the local ordering service to an application channel through the authenticated admin API.
 channel_name=$1
 
 export PATH=${FABRIC_SAMPLES_HOME:-${HOME}/fabric-samples}/bin:$PATH

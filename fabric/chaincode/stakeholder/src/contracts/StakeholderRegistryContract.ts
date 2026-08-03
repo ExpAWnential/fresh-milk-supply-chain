@@ -1,14 +1,12 @@
 /**
- * The registry of who exists on this network and what they are allowed to do. Ties each company to
- * the Fabric certificate it signs with.
+ * The on-chain identity registry for the consortium.
  *
- * `assertActiveRole` is the check the supply-chain chaincode calls across to before it will act on
- * anyone's behalf. Roles are granted, changed and withdrawn here and nowhere else.
+ * This contract is the source of truth for who may act as each stakeholder, whether that identity
+ * is currently active, and which public key belongs to a sensor. Other chaincode asks this contract
+ * to authorise callers instead of trusting roles supplied by an API request.
  */
 
-// Value import, not "import type": @Transaction identifies the ctx parameter by comparing its
-// emitted runtime type against Context, so an erased type import makes Fabric expect an extra
-// argument on every transaction.
+// Fabric's decorators inspect Context at runtime, so it must remain a value import.
 import { Context, Contract, Info, Returns, Transaction } from "fabric-contract-api";
 import {
   SensorKey,
@@ -28,13 +26,11 @@ const STAKEHOLDER_KEY_PREFIX = "stakeholder";
 const CERTIFICATE_KEY_PREFIX = "certificate";
 const SENSOR_KEY_PREFIX = "sensorKey";
 
-// these two ledger values make first time setup safe and ensure the system always
-// has at least one active regulator who can manage the registry
+// These records make initial setup one-time-only and prevent the last regulator being disabled.
 const REGISTRY_INITIALISED_KEY = "registry.initialised";
 const ACTIVE_REGULATOR_COUNT_KEY = "registry.activeRegulatorCount";
 
-// The regulator has its own organisation, so this names it directly rather than borrowing one
-// shared with the companies it regulates.
+// Only this Fabric organisation may create the first regulator.
 export const REGULATOR_MSP_ID = "RegulatorMSP";
 
 const VALID_ROLES: ReadonlySet<string> = new Set<StakeholderRole>([
@@ -46,24 +42,19 @@ const VALID_ROLES: ReadonlySet<string> = new Set<StakeholderRole>([
   "ORACLE"
 ]);
 
-// Named rather than left open so the field records what a verifier should do with the key, instead
-// of being a label nobody checks. Adding one here means every verifier has to learn it too.
+// Verifiers must explicitly support every algorithm accepted here.
 const VALID_ALGORITHMS: ReadonlySet<string> = new Set<SensorKeyAlgorithm>(["ed25519"]);
 
-// An Ed25519 public key in DER SPKI form. Checked here because a key that cannot be a key is a
-// typo, and finding that out now is better than every signature silently failing to verify later
-// against a record the regulator believes it registered correctly.
+// Ed25519 public keys use a 44-byte DER SPKI representation.
 const ED25519_SPKI_BYTES = 44;
 
-// other contracts only need this small result to make an access decision
-// They do not need the stakeholders full certificate or audit information
+// Other contracts need only these fields to make an access decision.
 interface StakeholderSummary {
   readonly stakeholderId: string;
   readonly role: StakeholderRole;
   readonly active: boolean;
 }
 
-// remove spaces around a required value and reject it if nothing remains.
 function requireValue(value: string, fieldName: string): string {
   const normalised = value.trim();
   if (!normalised) {
@@ -72,7 +63,6 @@ function requireValue(value: string, fieldName: string): string {
   return normalised;
 }
 
-// accept role names in any letter case then make sure the role is supported
 function parseRole(value: string): StakeholderRole {
   const role = requireValue(value, "Role").toUpperCase();
   if (!VALID_ROLES.has(role)) {
@@ -94,9 +84,7 @@ function parseAlgorithm(value: string): SensorKeyAlgorithm {
   return algorithm as SensorKeyAlgorithm;
 }
 
-// Round trips through base64 rather than pattern matching, because Buffer.from ignores characters
-// outside the alphabet: a key with a typo in it decodes to something shorter instead of failing,
-// and would be stored looking perfectly valid.
+// Buffer.from accepts stray characters, so round-trip the value to enforce strict base64.
 function parsePublicKey(value: string): string {
   const publicKey = requireValue(value, "Public key");
   const decoded = Buffer.from(publicKey, "base64");
@@ -113,8 +101,7 @@ function parsePublicKey(value: string): string {
   return publicKey;
 }
 
-// chaincode arguments arrive as strings, so other contracts send allowed roles
-// as JSON, for example: ["FARM", "PROCESSOR"]
+// Cross-chaincode arguments are strings, so allowed roles arrive as a JSON array.
 function parseAllowedRoles(value: string): readonly StakeholderRole[] {
   let parsed: unknown;
   try {
@@ -139,11 +126,12 @@ function parseAllowedRoles(value: string): readonly StakeholderRole[] {
   description: "Registers, updates and suspends supply-chain stakeholders."
 })
 export class StakeholderRegistryContract extends Contract {
-  // create the first regulator. A regulator normally has to register everybody,
-  // but no regulator exists when the ledger is brand new. This can run only once.
+  /**
+   * Creates the first regulator when the registry is empty.
+   * This narrowly scoped exception breaks the setup cycle, then permanently closes itself.
+   */
   @Transaction()
   public async bootstrapRegulator(ctx: Context, stakeholderId: string): Promise<void> {
-    // Trust the caller only if belong to the regulator organisation.
     const identity = getInvokingIdentity(ctx);
     if (identity.mspId !== REGULATOR_MSP_ID) {
       throw new Error(
@@ -151,7 +139,6 @@ export class StakeholderRegistryContract extends Contract {
       );
     }
 
-    // this means somebody has already created the first regulator.
     if ((await ctx.stub.getState(REGISTRY_INITIALISED_KEY)).length > 0) {
       throw new Error("The stakeholder registry has already been initialised.");
     }
@@ -165,15 +152,13 @@ export class StakeholderRegistryContract extends Contract {
       metadata
     );
 
-    // save the first regulator, remember the count, and permanently mark setup complete.
     await this.putNewStakeholder(ctx, stakeholder);
     await ctx.stub.putState(ACTIVE_REGULATOR_COUNT_KEY, Buffer.from("1"));
     await ctx.stub.putState(REGISTRY_INITIALISED_KEY, Buffer.from(metadata.txId));
     this.emitEvent(ctx, "StakeholderRegistered", stakeholder);
   }
 
-  // Add a new company or system participant and give it a role.
-  // Only an already registered, active regulator may do this.
+  /** Registers a stakeholder only after an active regulator vouches for its role and certificate. */
   @Transaction()
   public async registerStakeholder(
     ctx: Context,
@@ -183,7 +168,6 @@ export class StakeholderRegistryContract extends Contract {
   ): Promise<void> {
     await this.requireActiveRegulator(ctx);
 
-    // Clean and validate all user supplied values before writing anything.
     const id = requireValue(stakeholderId, "Stakeholder ID");
     const parsedRole = parseRole(role);
     const certificate = requireValue(certificateId, "Certificate ID");
@@ -194,7 +178,6 @@ export class StakeholderRegistryContract extends Contract {
       getTransactionMetadata(ctx)
     );
 
-    // putNewStakeholder also rejects duplicate stakeholder IDs and certificates.
     await this.putNewStakeholder(ctx, stakeholder);
     if (parsedRole === "REGULATOR") {
       await this.changeActiveRegulatorCount(ctx, 1);
@@ -202,7 +185,7 @@ export class StakeholderRegistryContract extends Contract {
     this.emitEvent(ctx, "StakeholderRegistered", stakeholder);
   }
 
-  // Change what an existing stakeholder is allowed to do.
+  /** Changes a stakeholder's role without allowing the active regulator count to reach zero. */
   @Transaction()
   public async updateStakeholderRole(
     ctx: Context,
@@ -219,8 +202,7 @@ export class StakeholderRegistryContract extends Contract {
       );
     }
 
-    // Keep the active regulator count correct when somebody gains or loses that role.
-    // The last active regulator is protected so the registry cannot lock itself.
+    // Update the lockout guard when this change adds or removes an active regulator.
     if (stakeholder.active && stakeholder.role === "REGULATOR") {
       await this.assertMoreThanOneActiveRegulator(ctx);
       await this.changeActiveRegulatorCount(ctx, -1);
@@ -235,7 +217,7 @@ export class StakeholderRegistryContract extends Contract {
     this.emitEvent(ctx, "StakeholderRoleUpdated", updated);
   }
 
-  // Temporarily block a stakeholder without deleting its history from the ledger.
+  /** Removes a stakeholder's access while retaining its identity and audit history. */
   @Transaction()
   public async suspendStakeholder(ctx: Context, stakeholderId: string): Promise<void> {
     await this.requireActiveRegulator(ctx);
@@ -245,7 +227,6 @@ export class StakeholderRegistryContract extends Contract {
       throw new Error(`Stakeholder '${stakeholder.stakeholderId}' is already suspended.`);
     }
 
-    // Never allow the only active regulator to suspend itself.
     if (stakeholder.role === "REGULATOR") {
       await this.assertMoreThanOneActiveRegulator(ctx);
       await this.changeActiveRegulatorCount(ctx, -1);
@@ -258,7 +239,7 @@ export class StakeholderRegistryContract extends Contract {
     this.emitEvent(ctx, "StakeholderSuspended", updated);
   }
 
-  // Allow a previously suspended stakeholder to use the system again.
+  /** Restores access to a suspended stakeholder under regulator control. */
   @Transaction()
   public async reactivateStakeholder(ctx: Context, stakeholderId: string): Promise<void> {
     await this.requireActiveRegulator(ctx);
@@ -279,8 +260,7 @@ export class StakeholderRegistryContract extends Contract {
     this.emitEvent(ctx, "StakeholderReactivated", updated);
   }
 
-  // Read only lookup. Restricted to registered, active stakeholders so that role assignments
-  // and certificate mappings are not readable by every member of the network.
+  /** Returns one stakeholder record after confirming the caller is an active participant. */
   @Transaction(false)
   @Returns("string")
   public async getStakeholder(ctx: Context, stakeholderId: string): Promise<string> {
@@ -288,9 +268,7 @@ export class StakeholderRegistryContract extends Contract {
     return JSON.stringify(await this.getStakeholderRecord(ctx, stakeholderId));
   }
 
-  // Vouch for a sensor's public key. This is what lets anyone check that a temperature reading
-  // really came from the device that measured it: the oracle relays readings it cannot forge,
-  // because it never holds the matching private half.
+  /** Records the public key that participants will trust when checking a sensor's signatures. */
   @Transaction()
   public async registerSensorKey(
     ctx: Context,
@@ -306,8 +284,7 @@ export class StakeholderRegistryContract extends Contract {
     const metadata = getTransactionMetadata(ctx);
 
     const sensorKeyLedgerKey = this.sensorKeyKey(ctx, id);
-    // Read before write, like putNewStakeholder. Silently replacing a key would let one bad
-    // registration retire every signature made under the old one with no trace.
+    // Never replace a key silently because existing readings were signed with the original key.
     if ((await ctx.stub.getState(sensorKeyLedgerKey)).length > 0) {
       throw new Error(`Sensor '${id}' already has a registered key.`);
     }
@@ -329,8 +306,7 @@ export class StakeholderRegistryContract extends Contract {
     this.emitEvent(ctx, "SensorKeyRegistered", sensorKey);
   }
 
-  // Disown a sensor whose key can no longer be trusted. The record stays so that readings signed
-  // before the revocation can still be told apart from readings signed after it.
+  /** Revokes future trust in a sensor key without deleting the key's audit record. */
   @Transaction()
   public async revokeSensorKey(ctx: Context, sensorId: string): Promise<void> {
     const regulator = await this.requireActiveRegulator(ctx);
@@ -353,9 +329,7 @@ export class StakeholderRegistryContract extends Contract {
     this.emitEvent(ctx, "SensorKeyRevoked", revoked);
   }
 
-  // Gated like every other registry read, so this is readable by any registered participant rather
-  // than by the public. Only the public half is here, so what it grants is the ability to check a
-  // signature, never to make one.
+  /** Returns the public key and status needed to verify a sensor's readings. */
   @Transaction(false)
   @Returns("string")
   public async getSensorKey(ctx: Context, sensorId: string): Promise<string> {
@@ -363,8 +337,10 @@ export class StakeholderRegistryContract extends Contract {
     return JSON.stringify(await this.getSensorKeyRecord(ctx, sensorId));
   }
 
-  // The batch and temperature contracts call this before protected actions
-  // It acts like a security guard: registered + active + correct role means allowed
+  /**
+   * Authorises a cross-chaincode call using the certificate Fabric authenticated for this transaction.
+   * The certificate argument must match the invoker, so a caller cannot ask about somebody else.
+   */
   @Transaction(false)
   @Returns("string")
   public async assertActiveRole(
@@ -375,14 +351,12 @@ export class StakeholderRegistryContract extends Contract {
     const certificate = requireValue(certificateId, "Certificate ID");
     const invokingCertificate = getInvokingIdentity(ctx).certificateId;
 
-    // check if the certificate is correct
     if (certificate !== invokingCertificate) {
       throw new Error(
         "The certificate being authorised must match the authenticated transaction caller."
       );
     }
 
-    // Find the business identity connected to the caller's verified certificate
     const allowedRoles = parseAllowedRoles(allowedRolesJson);
     const stakeholder = await this.getStakeholderByCertificate(ctx, certificate);
 
@@ -396,7 +370,6 @@ export class StakeholderRegistryContract extends Contract {
       );
     }
 
-    // Return only the information the calling contract needs for its decision.
     const summary: StakeholderSummary = {
       stakeholderId: stakeholder.stakeholderId,
       role: stakeholder.role,
@@ -433,7 +406,6 @@ export class StakeholderRegistryContract extends Contract {
     return JSON.parse(stored.toString()) as SensorKey;
   }
 
-  // Create a new active stakeholder and record who created it and when
   private createStakeholder(
     stakeholderId: string,
     role: StakeholderRole,
@@ -454,7 +426,7 @@ export class StakeholderRegistryContract extends Contract {
     };
   }
 
-  // update stakeholder role and stauts while preserving the original creation details
+  // Preserve creation metadata while recording the latest change.
   private updateStakeholder(
     stakeholder: Stakeholder,
     metadata: TransactionMetadata,
@@ -469,7 +441,7 @@ export class StakeholderRegistryContract extends Contract {
     };
   }
 
-  // Save a new stakeholder only when both its business ID and certificate are unused
+  // Enforce one ledger record per business ID and certificate.
   private async putNewStakeholder(ctx: Context, stakeholder: Stakeholder): Promise<void> {
     const stakeholderKey = this.stakeholderKey(ctx, stakeholder.stakeholderId);
     if ((await ctx.stub.getState(stakeholderKey)).length > 0) {
@@ -483,12 +455,10 @@ export class StakeholderRegistryContract extends Contract {
 
     await this.putStakeholder(ctx, stakeholder);
 
-    // Save a link from the certificate ID to the stakeholder ID
-    // This makes certificate lookups faster
+    // Maintain a certificate index for authorisation lookups.
     await ctx.stub.putState(certificateKey, Buffer.from(stakeholder.stakeholderId));
   }
 
-  // Fabric stores bytes, so convert the stakeholder object to JSON and then to a Buffer
   private async putStakeholder(ctx: Context, stakeholder: Stakeholder): Promise<void> {
     await ctx.stub.putState(
       this.stakeholderKey(ctx, stakeholder.stakeholderId),
@@ -496,7 +466,6 @@ export class StakeholderRegistryContract extends Contract {
     );
   }
 
-  // Read and decode a stakeholder, give error when it does not exist
   private async getStakeholderRecord(
     ctx: Context,
     stakeholderId: string
@@ -509,7 +478,7 @@ export class StakeholderRegistryContract extends Contract {
     return JSON.parse(value.toString()) as Stakeholder;
   }
 
-  // Follow the certificate index to find the full stakeholder record
+  // Resolve the authenticated certificate through the secondary index.
   private async getStakeholderByCertificate(
     ctx: Context,
     certificateId: string
@@ -521,7 +490,6 @@ export class StakeholderRegistryContract extends Contract {
     return this.getStakeholderRecord(ctx, value.toString());
   }
 
-  // Any registered stakeholder that has not been suspended, whatever its role.
   private async requireActiveStakeholder(ctx: Context): Promise<Stakeholder> {
     const identity = getInvokingIdentity(ctx);
     const stakeholder = await this.getStakeholderByCertificate(ctx, identity.certificateId);
@@ -531,7 +499,6 @@ export class StakeholderRegistryContract extends Contract {
     return stakeholder;
   }
 
-  // Check that the caller is an active regulator before allowing the operation
   private async requireActiveRegulator(ctx: Context): Promise<Stakeholder> {
     const identity = getInvokingIdentity(ctx);
     const stakeholder = await this.getStakeholderByCertificate(ctx, identity.certificateId);
@@ -545,7 +512,7 @@ export class StakeholderRegistryContract extends Contract {
     return stakeholder;
   }
 
-  // Read the small counter used to protect the final active regulator
+  // Validate the persisted counter before using it as the lockout guard.
   private async getActiveRegulatorCount(ctx: Context): Promise<number> {
     const value = await ctx.stub.getState(ACTIVE_REGULATOR_COUNT_KEY);
     if (value.length === 0) {
@@ -559,7 +526,6 @@ export class StakeholderRegistryContract extends Contract {
     return count;
   }
 
-  // Increase or decrease the regulator count after a relevant role or status change
   private async changeActiveRegulatorCount(ctx: Context, change: 1 | -1): Promise<void> {
     const count = await this.getActiveRegulatorCount(ctx);
     const nextCount = count + change;
@@ -569,16 +535,13 @@ export class StakeholderRegistryContract extends Contract {
     await ctx.stub.putState(ACTIVE_REGULATOR_COUNT_KEY, Buffer.from(String(nextCount)));
   }
 
-  // Called before suspending or demoting a regulator
   private async assertMoreThanOneActiveRegulator(ctx: Context): Promise<void> {
     if ((await this.getActiveRegulatorCount(ctx)) <= 1) {
       throw new Error("The final active regulator cannot be suspended or lose its role.");
     }
   }
 
-  // Notify the backend when stakeholder information changes
-  // Whole record as JSON, whatever kind of record it is. Fabric keeps only the last event of a
-  // transaction, so there is exactly one of these per write.
+  // Fabric retains only the last event emitted by a transaction, so each write emits once.
   private emitEvent(ctx: Context, name: string, record: Stakeholder | SensorKey): void {
     ctx.stub.setEvent(name, Buffer.from(JSON.stringify(record)));
   }

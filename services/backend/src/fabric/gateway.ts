@@ -1,9 +1,8 @@
 /**
- * The connection to Fabric. Loads a stakeholder's certificate and key off disk, opens a gRPC
- * channel to that organisation's peer, and hands back either a client scoped to one request or a
- * long-lived event stream.
+ * Opens Fabric Gateway connections with one organisation's certificate and private key.
  *
- * Nothing here knows anything about milk, batches or roles.
+ * Request clients use explicit deadlines and close their gRPC connection after use. Event streams
+ * stay open and resume from a checkpoint so the regulator can continue archiving after a restart.
  */
 import { credentials, Client } from "@grpc/grpc-js";
 import {
@@ -22,8 +21,7 @@ import { config } from "../config.js";
 import type { OrganisationIdentity } from "../organisations.js";
 
 export interface FabricGatewayClient {
-  // Chaincode and contract are both required: the supply-chain chaincode holds two contracts, so
-  // the transaction name alone does not identify what to call.
+  // A chaincode may expose multiple contracts, so both names are required.
   submitTransaction(
     chaincodeName: string,
     contractName: string,
@@ -45,8 +43,7 @@ interface Wallet {
   readonly signer: Signer;
 }
 
-// Fabric names the certificate and key files unpredictably, so the single file in each directory
-// is used rather than a hardcoded filename.
+// Fabric generates unpredictable wallet filenames, but each expected directory contains one file.
 export async function singleFileIn(directory: string): Promise<string> {
   const entries = (await readdir(directory)).filter((entry) => !entry.startsWith("."));
   if (entries.length !== 1) {
@@ -56,14 +53,11 @@ export async function singleFileIn(directory: string): Promise<string> {
   return join(directory, entries[0]);
 }
 
-// The wallet is read once per identity and kept. A connection is still made per request, but the
-// certificate and key never change while the process runs, so re-reading and re-parsing them on
-// every call is pure waste.
+// Wallet material is immutable for the process lifetime, so load it once per path pair.
 const wallets = new Map<string, Promise<Wallet>>();
 
 function loadWallet(identity: OrganisationIdentity): Promise<Wallet> {
-  // Keyed by the paths it actually reads, not by the identity name, so the cache can never return
-  // material loaded from somewhere else.
+  // Cache by source paths so identities with the same name cannot share unrelated material.
   const key = `${identity.userPath}\u0000${identity.peerTlsCaPath}`;
   const cached = wallets.get(key);
   if (cached) {
@@ -88,8 +82,7 @@ function loadWallet(identity: OrganisationIdentity): Promise<Wallet> {
     };
   })();
 
-  // Only a successful load is remembered, so a missing file is reported again next time rather
-  // than being cached as a permanent failure.
+  // Do not cache failures because wallet files may appear after process startup.
   loading.catch(() => wallets.delete(key));
   wallets.set(key, loading);
   return loading;
@@ -99,15 +92,12 @@ function createGrpcClient(identity: OrganisationIdentity, tlsRootCert: Buffer): 
   return new Client(
     identity.peerEndpoint,
     credentials.createSsl(tlsRootCert),
-    // The peer's certificate is issued to its network hostname, which does not match the
-    // localhost address the port is published on.
+    // TLS verifies the peer's network hostname even though development connects through localhost.
     { "grpc.ssl_target_name_override": identity.peerHostAlias }
   );
 }
 
-// fabric-gateway applies no deadline of its own, so a peer or orderer that stalls holds the
-// request open forever and the gRPC channel behind it is never released. Waiting for a block to
-// be cut is the slowest step, which is why it gets the longest of these.
+// Fabric Gateway has no default deadlines. Commit status gets longer because it waits for a block.
 const callDeadlines = {
   evaluateOptions: () => ({ deadline: Date.now() + 30_000 }),
   endorseOptions: () => ({ deadline: Date.now() + 30_000 }),
@@ -115,10 +105,6 @@ const callDeadlines = {
   commitStatusOptions: () => ({ deadline: Date.now() + 60_000 })
 };
 
-// Opening the gateway is a parameter on both of the functions below, so what they build can be
-// exercised against a stub. Between them that covers a pass-through nothing ever runs, which is
-// exactly the kind of thing that turns out to have the arguments in the wrong order, and the
-// cleanup each does when opening fails, which is unreachable with a peer that works.
 export type GatewayOpener = (options: Parameters<typeof connect>[0]) => Gateway;
 
 export interface LedgerEventStream {
@@ -127,9 +113,10 @@ export interface LedgerEventStream {
   close(): void;
 }
 
-// A long-lived subscription, unlike every other connection here, so it deliberately skips the
-// call deadlines above: those exist to stop a request hanging, and this one is meant to stay open.
-// The checkpoint file is what makes a restart resume rather than replay the whole chain.
+/**
+ * Opens the regulator's long-lived chaincode event stream.
+ * Unlike request clients it has no deadline, and it resumes from a durable checkpoint after restart.
+ */
 export async function createLedgerEventStream(
   identity: OrganisationIdentity,
   chaincodeName: string,
@@ -152,19 +139,14 @@ export async function createLedgerEventStream(
     throw error;
   }
 
-  // Both of these can fail: an unwritable or corrupt checkpoint file, or a peer that refuses the
-  // subscription. Neither is covered by the catch above, and once this function has returned the
-  // caller has no handle to close, so the gateway and its gRPC channel would stay open for the
-  // life of the process and keep it from ever exiting.
+  // Close the connection if checkpoint setup or subscription fails before a stream is returned.
   let checkpointer: Awaited<ReturnType<typeof checkpointers.file>>;
   let events: Awaited<ReturnType<ReturnType<Gateway["getNetwork"]>["getChaincodeEvents"]>>;
   try {
     checkpointer = await checkpointers.file(checkpointFile);
     events = await gateway
       .getNetwork(config.fabricChannelName)
-      // startBlock applies only while the checkpoint is empty, so a first run reads the chain from
-      // the beginning and every later run resumes. Without it a fresh listener starts at the next
-      // block and silently never sees anything already recorded.
+      // A new listener starts at genesis. Existing listeners resume from their checkpoint.
       .getChaincodeEvents(chaincodeName, {
         checkpoint: checkpointer,
         startBlock: BigInt(0)
@@ -188,6 +170,10 @@ export async function createLedgerEventStream(
   };
 }
 
+/**
+ * Opens a request-scoped gateway for one organisation's fixed identity.
+ * Closing the returned client also releases its gateway and underlying gRPC connection.
+ */
 export async function createFabricGatewayClient(
   identity: OrganisationIdentity,
   openGateway: GatewayOpener = connect
@@ -205,7 +191,6 @@ export async function createFabricGatewayClient(
       ...callDeadlines
     });
   } catch (error) {
-    // The channel is already open at this point, and nothing else would ever close it.
     client.close();
     throw error;
   }

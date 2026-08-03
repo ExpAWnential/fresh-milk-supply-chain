@@ -3,6 +3,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
+# Builds the two-layer package used by chaincode-as-a-service. Connection details and optional
+# metadata are staged in a temporary directory before the deterministic tar archives are created.
 
 function usage() {
     echo "Usage: pkgcc.sh -l <label> -a <address> [-m <META-INF directory>]"

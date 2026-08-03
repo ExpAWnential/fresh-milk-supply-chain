@@ -6,8 +6,7 @@ import { calculateTemperatureStatistics as calculateStatistics } from "@fresh-mi
 import { assessCompliance } from "../src/compliance.js";
 import { parseTemperatureReadingsCsv } from "../src/csvReader.js";
 
-// Never verified in this file. These tests are about canonical form, statistics and the cold-chain
-// range; whether a signature is genuine is verifyReadings.test.ts, which uses real keys.
+// Signature authenticity is covered in verifyReadings.test.ts.
 const SIG = "c2lnbmF0dXJl";
 
 function raw(overrides: Partial<RawTemperatureReading> = {}): RawTemperatureReading {
@@ -90,8 +89,6 @@ BATCH-001,SENSOR-001,1,2026-07-14T08:00:00Z,sig`),
     });
   });
 
-  // Hashed with the same function the oracle anchors with, so this proves order independence
-  // of the fingerprint that actually reaches the ledger.
   it("produces the same fingerprint for the same readings in different order", () => {
     const readings = [raw(), raw({ sequence: 2, recordedAt: "2026-07-14T08:15:00Z", celsius: 3.6 })];
     const strip = (list: readonly { sensorId: string; recordedAt: string; celsius: number }[]) =>
@@ -103,9 +100,7 @@ BATCH-001,SENSOR-001,1,2026-07-14T08:00:00Z,sig`),
     );
   });
 
-  // The signature and the sequence sit outside the fingerprint. The hash covers what was measured;
-  // proving who measured it is the signature's job, and mixing the two would mean re-signing every
-  // reading to change how the fingerprint is built.
+  // Fingerprints cover measurements. Signatures separately cover source and sequence.
   it("fingerprints the same whatever the signature says", () => {
     const strip = (list: readonly { sensorId: string; recordedAt: string; celsius: number }[]) =>
       list.map(({ sensorId, recordedAt, celsius }) => ({ sensorId, recordedAt, celsius }));
@@ -134,8 +129,6 @@ BATCH-001,SENSOR-001,1,2026-07-14T08:00:00Z,sig`),
     assert.equal(assessCompliance(calculateStatistics(readings)), "UNSAFE");
   });
 
-  // The contract re-derives this outcome from the same 0-5C range, so the boundaries and the
-  // frozen-milk case must agree with TemperatureComplianceContract.
   it("applies the same 0-5C range as the on-chain contract", () => {
     assert.equal(
       assessCompliance({ minCelsius: 0, maxCelsius: 5, readingCount: 2 }),
@@ -155,8 +148,6 @@ BATCH-001,SENSOR-001,1,2026-07-14T08:00:00Z,sig`),
     assert.throws(() => calculateStatistics([]), /empty reading set/);
   });
 
-  // A reading the oracle cannot make sense of must stop the run. Canonicalising it to something
-  // plausible would put a fingerprint on the ledger covering readings nobody recorded.
   it("refuses a timestamp it cannot read", () => {
     assert.throws(
       () => canonicaliseReadings([raw({ recordedAt: "last tuesday" })]),
@@ -164,8 +155,6 @@ BATCH-001,SENSOR-001,1,2026-07-14T08:00:00Z,sig`),
     );
   });
 
-  // A blank cell in the CSV. Canonicalising it to an empty string would anchor a fingerprint over
-  // readings attributed to no batch and no sensor, which nothing could later be checked against.
   it("refuses a reading with no batch, sensor or signature, naming the field", () => {
     for (const field of ["batchId", "sensorId", "signature"] as const) {
       for (const blank of ["", "   ", "\t"]) {
@@ -178,8 +167,6 @@ BATCH-001,SENSOR-001,1,2026-07-14T08:00:00Z,sig`),
     }
   });
 
-  // Surrounding whitespace has to go before the fingerprint is taken, or the same reading exported
-  // twice hashes differently and a verification that should match reports tampering.
   it("trims the text it keeps, so the same reading always fingerprints the same", () => {
     const [canonical] = canonicaliseReadings([
       raw({
@@ -194,7 +181,7 @@ BATCH-001,SENSOR-001,1,2026-07-14T08:00:00Z,sig`),
     assert.equal(canonical.batchId, "B-1");
     assert.equal(canonical.sensorId, "S-1");
     assert.equal(canonical.recordedAt, "2026-07-14T08:00:00.000Z");
-    // Trimmed too, or it would not match the bytes the sensor put its signature over.
+    // Sensor IDs share the signed payload's trimming rule.
     assert.equal(canonical.signature, SIG);
   });
 

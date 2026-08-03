@@ -19,7 +19,6 @@ export PATH=${FABRIC_SAMPLES_HOME}/bin:$PATH
 export FABRIC_CFG_PATH=${ROOTDIR}/configtx
 export VERBOSE=false
 
-# push to the required directory & set a trap to go back if needed
 pushd ${ROOTDIR} > /dev/null
 trap "popd > /dev/null" EXIT
 
@@ -35,8 +34,6 @@ else
 fi
 infoln "Using ${CONTAINER_CLI} and ${CONTAINER_CLI_COMPOSE}"
 
-# Obtain CONTAINER_IDS and remove them
-# This function is called when you bring a network down
 function clearContainers() {
   infoln "Removing remaining containers"
   ${CONTAINER_CLI} rm -f $(${CONTAINER_CLI} ps -aq --filter label=service=hyperledger-fabric) 2>/dev/null || true
@@ -44,22 +41,14 @@ function clearContainers() {
   ${CONTAINER_CLI} kill "$(${CONTAINER_CLI} ps -q --filter name=ccaas)" 2>/dev/null || true
 }
 
-# Delete any images that were generated as a part of this setup
-# specifically the following images are often left behind:
-# This function is called when you bring the network down
 function removeUnwantedImages() {
   infoln "Removing generated chaincode docker images"
   ${CONTAINER_CLI} image rm -f $(${CONTAINER_CLI} images -aq --filter reference='dev-peer*') 2>/dev/null || true
 }
 
-# Versions of fabric known not to work with the test network
 NONWORKING_VERSIONS="^1\.0\. ^1\.1\. ^1\.2\. ^1\.3\. ^1\.4\."
 
-# Do some basic sanity checking to make sure that the appropriate versions of fabric
-# binaries/images are available. In the future, additional checking for the presence
-# of go or other items could be added.
 function checkPrereqs() {
-  ## Check if your have cloned the peer binaries and configuration files.
   peer version > /dev/null 2>&1
 
   if [[ $? -ne 0 || ! -d "${FABRIC_SAMPLES_HOME}/config" ]]; then
@@ -70,8 +59,7 @@ function checkPrereqs() {
     errorln "If they are installed elsewhere, set FABRIC_SAMPLES_HOME to that directory."
     exit 1
   fi
-  # use the fabric peer container to see if the samples and binaries match your
-  # docker images
+  # Mismatched CLI and peer image versions can produce incompatible channel artefacts.
   LOCAL_VERSION=$(peer version | sed -ne 's/^ Version: //p')
   DOCKER_IMAGE_VERSION=$(${CONTAINER_CLI} run --rm hyperledger/fabric-peer:latest peer version | sed -ne 's/^ Version: //p')
 
@@ -96,32 +84,6 @@ function checkPrereqs() {
 
 }
 
-# Before you can bring up a network, each organization needs to generate the crypto
-# material that will define that organization on the network. Because Hyperledger
-# Fabric is a permissioned blockchain, each node and user on the network needs to
-# use certificates and keys to sign and verify its actions. In addition, each user
-# needs to belong to an organization that is recognized as a member of the network.
-# You can use the Cryptogen tool or Fabric CAs to generate the organization crypto
-# material.
-
-# By default, the sample network uses cryptogen. Cryptogen is a tool that is
-# meant for development and testing that can quickly create the certificates and keys
-# that can be consumed by a Fabric network. The cryptogen tool consumes a series
-# of configuration files for each organization in the "organizations/cryptogen"
-# directory. Cryptogen uses the files to generate the crypto  material for each
-# org in the "organizations" directory.
-
-# You can also use Fabric CAs to generate the crypto material. CAs sign the certificates
-# and keys that they generate to create a valid root of trust for each organization.
-# The script uses Docker Compose to bring up three CAs, one for each peer organization
-# and the ordering organization. The configuration file for creating the Fabric CA
-# servers are in the "organizations/fabric-ca" directory. Within the same directory,
-# the "registerEnroll.sh" script uses the Fabric CA client to create the identities,
-# certificates, and MSP folders that are needed to create the test network in the
-# "organizations/ordererOrganizations" directory.
-
-# Create Organization crypto material using cryptogen or CAs
-# Create the crypto material for every organisation and the orderer.
 function createOrgs() {
   if [ -d "organizations/peerOrganizations" ]; then
     rm -Rf organizations/peerOrganizations && rm -Rf organizations/ordererOrganizations
@@ -151,38 +113,10 @@ function createOrgs() {
   fi
 }
 
-# Once you create the organization crypto material, you need to create the
-# genesis block of the application channel.
-
-# The configtxgen tool is used to create the genesis block. Configtxgen consumes a
-# "configtx.yaml" file that contains the definitions for the sample network. The
-# genesis block is defined using the "ChannelUsingRaft" profile at the bottom
-# of the file. This profile defines an application channel consisting of our two Peer Orgs.
-# The peer and ordering organizations are defined in the "Profiles" section at the
-# top of the file. As part of each organization profile, the file points to the
-# location of the MSP directory for each member. This MSP is used to create the channel
-# MSP that defines the root of trust for each organization. In essence, the channel
-# MSP allows the nodes and users to be recognized as network members.
-#
-# If you receive the following warning, it can be safely ignored:
-#
-# [bccsp] GetDefault -> WARN 001 Before using BCCSP, please call InitFactories(). Falling back to bootBCCSP.
-#
-# You can ignore the logs regarding intermediate certs, we are not using them in
-# this crypto implementation.
-
-# After we create the org crypto material and the application channel genesis block,
-# we can now bring up the peers and ordering service. By default, the base
-# file for creating the network is "docker-compose-milk-net.yaml" in the ``docker``
-# folder. This file defines the environment variables and file mounts that
-# point the crypto material and genesis block that were created in earlier.
-
-# Bring up the peer and orderer nodes using docker compose.
 function networkUp() {
 
   checkPrereqs
 
-  # generate artifacts if they don't exist
   if [ ! -d "organizations/peerOrganizations" ]; then
     createOrgs
   fi
@@ -201,10 +135,7 @@ function networkUp() {
   fi
 }
 
-# call the script to create the channel, join the peers of org1 and org2,
-# and then update the anchor peers for each organization
 function createChannel() {
-  # Bring up the network if it is not already up.
   bringUpNetwork="false"
 
   local bft_true=$1
@@ -213,7 +144,6 @@ function createChannel() {
     fatalln "$CONTAINER_CLI network is required to be running to create a channel"
   fi
 
-  # check if all containers are present
   CONTAINERS=($($CONTAINER_CLI ps | grep hyperledger/ | awk '{print $2}'))
   len=$(echo ${#CONTAINERS[@]})
 
@@ -231,13 +161,9 @@ function createChannel() {
     networkUp
   fi
 
-  # now run the script that creates a channel. This script uses configtxgen once
-  # to create the channel creation transaction and the anchor peer updates.
   scripts/createChannel.sh $CHANNEL_NAME $CLI_DELAY $MAX_RETRY $VERBOSE $bft_true
 }
 
-
-## Call the script to deploy a chaincode to the channel
 function deployCC() {
   scripts/deployCC.sh $CHANNEL_NAME $CC_NAME $CC_SRC_PATH $CC_SRC_LANGUAGE $CC_VERSION $CC_SEQUENCE $CC_INIT_FCN $CC_END_POLICY $CC_COLL_CONFIG $CLI_DELAY $MAX_RETRY $VERBOSE
 
@@ -246,9 +172,6 @@ function deployCC() {
   fi
 }
 
-## Call the script to deploy a chaincode to the channel
-
-## Call the script to package the chaincode
 function packageChaincode() {
 
   infoln "Packaging chaincode"
@@ -261,7 +184,6 @@ function packageChaincode() {
 
 }
 
-## Call the script to list installed and committed chaincode on a peer
 function listChaincode() {
 
   export FABRIC_CFG_PATH=${FABRIC_SAMPLES_HOME}/config
@@ -279,7 +201,6 @@ function listChaincode() {
 
 }
 
-## Call the script to invoke 
 function invokeChaincode() {
 
   export FABRIC_CFG_PATH=${FABRIC_SAMPLES_HOME}/config
@@ -293,7 +214,6 @@ function invokeChaincode() {
 
 }
 
-## Call the script to query chaincode 
 function queryChaincode() {
 
   export FABRIC_CFG_PATH=${FABRIC_SAMPLES_HOME}/config
@@ -308,7 +228,6 @@ function queryChaincode() {
 }
 
 
-# Tear down running network
 function networkDown() {
   COMPOSE_FILES="-f compose/${COMPOSE_FILE_BASE} -f compose/${CONTAINER_CLI}/${CONTAINER_CLI}-${COMPOSE_FILE_BASE} -f compose/${COMPOSE_FILE_COUCH}"
 
@@ -320,38 +239,27 @@ function networkDown() {
     fatalln "Container CLI  ${CONTAINER_CLI} not supported"
   fi
 
-  # Don't remove the generated artifacts -- note, the ledgers are always removed
   if [ "$MODE" != "restart" ]; then
     # Volumes are named after the compose project, which compose/compose-milk-net.yaml pins so the
     # names stay the same wherever the network is run from. A stale ledger volume mounted against a
     # fresh genesis block makes a peer diverge in ways that look like a certificate problem.
     ${CONTAINER_CLI} volume rm $(${CONTAINER_CLI} volume ls -q --filter name=fabric_milk_) 2>/dev/null || true
-    #Cleanup the chaincode containers
     clearContainers
-    #Cleanup images
     removeUnwantedImages
-    # remove orderer block and other channel configuration transactions and certs
     ${CONTAINER_CLI} run --rm -v "$(pwd):/data" busybox sh -c 'cd /data && rm -rf system-genesis-block/*.block organizations/peerOrganizations organizations/ordererOrganizations'
-    # remove channel and script artifacts
     ${CONTAINER_CLI} run --rm -v "$(pwd):/data" busybox sh -c 'cd /data && rm -rf channel-artifacts log.txt *.tar.gz'
   fi
 }
 
 . ./network.config
 
-# use this as the default docker-compose yaml definition
 COMPOSE_FILE_BASE=compose-milk-net.yaml
-# docker-compose.yaml file if you are using couchdb
 COMPOSE_FILE_COUCH=compose-couch.yaml
 
-# Get docker sock path from environment variable
 SOCK="${DOCKER_HOST:-/var/run/docker.sock}"
 DOCKER_SOCK="${SOCK##unix://}"
 
 
-# Parse commandline args
-
-## Parse mode
 if [[ $# -lt 1 ]] ; then
   printHelp
   exit 0
@@ -360,20 +268,16 @@ else
   shift
 fi
 
-## if no parameters are passed, show the help for cc
 if [ "$MODE" == "cc" ] && [[ $# -lt 1 ]]; then
   printHelp $MODE
   exit 0
 fi
 
-# parse subcommands if used
 if [[ $# -ge 1 ]] ; then
   key="$1"
-  # check for the createChannel subcommand
   if [[ "$key" == "createChannel" ]]; then
       export MODE="createChannel"
       shift
-  # check for the cc command
   elif [[ "$MODE" == "cc" ]]; then
     if [ "$1" != "-h" ]; then
       export SUBCOMMAND=$key
@@ -382,8 +286,6 @@ if [[ $# -ge 1 ]] ; then
   fi
 fi
 
-
-# parse flags
 
 while [[ $# -ge 1 ]] ; do
   key="$1"
@@ -487,7 +389,6 @@ while [[ $# -ge 1 ]] ; do
 done
 
 
-# Determine mode of operation and printing out what we asked for
 if [ "$MODE" == "prereq" ]; then
   infoln "Installing binaries and fabric images. Fabric Version: ${IMAGETAG}  Fabric CA Version: ${CA_IMAGETAG}"
   installPrereqs

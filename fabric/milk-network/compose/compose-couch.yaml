@@ -26,7 +26,7 @@ x-couchdb: &couchdb
     timeout: 3s
     retries: 30
     start_period: 5s
-  # Published so a database can be inspected during a demo. In a real deployment this port would
+  # Published for local inspection. In a production deployment this port would
   # stay inside the network.
   networks:
     - test
@@ -128,4 +128,3 @@ services:
     depends_on:
       couchdb-oracle:
         condition: service_healthy
-

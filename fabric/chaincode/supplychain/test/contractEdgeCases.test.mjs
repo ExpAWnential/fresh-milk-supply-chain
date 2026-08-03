@@ -35,7 +35,6 @@ test("a recalled batch cannot be recalled twice or continue its journey", async 
   const recalled = JSON.parse(await contract.getBatch(as(stub, "cert-farm"), "B-1"));
   assert.equal(recalled.recallReason, "contamination");
   assert.equal(recalled.recalledByStakeholderId, "regulator-001");
-  // The origin and the last known position survive the recall.
   assert.equal(recalled.origin, "Bega Dairy");
   assert.equal(recalled.lastKnownLocation, "Highway");
 });
@@ -97,7 +96,6 @@ test("a corrupted ledger record is refused rather than parsed loosely", async ()
   await stub.putState(key, Buffer.from(JSON.stringify({ batchId: "B-9", status: "MELTED" })));
   await assert.rejects(contract.getBatch(as(stub, "cert-farm"), "B-9"), /invalid ledger data/);
 
-  // A record filed under a different batch ID than it claims is also refused.
   await stub.putState(
     key,
     Buffer.from(
@@ -116,9 +114,6 @@ test("a corrupted ledger record is refused rather than parsed loosely", async ()
   await assert.rejects(contract.getBatch(as(stub, "cert-farm"), "B-9"), /invalid ledger data/);
 });
 
-// JSON that parses to something which is not an object at all. It gets past the parse and would
-// then be read field by field off a number or a null, so it is refused on the same footing as text
-// that was never JSON.
 test("a ledger record that is valid JSON but not a record is refused too", async () => {
   const contract = new BatchLifecycleContract();
   const stub = new MemoryStub();
@@ -134,9 +129,6 @@ test("a ledger record that is valid JSON but not a record is refused too", async
   }
 });
 
-// The history is Fabric's own, and every entry carries the time the peer stamped on it. A record
-// the peer cannot date is not something to guess at: the history is what a recall traces back
-// through, so an invented timestamp would be worse than no answer.
 test("history entries the peer cannot date are refused rather than guessed at", async () => {
   const contract = new BatchLifecycleContract();
   const stub = new MemoryStub();
@@ -149,7 +141,7 @@ test("history entries the peer cannot date are refused rather than guessed at", 
 
   const unusable = [
     undefined,
-    // Past the range a Date can represent, though each part is a whole number on its own.
+    // Integer timestamp parts can still exceed JavaScript's date range.
     { seconds: 1e15, nanos: 0 },
     { seconds: Number.MAX_SAFE_INTEGER * 2, nanos: 0 },
     { seconds: 1_750_000_000, nanos: 1.5 }

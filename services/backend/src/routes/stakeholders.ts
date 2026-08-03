@@ -1,6 +1,7 @@
 /**
- * HTTP for the stakeholder registry. Validates request fields and forwards each one to the
- * contract, which is where every authorisation decision is actually made.
+ * Exposes stakeholder registration and status changes through the on-chain identity registry.
+ * The routes do not predict authorisation. They forward the request under this backend's fixed
+ * Fabric identity and return the contract's decision.
  */
 import { Router } from "express";
 import { config } from "../config.js";

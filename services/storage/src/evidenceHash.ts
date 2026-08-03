@@ -1,16 +1,12 @@
 /**
- * The fingerprint the whole tamper-evidence story rests on: readings reduced to one exact
- * canonical form, then SHA-256 over it.
+ * Defines the canonical form and SHA-256 fingerprint used for temperature evidence.
  *
- * The oracle, the verification endpoint and the tamper demo all hash through here, so none of them
- * can disagree about what the fingerprint covers.
+ * The oracle creates the hash here, and later verification uses the same rules to recreate it from
+ * stored readings. Stable ordering, timestamp handling and rounding are part of that shared contract.
  */
 import { createHash } from "node:crypto";
 
-// How precisely a reading is pinned down before anything is derived from it. The fingerprint and
-// the summary are both recomputed by a second party and compared exactly, so the two have to round
-// identically: a precision that applied to one and not the other would report a tamper on readings
-// nobody had touched. Exported so the summary uses this one rather than a copy of it.
+// Hashing and statistics share this precision so independent checks produce identical values.
 export const READING_DECIMALS = 3;
 
 export function roundCelsius(value: number): number {
@@ -30,8 +26,7 @@ export interface CanonicalTemperatureReading {
   readonly celsius: number;
 }
 
-// The order readings are put in before hashing. Exported because the oracle sorts too, and two
-// copies of this rule could drift into producing different fingerprints for the same readings.
+// A stable order gives the same fingerprint regardless of input row order.
 export function compareTemperatureReadings(
   left: CanonicalTemperatureReading,
   right: CanonicalTemperatureReading
@@ -44,9 +39,7 @@ export function compareTemperatureReadings(
   );
 }
 
-// Exported for the same reason as roundCelsius: what the sensor signs and what the fingerprint
-// covers have to agree on what a reading *is*, down to the timestamp format. Two normalisations
-// would eventually differ and report a forged signature on a reading nobody had touched.
+// Signature verification and hashing share the same text and timestamp normalisation.
 export function requireText(value: string, label: string): string {
   const normalised = value.trim();
   if (!normalised) {
@@ -76,11 +69,11 @@ function normaliseReading(
     batchId,
     sensorId: requireText(reading.sensorId, "Temperature reading sensor ID"),
     recordedAt,
-    // Match the oracle's canonical representation exactly.
     celsius: roundCelsius(reading.celsius)
   };
 }
 
+/** Produces the exact JSON representation whose bytes are covered by the evidence hash. */
 export function canonicaliseTemperatureReadings(
   batchId: string,
   readings: readonly HashableTemperatureReading[]
@@ -97,6 +90,7 @@ export function canonicaliseTemperatureReadings(
   return JSON.stringify(canonicalReadings);
 }
 
+/** Hashes a non-empty reading set after applying the shared ordering and normalisation rules. */
 export function sha256TemperatureReadings(
   batchId: string,
   readings: readonly HashableTemperatureReading[]

@@ -1,8 +1,8 @@
 /**
- * Every read and write of the off-chain temperature tables. SQL lives only here.
+ * Stores the oracle's raw readings and tracks whether their evidence was anchored on Fabric.
  *
- * Written so a failed run can be repeated safely, and so an anchored row is never overwritten: its
- * readings are the baseline the ledger's hash is checked against.
+ * Pending attempts may be retried, but readings behind an existing anchor are immutable because the
+ * ledger hash describes that exact baseline. Replacing them would break the audit trail.
  */
 import { Pool, PoolClient, QueryResult } from "pg";
 
@@ -11,9 +11,7 @@ export type SubmissionStatus = "PENDING" | "ANCHORED" | "FAILED";
 
 export interface StoredTemperatureReading {
   readonly sensorId: string;
-  // Where this reading sat in the sensor's run, and the sensor's signature over it. Both are kept
-  // so a company that does not hold this database can check the readings itself rather than taking
-  // the holder's word that they were checked.
+  // Retained so another organisation can verify sequence continuity and sensor signatures.
   readonly sequence: number;
   readonly recordedAt: string;
   readonly celsius: number;
@@ -39,9 +37,7 @@ export interface TemperatureRepository {
     readings: readonly StoredTemperatureReading[]
   ): Promise<void>;
   markAnchored(evidenceId: string, fabricTransactionId: string): Promise<void>;
-  // Nothing else corrects this row any more: the ledger's own verdict is archived in the
-  // regulator's database rather than written back here, so a row left PENDING stays PENDING until
-  // the run is repeated. runOracle only calls this when the ledger confirms nothing landed.
+  // Called only after Fabric confirms that no anchor was committed.
   markFailed(evidenceId: string): Promise<void>;
   getEvidence(evidenceId: string): Promise<StoredTemperatureEvidence | undefined>;
   listEvidenceForBatch(batchId: string): Promise<readonly StoredTemperatureEvidence[]>;
@@ -69,6 +65,10 @@ interface ReadingRow {
   readonly signature: string;
 }
 
+/**
+ * Creates the oracle repository. Once Fabric anchoring metadata exists, retries cannot replace the
+ * readings covered by that anchor.
+ */
 export function createTemperatureRepository(pool: Pool): TemperatureRepository {
   return {
     async saveEvidence(
@@ -82,9 +82,7 @@ export function createTemperatureRepository(pool: Pool): TemperatureRepository {
       try {
         await client.query("BEGIN");
         const written = await upsertEvidence(client, evidence);
-        // An anchored row is left exactly as it stands. Its readings are what the hash on the
-        // ledger covers, so rewriting them would destroy the baseline tamper detection compares
-        // against. Any other row is replaced, which is what makes a failed run repeatable.
+        // Never replace anchored readings because Fabric's hash covers that exact baseline.
         if (written) {
           await client.query("DELETE FROM temperature_readings WHERE evidence_id = $1", [
             evidence.evidenceId
@@ -203,9 +201,7 @@ function validateEvidenceForReadings(
   }
 }
 
-// Reports whether the row was written. The evidence ID is derived from the readings, so a run that
-// failed part way through produces the same ID when it is repeated: without the upsert the retry
-// would die on the primary key and those readings could never be anchored.
+// Return whether the retryable upsert wrote a row. An existing anchored row is left untouched.
 async function upsertEvidence(
   client: PoolClient,
   evidence: StoredTemperatureEvidence

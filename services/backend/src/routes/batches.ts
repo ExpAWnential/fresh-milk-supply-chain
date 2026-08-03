@@ -1,6 +1,8 @@
 /**
- * HTTP for the batch lifecycle. Validates request fields and forwards each one to the contract,
- * which is where the transition rules and the role checks live.
+ * Maps batch lifecycle requests to the corresponding Fabric transactions.
+ *
+ * The backend validates the HTTP shape and selects a known transaction. Roles and legal state
+ * transitions remain contract decisions, so they cannot drift between organisations.
  */
 import { Router } from "express";
 import { config } from "../config.js";

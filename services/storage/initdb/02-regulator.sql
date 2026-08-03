@@ -1,10 +1,4 @@
--- The regulator's own database: an archive of the verdicts the ledger reached, built entirely
--- from the chaincode events its backend subscribes to.
---
--- Separate from the oracle's database on purpose. A regulator that read its evidence out of the
--- database belonging to the party it supervises would be trusting that party's copy, which is the
--- arrangement a ledger exists to replace. Nothing here can reference the oracle's tables, because
--- they are in a different database.
+-- Stores the regulator's independent archive of verdicts emitted by Fabric chaincode events.
 
 CREATE DATABASE freshmilk_regulator;
 
@@ -16,21 +10,15 @@ CREATE TABLE IF NOT EXISTS ledger_compliance_verdicts (
     evidence_hash TEXT NOT NULL CHECK (evidence_hash ~ '^[0-9a-f]{64}$'),
     compliance_outcome TEXT NOT NULL CHECK (compliance_outcome IN ('COMPLIANT', 'UNSAFE')),
     submitted_by_stakeholder_id TEXT NOT NULL,
-    -- Never null. A verdict only exists here because a committed transaction announced it.
+    -- Every archived verdict came from a committed Fabric transaction.
     fabric_transaction_id TEXT NOT NULL,
-    -- The timestamp the contract stamped on the transaction, not the time this row was written.
+    -- Fabric transaction time, distinct from recorded_at below.
     ledger_timestamp TIMESTAMPTZ NOT NULL,
     event_name TEXT NOT NULL
         CHECK (event_name IN ('TemperatureEvidenceSubmitted', 'ColdChainBreach')),
 
-    -- Whether the readings behind this verdict still carry signatures the registered sensor could
-    -- have produced, checked by the regulator itself when the event arrived.
-    --
-    -- UNKNOWN is not a failure. It means the regulator could not reach the oracle or could not read
-    -- the sensor's key, and it is deliberately distinct from FAILED: one is a finding about the
-    -- evidence, the other is a gap in what we managed to look at. Collapsing them would either
-    -- accuse a company on the strength of a network problem, or let a dishonest one clear itself by
-    -- being unreachable.
+    -- UNKNOWN means the regulator could not complete the check. FAILED means a completed check
+    -- rejected at least one signature.
     signature_check TEXT NOT NULL DEFAULT 'UNKNOWN'
         CHECK (signature_check IN ('PASSED', 'FAILED', 'UNKNOWN')),
     signature_checked_at TIMESTAMPTZ,

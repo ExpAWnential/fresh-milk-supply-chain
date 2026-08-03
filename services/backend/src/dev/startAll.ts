@@ -1,10 +1,4 @@
-/**
- * Starts one backend per company for local development, and stops them all together.
- *
- * Each child is an ordinary `src/index.ts` with a different ORGANISATION, so what runs here is
- * exactly what would run if the six were deployed to six machines. Nothing about the six-process
- * arrangement lives in the backend itself.
- */
+/** Coordinates the six local backends and shuts them down as one application. */
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import { dirname, join, resolve } from "node:path";
@@ -15,8 +9,7 @@ import { ORGANISATIONS, originOf, type OffChainStore, type Organisation } from "
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const entryPoint = join(packageRoot, "src", "index.ts");
 
-// Keyed by what a company stores rather than by its name, so which companies get a database is
-// decided once, in the organisations table, rather than restated here.
+// Database URLs follow the off-chain store declared in the organisation table.
 const DATABASE_URLS: Record<OffChainStore, string> = {
   readings: ORACLE_DATABASE_URL,
   verdicts: REGULATOR_DATABASE_URL
@@ -25,21 +18,19 @@ const DATABASE_URLS: Record<OffChainStore, string> = {
 function environmentFor(organisation: Organisation): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env, ORGANISATION: organisation.name };
 
-  // Deleted rather than left unset. A DATABASE_URL in the shell would otherwise hand the farm a
-  // database it has no business holding.
+  // Remove an inherited URL for organisations that own no off-chain store.
   delete env.DATABASE_URL;
   if (organisation.offChainStore) {
     env.DATABASE_URL = DATABASE_URLS[organisation.offChainStore];
   }
 
-  // Named per company so a second listener could never quietly share the regulator's place in the
-  // chain. Only the regulator writes one today.
+  // Keep each organisation's event checkpoint distinct.
   env.EVENT_CHECKPOINT_PATH = `.fabric-events.${organisation.name}.checkpoint`;
 
   return env;
 }
 
-// Six interleaved logs are unreadable without knowing which process produced each line.
+// Prefix interleaved child output with its organisation name.
 function prefixOutput(child: ChildProcess, label: string): void {
   for (const stream of [child.stdout, child.stderr]) {
     if (!stream) {
@@ -53,15 +44,13 @@ function prefixOutput(child: ChildProcess, label: string): void {
 
 const children = new Map<ChildProcess, string>();
 let stopping = false;
-// Until every company is listening, one dying means a misconfiguration and a half-started demo is
-// worth nothing. Afterwards it means a company went down, which is a thing this architecture is
-// supposed to survive and worth being able to demonstrate.
+// A child exiting during startup aborts the incomplete application. Later exits leave the others running.
 let allListening = false;
 
 async function startAll(): Promise<void> {
   for (const organisation of ORGANISATIONS) {
     const label = `${organisation.name}:${organisation.backendPort}`;
-    // node --import tsx rather than the tsx binary, so this does not depend on what is on PATH.
+    // Use Node's tsx import so child startup does not depend on PATH.
     const child = spawn(process.execPath, ["--import", "tsx", entryPoint], {
       cwd: packageRoot,
       env: environmentFor(organisation),
@@ -84,8 +73,7 @@ async function startAll(): Promise<void> {
 
       const how = signal ?? `code ${code}`;
       if (!allListening) {
-        // A port already in use, a missing wallet, an unreadable certificate. Five surviving
-        // processes would hide which one failed and leave a demo that half works.
+        // Stop all children when any backend fails before startup completes.
         console.error(`[${label}] failed to start (${how}). Stopping the others.`);
         stopAll(1);
         return;
@@ -101,9 +89,7 @@ async function startAll(): Promise<void> {
   await waitUntilListening();
 }
 
-// Polled rather than assumed. Announcing six backends the moment they are spawned claimed
-// something that was not true yet, and the first thing the README tells you to do is open one of
-// these ports.
+// Wait for every health endpoint before announcing that the consortium is ready.
 async function waitUntilListening(): Promise<void> {
   const deadline = 60_000;
   const startedAt = process.hrtime.bigint();
@@ -135,8 +121,7 @@ async function waitUntilListening(): Promise<void> {
       })
     );
 
-    // A closed port refuses in microseconds, so without this the loop would spin flat out for as
-    // long as the slowest company takes to bind.
+    // Avoid a busy loop while ports are still closed.
     if (pending.size > 0) {
       await new Promise((wake) => setTimeout(wake, 200));
     }
@@ -151,7 +136,7 @@ async function waitUntilListening(): Promise<void> {
 }
 
 function stopAll(exitCode: number): void {
-  // A second Ctrl-C while the first is still working would restart this whole sequence.
+  // Handle only the first shutdown signal.
   if (stopping) {
     return;
   }
@@ -161,8 +146,7 @@ function stopAll(exitCode: number): void {
     child.kill("SIGTERM");
   }
 
-  // Ctrl-C already reaches the whole process group, but a child started any other way would not
-  // get it, so the signal above is sent explicitly and anything still alive is killed outright.
+  // Explicitly terminate any child that did not receive the process-group signal.
   const deadline = setTimeout(() => {
     for (const [child, label] of children) {
       console.error(`[${label}] did not stop, killing it.`);

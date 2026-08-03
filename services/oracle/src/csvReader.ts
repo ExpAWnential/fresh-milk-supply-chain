@@ -1,15 +1,12 @@
 /**
- * Reads sensor readings out of a CSV file.
+ * Parses a signed CSV export produced by a sensor-side process.
  *
- * Parsing only. Nothing here reshapes or judges a reading beyond checking that the columns are
- * present and the temperature is a number.
+ * Sensor identity, sequence and signature are required fields. The parser refuses incomplete rows
+ * instead of filling defaults that would make a broken or altered run look valid.
  */
 import { readFile } from "node:fs/promises";
 import { RawTemperatureReading } from "./canonicalise.js";
 
-// A reading arrives with the sensor's own signature over it and the position it holds in the run.
-// Both are required rather than optional: a file without them cannot be checked at all, and
-// accepting it would quietly reopen the gap the signatures exist to close.
 export const REQUIRED_HEADERS = [
   "batchId",
   "sensorId",
@@ -19,6 +16,7 @@ export const REQUIRED_HEADERS = [
   "signature"
 ] as const;
 
+/** Reads a signed sensor CSV file and rejects it if any required row data is incomplete. */
 export async function readTemperatureReadingsCsv(
   filePath: string
 ): Promise<readonly RawTemperatureReading[]> {
@@ -26,6 +24,7 @@ export async function readTemperatureReadingsCsv(
   return parseTemperatureReadingsCsv(csv);
 }
 
+/** Parses signed readings without inventing defaults for missing identity or signature fields. */
 export function parseTemperatureReadingsCsv(csv: string): readonly RawTemperatureReading[] {
   const lines = csv
     .split(/\r?\n/)

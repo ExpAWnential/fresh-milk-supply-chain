@@ -22,8 +22,7 @@ class FakePool {
   }
 }
 
-// What the event carries, and so what is written. The signature check has not run yet at this
-// point, which is why it is not part of this shape.
+// Event payload archived before the independent signature check runs.
 const verdict: ArchivedVerdict = {
   evidenceId: "EV-B-1-a3f9",
   batchId: "B-1",
@@ -35,7 +34,7 @@ const verdict: ArchivedVerdict = {
   eventName: "ColdChainBreach"
 };
 
-// The same row read back, once the archive has added its own two columns.
+// Complete row after the archive adds signature status and timestamps.
 const archived: LedgerComplianceVerdict = {
   ...verdict,
   signatureCheck: "UNKNOWN",
@@ -79,8 +78,6 @@ describe("recording what the ledger decided", () => {
     ]);
   });
 
-  // A restart replays from the last checkpoint, so the same event does arrive twice. A plain insert
-  // would raise on the duplicate, and that throw would stop the listener on every restart.
   it("upserts, because a replayed event carries the same values a second time", async () => {
     const pool = new FakePool();
 
@@ -89,8 +86,6 @@ describe("recording what the ledger decided", () => {
     assert.match(pool.queries[0].text, /ON CONFLICT \(evidence_id\) DO UPDATE/);
   });
 
-  // The timestamp is the contract's, so replaying the chain reproduces the archive exactly rather
-  // than restamping every row with the time of the replay.
   it("stores the ledger's own timestamp rather than the time of the write", async () => {
     const pool = new FakePool();
 
@@ -111,8 +106,6 @@ describe("reading a batch's verdicts back", () => {
     assert.deepEqual(read, archived);
   });
 
-  // The column is a timestamp, so the driver hands back a Date. Letting one reach the JSON response
-  // would serialise differently depending on the driver rather than as the ISO string it claims.
   it("reports the timestamp as an ISO string, not as a Date", async () => {
     const pool = new FakePool();
     pool.rows = [row({ ledger_timestamp: new Date("2026-08-01T09:30:15.250Z") })];
@@ -131,8 +124,6 @@ describe("reading a batch's verdicts back", () => {
     assert.match(pool.queries[0].text, /WHERE batch_id = \$1/);
   });
 
-  // Two verdicts on the same batch are read as a sequence, so an unordered result would show a
-  // breach before the submission that caused it.
   it("orders by when the ledger recorded them", async () => {
     const pool = new FakePool();
 
@@ -167,9 +158,7 @@ describe("reading a batch's verdicts back", () => {
   });
 });
 
-// Written separately from the verdict, and after it. Archiving what the ledger decided must never
-// wait on the oracle being reachable, so the check lands as its own update on a row that already
-// exists.
+// Signature status updates an already archived verdict.
 describe("recording what the signature check found", () => {
   it("updates only the check columns, on the evidence it was given", async () => {
     const pool = new FakePool();

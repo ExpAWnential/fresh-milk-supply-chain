@@ -1,17 +1,15 @@
 /**
- * The regulator's archive of what the ledger decided.
+ * Stores the regulator's independent archive of verdicts emitted by Fabric.
  *
- * Every row here comes from a chaincode event, so it records the contract's own verdict rather
- * than anyone's summary of it. Nothing writes to this from the oracle's side.
+ * Event writes are idempotent because a listener may replay a block after restart. Signature status
+ * is updated separately so a temporary verification failure cannot prevent the verdict being archived.
  */
 import type { Pool } from "pg";
 import type { ComplianceOutcome } from "./temperatureRepository.js";
 
 export type ComplianceEventName = "TemperatureEvidenceSubmitted" | "ColdChainBreach";
 
-// UNKNOWN is not a failure. It means the check could not be completed, which has to stay distinct
-// from a check that completed and found a forged reading: one is a gap in what was looked at, the
-// other is a finding about the evidence.
+// UNKNOWN means the signature check could not finish. FAILED means it completed and found a problem.
 export type SignatureCheck = "PASSED" | "FAILED" | "UNKNOWN";
 
 export interface LedgerComplianceVerdict {
@@ -21,19 +19,15 @@ export interface LedgerComplianceVerdict {
   readonly complianceOutcome: ComplianceOutcome;
   readonly submittedByStakeholderId: string;
   readonly fabricTransactionId: string;
-  // Stamped by the contract, not by this process, so replaying the chain reproduces the archive
-  // exactly rather than restamping everything with the time of the replay.
+  // Preserve the contract timestamp so event replay reproduces the same archive.
   readonly ledgerTimestamp: string;
   readonly eventName: ComplianceEventName;
-  // Whether the regulator managed to check the sensor signatures behind this verdict, and what it
-  // found. Defaults to UNKNOWN until the check runs.
+  // Defaults to UNKNOWN until the regulator's independent check completes.
   readonly signatureCheck: SignatureCheck;
   readonly signatureCheckedAt: string | null;
 }
 
-// What the event carries. The signature check has not run yet at the moment a verdict is archived,
-// and it must not hold archiving up, so it is deliberately absent from the write shape rather than
-// passed as a placeholder.
+// Signature status is omitted because archiving must not wait for the oracle to answer.
 export type ArchivedVerdict = Omit<
   LedgerComplianceVerdict,
   "signatureCheck" | "signatureCheckedAt"
@@ -41,8 +35,7 @@ export type ArchivedVerdict = Omit<
 
 export interface VerdictRepository {
   recordVerdict(verdict: ArchivedVerdict): Promise<void>;
-  // Written after the verdict is archived, never as part of it. Archiving what the ledger decided
-  // must not depend on the oracle being reachable.
+  // Updated separately after the verdict is safely archived.
   recordSignatureCheck(evidenceId: string, outcome: SignatureCheck): Promise<void>;
   listVerdictsForBatch(batchId: string): Promise<readonly LedgerComplianceVerdict[]>;
 }
@@ -75,11 +68,11 @@ function toVerdict(row: VerdictRow): LedgerComplianceVerdict {
   };
 }
 
+/** Creates an idempotent archive so replaying a Fabric event cannot duplicate its verdict. */
 export function createVerdictRepository(pool: Pool): VerdictRepository {
   return {
     async recordVerdict(verdict: ArchivedVerdict): Promise<void> {
-      // Upsert rather than insert. A restart replays from the last checkpoint, so the same event
-      // can arrive twice, and it carries the same values both times.
+      // Event replay is expected, so archive writes are idempotent.
       await pool.query(
         `
           INSERT INTO ledger_compliance_verdicts (

@@ -2,21 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-# The organisations this network runs, and the only place they are listed.
-#
-# Everything that used to be an unrolled branch per organisation reads from this table instead, so
-# adding or removing one is a single line rather than an edit in six scripts.
-#
-# The newest bash on macOS is 3.2, which has no associative arrays, so each organisation is a
-# colon-delimited record and the accessors below pull fields out of it.
+# Defines the organisations shared by the network scripts. Colon-delimited records retain
+# compatibility with macOS Bash 3.2, which has no associative arrays.
 
-# One organisation per company, so a certificate authority never issues identities for a business
-# it has no relationship with, and an endorsement policy can name a role rather than a group of
-# unrelated ones.
-#
-# The chaincode, operations and CouchDB ports are not here: they are only ever read by Docker, so
-# they live in the compose files where they take effect. A copy here would look authoritative and
-# change nothing.
+# Docker-only ports remain in the compose files where they take effect.
 #
 # name:mspId:domain:peerPort
 ORG_DEFS=(
@@ -39,8 +28,7 @@ orgCount() {
   echo ${#ORG_DEFS[@]}
 }
 
-# Call this directly rather than inside $(...). fatalln exits, and an exit inside a subshell only
-# ends the subshell, which would let a typo carry on with the previous organisation's environment.
+# Call directly because fatalln inside a command-substitution subshell cannot stop the parent script.
 requireOrg() {
   local def
   for def in "${ORG_DEFS[@]}"; do
@@ -51,9 +39,7 @@ requireOrg() {
   fatalln "Unknown organisation '$1'. Expected one of: $(orgNames | tr '\n' ' ')"
 }
 
-# $1 organisation name, $2 one-based field number. Uses parameter expansion rather than cut so
-# that reading a field does not fork a process; setGlobals reads four of them, on every one of the
-# roughly eighty calls a deploy makes.
+# $1 is the organisation name. $2 is the one-based field number.
 orgField() {
   local def rest
   for def in "${ORG_DEFS[@]}"; do

@@ -1,12 +1,8 @@
-/**
- * Creates the PostgreSQL connection pool. Connection settings only.
- */
+/** Creates PostgreSQL pools using the database boundaries established by the initialisation scripts. */
 import { Pool } from "pg";
 
-// The two databases this package's init scripts create, with the logins they grant. Written here
-// rather than at each call site: the credentials are defined in initdb/03-roles.sql, which this
-// package owns, and the last time the database was renamed four separate copies had to be found
-// and edited by hand.
+// The init scripts own these database names and credentials, so connection URLs are assembled in
+// one place instead of duplicated across every caller.
 //
 // POSTGRES_PORT is honoured because the compose file publishes on it, for anyone whose 5432 is
 // already taken. Hardcoding the port here would leave that override with nothing reading it.

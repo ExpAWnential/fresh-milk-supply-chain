@@ -4,7 +4,7 @@ import { parseArguments, tamperWithEvidence } from "../src/tamperEvidence.js";
 import { sha256TemperatureReadings } from "../src/evidenceHash.js";
 import type { TemperatureRepository } from "../src/repositories/temperatureRepository.js";
 
-// The demo deliberately corrupts stored data, so its guards matter more than usual.
+// The tamper command must refuse unsafe starting states before changing data.
 describe("tamper demo arguments", () => {
   it("requires the evidence to change", () => {
     assert.throws(() => parseArguments([]), /Usage: pnpm demo:tamper/);
@@ -52,7 +52,7 @@ const anchoredEvidence = (overrides: Record<string, unknown> = {}) => ({
   ...overrides
 });
 
-// Readings come back altered after the change, the way the database would return them.
+// Simulate the database returning the changed reading after mutation.
 function tamperableStore(evidence = anchoredEvidence()) {
   let readings = READINGS;
   return {
@@ -75,7 +75,6 @@ describe("tampering with anchored evidence", () => {
 
     assert.equal((report.before as Record<string, string>).result, "MATCH");
     assert.equal((report.after as Record<string, string>).result, "HASH_MISMATCH");
-    // The anchored hash is untouched, which is the whole point: the ledger did not move.
     assert.equal(report.anchoredHash, sha256TemperatureReadings("B-1", READINGS));
     assert.equal(report.fabricTransactionId, "tx-1");
   });
@@ -98,7 +97,7 @@ describe("tampering with anchored evidence", () => {
     );
   });
 
-  // Nothing is proven by breaking evidence that was never on the ledger to begin with.
+  // Unanchored evidence cannot demonstrate ledger-backed tamper detection.
   it("refuses evidence that was never anchored", async () => {
     for (const overrides of [
       { submissionStatus: "PENDING" as const },

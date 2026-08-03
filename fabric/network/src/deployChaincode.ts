@@ -1,6 +1,9 @@
 /**
- * `pnpm fabric:deploy-chaincode`. Builds each chaincode, stages a clean copy of the compiled
- * output, and runs Fabric's install, approve and commit lifecycle against it.
+ * Deploys both chaincodes through Fabric's package, install, approve and commit lifecycle.
+ *
+ * Each package is built into a clean staging directory because Fabric runs its own npm build inside
+ * a container and cannot follow pnpm workspace links from the source tree. The stakeholder registry
+ * is deployed first because the supply-chain contract calls it for authorisation.
  */
 import { cp, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";

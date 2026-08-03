@@ -1,6 +1,9 @@
 /**
- * HTTP for temperature evidence: submitting it, clearing a breach, reading a record back, and
- * verifying the stored readings against what the ledger anchored.
+ * Exposes the temperature evidence workflow through the backend API.
+ *
+ * These routes connect the oracle's off-chain readings with the on-chain evidence anchor. They also
+ * enforce ledger-backed read access, provide independent verification, and let the regulator resolve
+ * a breach without allowing the HTTP caller to choose the contract's compliance verdict.
  */
 import { Router } from "express";
 import type { TemperatureRepository } from "@fresh-milk/storage";
@@ -20,13 +23,12 @@ import {
 
 export interface TemperatureRouterDependencies {
   readonly connect: GatewayConnector;
-  // Only the oracle holds one. It is what serves the readings the other five fetch.
+  // Present only for the oracle, which stores and publishes the raw readings.
   readonly temperatureRepository?: TemperatureRepository;
-  // Reads the anchored hash off the ledger as this company. Required: a verification that cannot
-  // consult the anchor would be comparing the readings against themselves, which proves nothing.
+  // Reads the trusted comparison values from Fabric as this organisation.
   readonly anchoredEvidenceReader: AnchoredEvidenceReader;
   readonly sensorKeyReader: SensorKeyReader;
-  // Where this company gets the readings. Every company can verify, database or not.
+  // Reads locally for the oracle and remotely for every other organisation.
   readonly readingsSource: ReadingsSource;
 }
 
@@ -38,7 +40,7 @@ export function createTemperatureRouter({
   readingsSource
 }: TemperatureRouterDependencies): Router {
   const temperature = bindLedger(connect, config.supplychainChaincodeName, TEMPERATURE_CONTRACT);
-  // Reading a batch is how the evidence listing below borrows the contract's own authorisation.
+  // The evidence listing uses the batch contract's existing read authorisation.
   const batches = bindLedger(connect, config.supplychainChaincodeName, BATCH_CONTRACT);
   const router = Router();
 
@@ -52,8 +54,7 @@ export function createTemperatureRouter({
         throw new Error("'statistics' must be an object.");
       }
 
-      // The compliance outcome is deliberately not accepted from the caller. The contract
-      // derives it from these statistics itself.
+      // The contract derives compliance. The caller cannot submit its own verdict.
       await temperature.submit(
         "submitTemperatureEvidence",
         evidenceId,
@@ -78,11 +79,7 @@ export function createTemperatureRouter({
     }
   });
 
-  // The evidence ID embeds a hash of the readings, so it cannot be guessed. Without this a
-  // regulator who sees a batch flip to COLD_CHAIN_BREACH has no way to reach the evidence that
-  // caused it. The batch is read from the ledger first, which establishes that the batch exists
-  // and that this company may see it. As with the readings route below, that check is about this
-  // company rather than about whoever sent the request.
+  // List off-chain evidence only after Fabric authorises this organisation to read the batch.
   router.get("/batches/:batchId/evidence", async (req, res) => {
     if (!temperatureRepository) {
       res.status(503).json({ error: "temperature storage is not configured" });
@@ -113,8 +110,6 @@ export function createTemperatureRouter({
         await temperature.evaluateJson("getTemperatureEvidence", req.params.evidenceId)
       );
     } catch (error) {
-      // Evidence the ledger has never seen answers 404, so a caller can tell that apart from a
-      // refusal by the status alone rather than matching on the contract's wording.
       if (describesMissingEvidence(error)) {
         res.status(404).json({ error: `Evidence '${req.params.evidenceId}' is not on the ledger.` });
         return;
@@ -123,18 +118,8 @@ export function createTemperatureRouter({
     }
   });
 
-  // The readings the fingerprint covers. This is what the other five companies fetch to run their
-  // own verification, so it is the one endpoint here that exists for somebody else.
-  //
-  // Be clear about what the ledger read in front of it does and does not do. It is signed with
-  // this company's certificate, because that is the only one this process holds, so it establishes
-  // that the evidence exists and that this company may see it. It says nothing about the caller:
-  // anyone who can reach this port and knows an evidence ID gets the readings. The ID embeds part
-  // of the hash so it is not enumerable, but that is obscurity, not access control.
-  //
-  // The verification is sound regardless, because the checker compares against an anchor it read
-  // off the ledger itself. Serving nothing, or serving rubbish, shows up as a mismatch or an
-  // error, never as a clean result. docs/design.md sets out what a real fix would take.
+  // Publishes the raw readings used by other organisations. The preceding ledger read authorises
+  // this backend's identity, not the HTTP caller. See docs/design.md for that proof-of-concept limit.
   router.get("/evidence/:evidenceId/readings", async (req, res) => {
     if (!temperatureRepository) {
       res.status(503).json({ error: "temperature storage is not configured" });
@@ -153,13 +138,10 @@ export function createTemperatureRouter({
     }
   });
 
-  // Available on every company's backend, including the four that keep no database of their own.
-  // A retailer checking its supplier's records is the case this exists for, and it would be a
-  // strange check if only the company being checked could run it.
+  // Every organisation can verify, including those without their own readings database.
   router.get("/evidence/:evidenceId/verify", async (req, res) => {
     try {
-      // The anchor is read with this company's own certificate and the readings come from whoever
-      // holds them, so the comparison is between two records no single party controls.
+      // Compare holder-supplied readings with values this organisation reads from Fabric.
       const result = await verifyTemperatureEvidence(req.params.evidenceId, {
         readingsSource,
         anchoredEvidenceReader,
@@ -173,9 +155,7 @@ export function createTemperatureRouter({
         return;
       }
 
-      // The company being checked would not hand its readings over. That is not a fault in this
-      // backend, and reporting it as one would blame the checker for the holder going quiet, which
-      // is the single most misleading thing this endpoint could say.
+      // Report failure by the remote readings holder separately from a local verification fault.
       if (error instanceof ReadingsUnavailableError) {
         res.status(502).json({ error: error.message, code: "READINGS_UNAVAILABLE" });
         return;

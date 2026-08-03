@@ -2,9 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { calculateTemperatureStatistics } from "../src/evidenceStatistics.js";
 
-// The oracle computes these before anchoring and verification recomputes them afterwards to check
-// the anchored copy was honest. The two sides compare exactly, with no tolerance, so anything that
-// makes the same readings summarise differently twice reports a lie where there was none.
+// Oracle submission and later verification must produce exactly the same summary.
 describe("summarising a set of readings", () => {
   it("reports the range and how many readings there were", () => {
     assert.deepEqual(
@@ -21,8 +19,7 @@ describe("summarising a set of readings", () => {
     });
   });
 
-  // Milk is stored below zero nowhere in this system, but a sensor reporting it is exactly the case
-  // a naive minimum would get wrong.
+  // Negative input catches an incorrect minimum initialised to zero.
   it("handles readings below zero", () => {
     assert.deepEqual(calculateTemperatureStatistics([{ celsius: -1.5 }, { celsius: 4 }]), {
       minCelsius: -1.5,
@@ -34,13 +31,9 @@ describe("summarising a set of readings", () => {
   it("keeps a rounded reading a number rather than a fixed-width string", () => {
     const statistics = calculateTemperatureStatistics([{ celsius: 2.5 }, { celsius: 3 }]);
 
-    // Strict equality, so toFixed's "2.500" fails here: it reads the same and compares as unequal.
     assert.equal(statistics.minCelsius, 2.5);
   });
 
-  // Three decimals, matching what the canonical form of a reading carries, so an anchored minimum
-  // matches a recomputed one exactly rather than the two sides having to agree on floating point
-  // noise.
   it("rounds the range to three decimals", () => {
     const statistics = calculateTemperatureStatistics([
       { celsius: 1.00049 },
@@ -51,8 +44,6 @@ describe("summarising a set of readings", () => {
     assert.equal(statistics.maxCelsius, 5);
   });
 
-  // There is nothing to summarise, and returning zeroes would put a summary on the ledger claiming
-  // a batch was held at 0 °C when nothing was ever measured.
   it("refuses an empty reading set rather than inventing a summary of it", () => {
     assert.throws(
       () => calculateTemperatureStatistics([]),
@@ -60,8 +51,6 @@ describe("summarising a set of readings", () => {
     );
   });
 
-  // The same readings in a different order describe the same conditions, and the readings are
-  // sorted before hashing, so a summary that depended on order could not be recomputed.
   it("does not depend on the order the readings arrive in", () => {
     const readings = [{ celsius: 4.2 }, { celsius: 1.1 }, { celsius: 3.3 }];
 
@@ -71,8 +60,7 @@ describe("summarising a set of readings", () => {
     );
   });
 
-  // A reading set large enough to have blown the stack, because the minimum and maximum are taken
-  // by spreading the values into Math.min.
+  // Large input protects against spreading every value into Math.min or Math.max.
   it("summarises a full day of minute-by-minute readings", () => {
     const readings = Array.from({ length: 1_440 }, (_unused, minute) => ({
       celsius: 2 + (minute % 3) / 10

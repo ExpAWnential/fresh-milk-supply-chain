@@ -1,9 +1,4 @@
-/**
- * The shape of one anchored temperature record.
- *
- * Only the fingerprint, the summary statistics and the verdict are held on the ledger. The raw
- * readings they were computed from stay in PostgreSQL.
- */
+/** On-chain evidence summary. Raw sensor readings remain in PostgreSQL. */
 export type ComplianceOutcome = "COMPLIANT" | "UNSAFE";
 
 export interface TemperatureStatistics {
@@ -18,7 +13,7 @@ export interface TemperatureEvidence {
   readonly evidenceHash: string;
   readonly offChainReference: string;
   readonly statistics: TemperatureStatistics;
-  // Derived on-chain from the statistics, not supplied by the oracle.
+  // The contract derives this from the statistics instead of trusting the oracle's verdict.
   readonly complianceOutcome: ComplianceOutcome;
   readonly submittedByStakeholderId: string;
   readonly submittedTxId: string;

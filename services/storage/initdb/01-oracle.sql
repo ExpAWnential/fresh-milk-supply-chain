@@ -1,13 +1,5 @@
--- The oracle's own database: the raw sensor readings it collected, and its record of what it
--- anchored for them. Runs against POSTGRES_DB, which the compose file sets to freshmilk_oracle.
---
--- Detailed operational data lives here. Only the evidence hash, the off-chain reference,
--- the computed statistics and the compliance outcome are written to the ledger.
--- No credentials, certificates or private keys are stored in this database.
---
--- compliance_outcome here is the oracle's own reading of the numbers. The verdict that counts is
--- the one the contract derived, which lives in the regulator's database and is built from the
--- ledger's events. Keeping them apart is what lets the two be compared.
+-- Stores the oracle's raw readings and submission record. Fabric receives only their fingerprint,
+-- statistics, reference and independently derived verdict.
 
 CREATE TABLE IF NOT EXISTS temperature_evidence (
     evidence_id TEXT PRIMARY KEY,
@@ -18,8 +10,7 @@ CREATE TABLE IF NOT EXISTS temperature_evidence (
     max_celsius NUMERIC(6, 3) NOT NULL,
     reading_count INTEGER NOT NULL CHECK (reading_count > 0),
     compliance_outcome TEXT NOT NULL CHECK (compliance_outcome IN ('COMPLIANT', 'UNSAFE')),
-    -- PENDING until the Fabric transaction is confirmed, so a failed submission is never
-    -- mistaken for anchored evidence.
+    -- PENDING until Fabric confirms the transaction.
     submission_status TEXT NOT NULL CHECK (submission_status IN ('PENDING', 'ANCHORED', 'FAILED')),
     fabric_transaction_id TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -28,23 +19,18 @@ CREATE TABLE IF NOT EXISTS temperature_evidence (
     CHECK (submission_status <> 'ANCHORED' OR fabric_transaction_id IS NOT NULL)
 );
 
--- The sensor's own signature is kept beside the reading, not just checked and discarded. A check
--- the oracle runs on data it holds proves nothing to anyone else, because the oracle could simply
--- not run it. Storing the signature is what lets another company fetch these rows, read the
--- sensor's public key off the ledger, and decide for itself.
+-- Retain each signature so other organisations can verify the oracle's readings independently.
 CREATE TABLE IF NOT EXISTS temperature_readings (
     reading_id BIGSERIAL PRIMARY KEY,
     evidence_id TEXT NOT NULL REFERENCES temperature_evidence (evidence_id) ON DELETE CASCADE,
     sensor_id TEXT NOT NULL,
-    -- Where this reading sat in the sensor's run, counting from 1. Covered by the signature, so it
-    -- cannot be renumbered to close the gap a deleted reading leaves behind.
+    -- Signed one-based position used to detect gaps in a sensor run.
     sequence INTEGER NOT NULL CHECK (sequence > 0),
     recorded_at TIMESTAMPTZ NOT NULL,
     celsius NUMERIC(6, 3) NOT NULL,
     signature TEXT NOT NULL,
 
-    -- Two readings claiming the same position in one run is a contradiction the signatures cannot
-    -- resolve, so it is refused by the database rather than left for a verifier to puzzle over.
+    -- A sensor run cannot contain two readings at the same position.
     UNIQUE (evidence_id, sequence)
 );
 

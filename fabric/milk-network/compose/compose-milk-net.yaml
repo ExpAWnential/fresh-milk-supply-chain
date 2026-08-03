@@ -2,8 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-
-
+# Defines the orderer and one peer for each consortium organisation. Database and Docker socket
+# settings live in overlays so this file remains the single readable view of the base topology.
 name: fabric_milk
 volumes:
   orderer.example.com:
@@ -31,7 +31,6 @@ services:
       - ORDERER_GENERAL_LISTENPORT=7050
       - ORDERER_GENERAL_LOCALMSPID=OrdererMSP
       - ORDERER_GENERAL_LOCALMSPDIR=/var/hyperledger/orderer/msp
-      # enabled TLS
       - ORDERER_GENERAL_TLS_ENABLED=true
       - ORDERER_GENERAL_TLS_PRIVATEKEY=/var/hyperledger/orderer/tls/server.key
       - ORDERER_GENERAL_TLS_CERTIFICATE=/var/hyperledger/orderer/tls/server.crt
@@ -75,7 +74,6 @@ services:
       - CORE_PEER_TLS_CERT_FILE=/etc/hyperledger/fabric/tls/server.crt
       - CORE_PEER_TLS_KEY_FILE=/etc/hyperledger/fabric/tls/server.key
       - CORE_PEER_TLS_ROOTCERT_FILE=/etc/hyperledger/fabric/tls/ca.crt
-      # Peer specific variables
       - CORE_PEER_ID=peer0.regulator.example.com
       - CORE_PEER_ADDRESS=peer0.regulator.example.com:7051
       - CORE_PEER_LISTENADDRESS=0.0.0.0:7051
@@ -113,7 +111,6 @@ services:
       - CORE_PEER_TLS_CERT_FILE=/etc/hyperledger/fabric/tls/server.crt
       - CORE_PEER_TLS_KEY_FILE=/etc/hyperledger/fabric/tls/server.key
       - CORE_PEER_TLS_ROOTCERT_FILE=/etc/hyperledger/fabric/tls/ca.crt
-      # Peer specific variables
       - CORE_PEER_ID=peer0.farm.example.com
       - CORE_PEER_ADDRESS=peer0.farm.example.com:8051
       - CORE_PEER_LISTENADDRESS=0.0.0.0:8051
@@ -151,7 +148,6 @@ services:
       - CORE_PEER_TLS_CERT_FILE=/etc/hyperledger/fabric/tls/server.crt
       - CORE_PEER_TLS_KEY_FILE=/etc/hyperledger/fabric/tls/server.key
       - CORE_PEER_TLS_ROOTCERT_FILE=/etc/hyperledger/fabric/tls/ca.crt
-      # Peer specific variables
       - CORE_PEER_ID=peer0.processor.example.com
       - CORE_PEER_ADDRESS=peer0.processor.example.com:9051
       - CORE_PEER_LISTENADDRESS=0.0.0.0:9051
@@ -189,7 +185,6 @@ services:
       - CORE_PEER_TLS_CERT_FILE=/etc/hyperledger/fabric/tls/server.crt
       - CORE_PEER_TLS_KEY_FILE=/etc/hyperledger/fabric/tls/server.key
       - CORE_PEER_TLS_ROOTCERT_FILE=/etc/hyperledger/fabric/tls/ca.crt
-      # Peer specific variables
       - CORE_PEER_ID=peer0.logistics.example.com
       - CORE_PEER_ADDRESS=peer0.logistics.example.com:10051
       - CORE_PEER_LISTENADDRESS=0.0.0.0:10051
@@ -227,7 +222,6 @@ services:
       - CORE_PEER_TLS_CERT_FILE=/etc/hyperledger/fabric/tls/server.crt
       - CORE_PEER_TLS_KEY_FILE=/etc/hyperledger/fabric/tls/server.key
       - CORE_PEER_TLS_ROOTCERT_FILE=/etc/hyperledger/fabric/tls/ca.crt
-      # Peer specific variables
       - CORE_PEER_ID=peer0.retailer.example.com
       - CORE_PEER_ADDRESS=peer0.retailer.example.com:11051
       - CORE_PEER_LISTENADDRESS=0.0.0.0:11051
@@ -265,7 +259,6 @@ services:
       - CORE_PEER_TLS_CERT_FILE=/etc/hyperledger/fabric/tls/server.crt
       - CORE_PEER_TLS_KEY_FILE=/etc/hyperledger/fabric/tls/server.key
       - CORE_PEER_TLS_ROOTCERT_FILE=/etc/hyperledger/fabric/tls/ca.crt
-      # Peer specific variables
       - CORE_PEER_ID=peer0.oracle.example.com
       - CORE_PEER_ADDRESS=peer0.oracle.example.com:12051
       - CORE_PEER_LISTENADDRESS=0.0.0.0:12051
@@ -289,4 +282,3 @@ services:
       - 9456:9456
     networks:
       - test
-

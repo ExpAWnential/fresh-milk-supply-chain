@@ -2,22 +2,13 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
+# Creates the Raft orderer identities. Localhost is included in each certificate so host-side
+# development clients can verify TLS through the published ports.
 
-# ---------------------------------------------------------------------------
-# "OrdererOrgs" - Definition of organizations managing orderer nodes
-# ---------------------------------------------------------------------------
 OrdererOrgs:
-  # ---------------------------------------------------------------------------
-  # Orderer
-  # ---------------------------------------------------------------------------
   - Name: Orderer
     Domain: example.com
     EnableNodeOUs: true
-
-
-    # ---------------------------------------------------------------------------
-    # "Specs" - See PeerOrgs for complete description
-    # ---------------------------------------------------------------------------
     Specs:
       - Hostname: orderer
         SANS:

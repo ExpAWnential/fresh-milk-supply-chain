@@ -16,7 +16,7 @@ const enabled = process.env.RUN_POSTGRES_INTEGRATION === "1";
 
 const tamperCommand = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "tamperEvidence.js");
 
-// The demo command, run the way a person runs it.
+// Run the tamper command through its real entry point.
 function runTamper(evidenceId, ...options) {
   return spawnSync(
     process.execPath,
@@ -111,9 +111,7 @@ test(
   }
 );
 
-// The claim 03-roles.sql makes: the separation between the two databases is enforced by Postgres
-// rather than being a convention the application could quietly break. Nothing but a real server
-// can be asked whether that is true.
+// Verify database separation against PostgreSQL's real permission system.
 test(
   "each company's login is refused by the other company's database",
   { skip: !enabled },
@@ -162,28 +160,23 @@ test(
       eventName: "TemperatureEvidenceSubmitted"
     };
 
-    // Nothing is cleaned up afterwards, and nothing can be: the regulator's login is granted no
-    // DELETE, which the test below relies on. Fixed IDs and an upsert are what make this repeatable
-    // instead, exactly as a replayed chain is.
+    // Fixed IDs and idempotent writes keep this repeatable without DELETE permission.
     try {
       await verdicts.recordVerdict(verdict);
       await verdicts.recordVerdict(earlier);
 
-      // Oldest first, so a reader sees the submission before the breach it led to.
       assert.deepEqual(
         (await verdicts.listVerdictsForBatch(batchId)).map((entry) => entry.evidenceId),
         ["INTEGRATION-VERDICT-EV-0", "INTEGRATION-VERDICT-EV-1"]
       );
 
-      // A restart replays from the last checkpoint, so the same event does arrive twice. It has to
-      // land on the existing row rather than raise on the primary key.
+      // Replayed events update the existing row without error.
       await verdicts.recordVerdict(verdict);
       const afterReplay = await verdicts.listVerdictsForBatch(batchId);
       assert.equal(afterReplay.length, 2);
       assert.deepEqual(afterReplay[1], verdict);
 
-      // The contract's timestamp survives the round trip through TIMESTAMPTZ unchanged, which is
-      // what makes replaying the chain reproduce the archive rather than restamp it.
+      // TIMESTAMPTZ preserves the contract timestamp.
       assert.equal(afterReplay[1].ledgerTimestamp, "2026-07-30T02:00:00.000Z");
     } finally {
       await pool.end();
@@ -191,9 +184,7 @@ test(
   }
 );
 
-// An archive its holder can quietly empty is not an archive. The grants in initdb/03-roles.sql give
-// the regulator's login SELECT, INSERT and UPDATE and stop there, so this is enforced by Postgres
-// rather than by the repository happening not to offer the operation.
+// PostgreSQL permissions prevent the regulator application from deleting its archive.
 test(
   "the regulator can add to its archive but cannot delete from it",
   { skip: !enabled },
@@ -211,8 +202,7 @@ test(
   }
 );
 
-// The schema refuses these as well as the application, so a row that never went through the
-// repository still cannot claim an outcome the contract never reaches.
+// Schema constraints reject verdicts the contract cannot produce.
 test(
   "the archive refuses a verdict the ledger could not have produced",
   { skip: !enabled },
@@ -245,8 +235,7 @@ test(
           description
         );
       }
-      // Every one was refused, so nothing was written and there is nothing to clean up, which is
-      // just as well: this login cannot delete.
+      // Rejected inserts leave no rows to clean up.
       assert.deepEqual(await verdicts.listVerdictsForBatch(batchId), []);
     } finally {
       await pool.end();
@@ -254,9 +243,7 @@ test(
   }
 );
 
-// The one property the whole tamper demo rests on, and the only one that needs a transaction: an
-// anchored row's readings are the baseline the ledger's hash is checked against, so a repeated run
-// must leave them exactly as they were.
+// Repeating an oracle run must not replace readings already covered by Fabric's hash.
 test(
   "re-running against anchored evidence leaves its readings untouched",
   { skip: !enabled },
@@ -289,7 +276,7 @@ test(
       await temperature.saveEvidence(evidence, readings);
       await temperature.markAnchored(evidenceId, "tx-integration-anchored");
 
-      // A second run with different readings, as a repeated oracle run would produce.
+      // Simulate a retry carrying different readings.
       const rewritten = [
         { sensorId: "S-1", recordedAt: "2026-07-20T09:00:00.000Z", celsius: 99 },
         { sensorId: "S-1", recordedAt: "2026-07-20T09:05:00.000Z", celsius: 98 }
@@ -311,7 +298,7 @@ test(
         evidence.evidenceHash,
         "the anchored readings no longer hash to what the ledger covers"
       );
-      // The anchoring details are equally untouched.
+      // Preserve the committed anchoring metadata too.
       const after = await temperature.getEvidence(evidenceId);
       assert.equal(after.submissionStatus, "ANCHORED");
       assert.equal(after.fabricTransactionId, "tx-integration-anchored");
@@ -322,8 +309,7 @@ test(
   }
 );
 
-// Its SQL is the one statement in this package that no unit test reaches, and it is the statement
-// the whole tamper demonstration turns on.
+// Exercise the tamper command's real update statement against PostgreSQL.
 test(
   "the tamper command alters a stored reading and breaks the fingerprint",
   { skip: !enabled },
@@ -364,15 +350,15 @@ test(
       const report = JSON.parse(run.stdout);
       assert.equal(report.before.result, "MATCH");
       assert.equal(report.after.result, "HASH_MISMATCH");
-      // The ledger's copy never moved. That contrast is the whole point of the demonstration.
+      // The simulated ledger anchor remains unchanged.
       assert.equal(report.anchoredHash, anchoredHash);
 
-      // The earliest reading really was changed in the database, not just in the report.
+      // Confirm that the database row, not only the report, changed.
       const stored = await temperature.getReadings(evidenceId);
       assert.equal(stored[0].celsius, 3.5);
       assert.notEqual(sha256TemperatureReadings(batchId, stored), anchoredHash);
 
-      // Tampering twice is refused, because the evidence no longer verifies to begin with.
+      // A second tamper attempt is refused because the baseline is already invalid.
       const again = runTamper(evidenceId);
       assert.equal(again.status, 1);
       assert.match(again.stderr, /already fails verification/);

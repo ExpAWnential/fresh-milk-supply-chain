@@ -7,9 +7,7 @@ import { createLedgerEventStream } from "../dist/fabric/gateway.js";
 import { config } from "../dist/config.js";
 import { FIXTURE_IDENTITY } from "./walletFixture.mjs";
 
-// Only the gateway is stubbed. The wallet, the gRPC channel and the checkpoint file are all real,
-// which is what leaves the cleanup below worth asserting on: those are the handles that would be
-// leaked, and a leaked gRPC channel keeps the process from ever exiting.
+// Use real wallet, gRPC and checkpoint resources so cleanup assertions cover actual handles.
 function stubGateway({ events, failSubscription } = {}) {
   const closed = { gateway: 0, events: 0 };
   const subscriptions = [];
@@ -52,7 +50,7 @@ const ledgerEvent = (overrides = {}) => ({
   ...overrides
 });
 
-// A fresh directory each time, so no two streams share a checkpoint unless a test means them to.
+// Isolate checkpoint files unless a test deliberately reuses one.
 async function checkpointPath() {
   return join(await mkdtemp(join(tmpdir(), "events-")), "events.checkpoint");
 }
@@ -72,8 +70,6 @@ test("the stream subscribes to the named chaincode on the configured channel", a
   stream.close();
 });
 
-// Without a start block a fresh listener begins at the *next* block, so everything already on the
-// chain is silently never seen and the regulator's archive comes up empty with no error anywhere.
 test("a first run reads the chain from the beginning rather than from the next block", async () => {
   const stub = stubGateway();
   const stream = await createLedgerEventStream(
@@ -106,8 +102,6 @@ test("the events the peer yields are what the caller iterates", async () => {
   stream.close();
 });
 
-// The checkpoint is what makes a restart resume instead of replaying the whole chain, and it has to
-// survive the process, so it is written to the file rather than held in memory.
 test("checkpointing an event records it on disk for the next process to resume from", async () => {
   const path = await checkpointPath();
   const stub = stubGateway();
@@ -116,7 +110,7 @@ test("checkpointing an event records it on disk for the next process to resume f
   await stream.checkpoint(ledgerEvent({ blockNumber: 12n, transactionId: "tx-9" }));
   stream.close();
 
-  // A second listener over the same file starts where the first one stopped.
+  // Reusing the file resumes from the first listener's position.
   const resumed = stubGateway();
   const next = await createLedgerEventStream(FIXTURE_IDENTITY, "supplychain", path, resumed.open);
   const checkpoint = resumed.subscriptions[0].options.checkpoint;
@@ -140,8 +134,6 @@ test("closing the stream releases the subscription and the gateway", async () =>
   assert.deepEqual(stub.closed, { gateway: 1, events: 1 });
 });
 
-// The gRPC channel is open before the gateway is built, and a failure here leaves the caller no
-// handle to close, so it has to clean up after itself or the process can never exit.
 test("a gateway that fails to open does not leak the channel underneath it", async () => {
   const failure = new Error("invalid identity");
 
@@ -158,8 +150,6 @@ test("a gateway that fails to open does not leak the channel underneath it", asy
   );
 });
 
-// A peer that refuses the subscription is the likely one: the gateway opened, so both it and the
-// channel are live and neither is reachable from outside this function once it has thrown.
 test("a refused subscription closes the gateway rather than leaving it open", async () => {
   const stub = stubGateway({ failSubscription: new Error("peer refused the subscription") });
 
@@ -176,8 +166,7 @@ test("a refused subscription closes the gateway rather than leaving it open", as
   assert.equal(stub.closed.gateway, 1);
 });
 
-// The other way this step fails: an unwritable checkpoint path. It happens before the subscription,
-// so the same cleanup has to run from a different point.
+// Checkpoint setup failure follows the same cleanup path before subscription begins.
 test("an unusable checkpoint file closes the gateway rather than leaving it open", async () => {
   const stub = stubGateway();
 
@@ -191,6 +180,6 @@ test("an unusable checkpoint file closes the gateway rather than leaving it open
   );
 
   assert.equal(stub.closed.gateway, 1);
-  // Never subscribed, so there is no event stream to release.
+  // No event stream exists before checkpoint setup succeeds.
   assert.equal(stub.closed.events, 0);
 });

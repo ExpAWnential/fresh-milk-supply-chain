@@ -4,8 +4,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-
-# This is a collection of bash functions used by different scripts
+# Selects the peer identity and TLS material used by subsequent Fabric CLI commands.
 
 # Paths are built from this rather than from relative ones, because the scripts are invoked from
 # more than one working directory and relative paths interact badly with FABRIC_CFG_PATH.
@@ -16,7 +15,6 @@ MILK_NETWORK_HOME=${MILK_NETWORK_HOME:-${PWD}}
 export CORE_PEER_TLS_ENABLED=true
 export ORDERER_CA=${MILK_NETWORK_HOME}/organizations/ordererOrganizations/example.com/tlsca/tlsca.example.com-cert.pem
 
-# Set environment variables for the peer org
 setGlobals() {
   local USING_ORG=""
   if [ -z "$OVERRIDE_ORG" ]; then
@@ -25,9 +23,8 @@ setGlobals() {
     USING_ORG="${OVERRIDE_ORG}"
   fi
 
-  # Fatal rather than a warning. This used to print "ORG Unknown" and carry on with whatever
-  # organisation was exported last, so a typo installed chaincode on the wrong peer and reported
-  # success.
+  # A typo must stop the command. Continuing would reuse the previously exported organisation and
+  # could install chaincode on the wrong peer while still reporting success.
   requireOrg "$USING_ORG"
 
   infoln "Using organization ${USING_ORG}"
@@ -41,16 +38,12 @@ setGlobals() {
   fi
 }
 
-# parsePeerConnectionParameters $@
-# Helper function that sets the peer connection parameters for a chaincode
-# operation
 parsePeerConnectionParameters() {
   PEER_CONN_PARMS=()
   PEERS=""
   while [ "$#" -gt 0 ]; do
     setGlobals $1
     PEER=$(orgPeerHost $1)
-    ## Set peer addresses
     if [ -z "$PEERS" ]
     then
 	PEERS="$PEER"
@@ -58,10 +51,8 @@ parsePeerConnectionParameters() {
 	PEERS="$PEERS $PEER"
     fi
     PEER_CONN_PARMS=("${PEER_CONN_PARMS[@]}" --peerAddresses $CORE_PEER_ADDRESS)
-    ## Set path to TLS certificate
     TLSINFO=(--tlsRootCertFiles "$(orgTlsCa $1)")
     PEER_CONN_PARMS=("${PEER_CONN_PARMS[@]}" "${TLSINFO[@]}")
-    # shift by one to get to the next organization
     shift
   done
 }

@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { refusingLedger, repositoryStub, storedEvidence, withServer } from "./harness.mjs";
 
-// Every endpoint has to report a refusal from the contract, not just its happy path. A rejection
-// is the business rules working, so it must reach the caller intact.
 test("every endpoint passes the contract's refusal back to the caller", async () => {
   const ledger = refusingLedger("Only an active REGULATOR stakeholder may perform this operation.");
   await withServer({ ledger }, async ({ call }) => {
@@ -52,8 +50,6 @@ test("every endpoint passes the contract's refusal back to the caller", async ()
   });
 });
 
-// The one route without an authenticated caller. The contract's wording names stakeholders and
-// registry state, which is exactly what the consumer view strips out of a successful response.
 test("the public endpoint never repeats the contract's wording to a consumer", async () => {
   const ledger = refusingLedger("Stakeholder 'regulator-001' is suspended.");
   await withServer({ ledger }, async ({ call }) => {
@@ -64,8 +60,7 @@ test("the public endpoint never repeats the contract's wording to a consumer", a
   });
 });
 
-// Answering with a status rather than prose is what lets the oracle tell "never anchored" apart
-// from "could not tell", without a second copy of the contract's wording living in that package.
+// HTTP status distinguishes missing evidence from an inconclusive lookup.
 test("evidence the ledger has never seen is reported as not found", async () => {
   const ledger = refusingLedger("Temperature evidence 'EV-1' does not exist.");
   await withServer({ ledger }, async ({ call }) => {
@@ -123,10 +118,7 @@ test("missing required fields are refused before the ledger is reached", async (
   });
 });
 
-// Four of the six companies keep no off-chain database, so this is the ordinary answer on most of
-// the network rather than a misconfiguration. It must say so instead of reporting a fault. Only
-// the routes that serve stored rows are affected: verification is not, because it fetches the
-// readings from whoever holds them.
+// Routes serving local rows return unavailable for organisations without that store.
 test("the routes that serve stored rows are unavailable rather than wrong without a database", async () => {
   const needStorage = [
     "/temperature/evidence/e1/readings",
@@ -142,7 +134,6 @@ test("the routes that serve stored rows are unavailable rather than wrong withou
   });
 });
 
-// An unexpected failure during verification must not be dressed up as a verification result.
 test("an unexpected verification failure is reported as a server fault", async () => {
   const temperatureRepository = repositoryStub({
     getEvidence: async () => {
@@ -154,15 +145,12 @@ test("an unexpected verification failure is reported as a server fault", async (
     const result = await call("GET", "/temperature/evidence/EV-1/verify");
     assert.equal(result.status, 500);
     assert.match(result.body.error, /failed to verify temperature evidence/);
-    // The database's own wording stays in the log, not in the response.
+    // Do not expose database diagnostics in the response.
     assert.doesNotMatch(result.body.error, /connection terminated/);
   });
 });
 
-// The case this endpoint exists for is a retailer checking its supplier's records, so the supplier
-// going quiet is a routine outcome and the most misleading one to get wrong. Reporting it as a
-// fault in the checker blames the wrong company; reporting it as a result would turn "I could not
-// check" into "clean", which is the answer a dishonest holder wants.
+// A silent readings holder is distinct from both checker failure and a clean result.
 test("a holder that will not hand its readings over is reported as the holder's failure", async () => {
   const { ReadingsUnavailableError } = await import("../dist/services/readingsSource.js");
   const readingsSource = {
@@ -176,9 +164,9 @@ test("a holder that will not hand its readings over is reported as the holder's 
 
     assert.equal(result.status, 502);
     assert.equal(result.body.code, "READINGS_UNAVAILABLE");
-    // Naming the company that would not answer is the point of the code above.
+    // Identify the unresponsive holder.
     assert.match(result.body.error, /http:\/\/localhost:3006/);
-    // Never a verification result, however tempting the shape.
+    // Unavailable readings never produce a verification result.
     assert.equal(result.body.match, undefined);
   });
 });
@@ -204,7 +192,7 @@ test("verification names which precondition failed", async () => {
       repository: repositoryStub({ getReadings: async () => [] })
     },
     {
-      // The ledger has no such record, which must never be mistaken for a match.
+      // Missing Fabric evidence cannot verify.
       code: "ANCHORED_EVIDENCE_NOT_FOUND",
       status: 409,
       repository: repositoryStub()
@@ -244,14 +232,13 @@ test("a match is only reported when the ledger itself supplies the anchor", asyn
       assert.equal(result.status, 200);
       assert.equal(result.body.match, true);
       assert.equal(result.body.databaseHashMatchesAnchor, true);
-      // The transaction ID reported is the ledger's, not the database's copy.
+      // Report Fabric's transaction ID.
       assert.equal(result.body.fabricTransactionId, "tx-from-ledger");
     }
   );
 });
 
-// Falling back to the database's copy would hand an auditor a transaction ID taken from the very
-// record they are checking, under a field documented as coming off the ledger.
+// Never substitute the database holder's transaction ID for Fabric's value.
 test("an anchor with no transaction ID is reported as missing, not filled in from the database", async () => {
   const readings = [{ sensorId: "S-1", recordedAt: "2026-07-30T00:00:00.000Z", celsius: 2 }];
   const { sha256TemperatureReadings } = await import("@fresh-milk/storage");

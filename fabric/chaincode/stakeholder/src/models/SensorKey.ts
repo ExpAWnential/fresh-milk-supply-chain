@@ -1,12 +1,6 @@
 /**
- * The regulator's attestation that a public key belongs to a sensor.
- *
- * Only the public half is ever on the ledger, which is the point: it is enough for anyone to check
- * a reading's signature, and useless for producing one. The private half stays in the device and
- * never reaches this network.
- *
- * The registry holds this rather than the temperature contract because it is an attestation of an
- * identity by the regulator, which is what this contract already does for companies.
+ * The regulator's on-chain attestation that a public key belongs to a sensor.
+ * Only the public key reaches the ledger. The sensor retains the private key used to sign readings.
  */
 export type SensorKeyAlgorithm = "ed25519";
 

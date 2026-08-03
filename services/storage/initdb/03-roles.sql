@@ -1,16 +1,10 @@
--- One login per company, so the separation above is enforced by Postgres rather than being a
--- convention the application could quietly break. The regulator's connection string is refused by
--- the oracle's database, which is checkable with psql rather than taken on trust.
---
--- Honest limit: both databases live in one container under one superuser, and the freshmilk owner
--- can still reach both. Real isolation means separate instances. This is as far as one container
--- goes, and it is far enough to demonstrate the property.
+-- Separate application logins enforce the oracle and regulator database boundary. The shared
+-- container owner remains a proof-of-concept limitation. Production isolation needs separate instances.
 
 CREATE ROLE oracle_app LOGIN PASSWORD 'oracle';
 CREATE ROLE regulator_app LOGIN PASSWORD 'regulator';
 
--- Postgres grants CONNECT to PUBLIC by default, so without these revokes both roles could open
--- both databases and the grants below would mean nothing.
+-- Remove PostgreSQL's default public connection access before granting each role one database.
 REVOKE CONNECT ON DATABASE freshmilk_oracle FROM PUBLIC;
 REVOKE CONNECT ON DATABASE freshmilk_regulator FROM PUBLIC;
 

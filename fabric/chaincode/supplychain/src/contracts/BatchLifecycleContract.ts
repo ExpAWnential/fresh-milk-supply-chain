@@ -1,14 +1,11 @@
 /**
- * The batch state machine: created, processed, in transit, delivered, plus a regulator recall.
+ * Records the journey of a milk batch from creation through processing, transport and delivery.
  *
- * Every transition is checked against the batch's current status before anything is written, and
- * each step carries its own role rule. Temperature and cold-chain breaches belong to
- * TemperatureComplianceContract, not to this one.
+ * Each transition is a separate Fabric transaction with its own role check. The ledger therefore
+ * records both the current state and the complete history needed for traceability.
  */
 
-// Value import, not "import type": @Transaction identifies the ctx parameter by comparing its
-// emitted runtime type against Context, so an erased type import makes Fabric expect an extra
-// argument on every transaction.
+// Fabric's decorators inspect Context at runtime, so it must remain a value import.
 import { Context, Contract, Info, Returns, Transaction } from "fabric-contract-api";
 import { BATCH_STATUSES, type Batch, type BatchHistoryEntry, type BatchStatus } from "../models/Batch.js";
 import { batchKey } from "../utils/ledgerKeys.js";
@@ -39,7 +36,7 @@ interface HistoryEntry {
   readonly value: Uint8Array;
 }
 
-// Both queries walk a Fabric iterator to exhaustion and must close it either way.
+// Fabric iterators must be consumed and closed explicitly.
 async function drain<TEntry, TResult>(
   iterator: { next(): Promise<{ done?: boolean; value?: TEntry }>; close(): Promise<void> },
   take: (entry: TEntry) => TResult | undefined
@@ -62,13 +59,12 @@ async function drain<TEntry, TResult>(
   return collected;
 }
 
-// One transaction per lifecycle step rather than a single generic advance, so each step
-// carries its own role rule and can be tested in isolation.
 @Info({
   title: "BatchLifecycleContract",
   description: "Creates milk batches and validates lifecycle transitions."
 })
 export class BatchLifecycleContract extends Contract {
+  /** Creates the immutable provenance record that begins a batch's ledger history. */
   @Transaction()
   public async createBatch(
     ctx: Context,
@@ -76,9 +72,6 @@ export class BatchLifecycleContract extends Contract {
     origin: string,
     location: string
   ): Promise<void> {
-    // Only a farm. Milk enters the chain at its source, and `origin` is written once here and
-    // never changed, so letting a later party create the batch would let it state its own
-    // provenance. The processor's step is recordProcessingEvent.
     const stakeholder = await assertActiveRole(ctx, ["FARM"]);
     const normalisedBatchId = requireValue(batchId, "Batch ID");
     const normalisedOrigin = requireValue(origin, "Origin");
@@ -106,6 +99,7 @@ export class BatchLifecycleContract extends Contract {
     emitLifecycleEvent(ctx, "BatchCreated", batch, stakeholder);
   }
 
+  /** Records the processor's custody step and current batch location. */
   @Transaction()
   public async recordProcessingEvent(
     ctx: Context,
@@ -123,6 +117,7 @@ export class BatchLifecycleContract extends Contract {
     );
   }
 
+  /** Moves a processed batch into transport under the logistics identity. */
   @Transaction()
   public async startTransport(ctx: Context, batchId: string, location: string): Promise<void> {
     await this.transitionBatch(
@@ -136,6 +131,7 @@ export class BatchLifecycleContract extends Contract {
     );
   }
 
+  /** Records retailer delivery as the final normal lifecycle transition. */
   @Transaction()
   public async recordDelivery(ctx: Context, batchId: string, location: string): Promise<void> {
     await this.transitionBatch(
@@ -149,6 +145,7 @@ export class BatchLifecycleContract extends Contract {
     );
   }
 
+  /** Permanently withdraws a batch while retaining the state and provenance that led to the recall. */
   @Transaction()
   public async recallBatch(ctx: Context, batchId: string, reason: string): Promise<void> {
     const regulator = await assertActiveRole(ctx, ["REGULATOR"]);
@@ -179,6 +176,7 @@ export class BatchLifecycleContract extends Contract {
     });
   }
 
+  /** Returns the current ledger state for a batch after checking consortium membership. */
   @Transaction(false)
   @Returns("string")
   public async getBatch(ctx: Context, batchId: string): Promise<string> {
@@ -186,6 +184,7 @@ export class BatchLifecycleContract extends Contract {
     return JSON.stringify(await getBatchRecord(ctx, requireValue(batchId, "Batch ID")));
   }
 
+  /** Returns the complete Fabric history so cleared breaches remain visible after status changes. */
   @Transaction(false)
   @Returns("string")
   public async getBatchHistory(ctx: Context, batchId: string): Promise<string> {
@@ -211,6 +210,7 @@ export class BatchLifecycleContract extends Contract {
     return JSON.stringify(history);
   }
 
+  /** Uses a CouchDB rich query to find batches in one lifecycle state. */
   @Transaction(false)
   @Returns("string")
   public async queryBatchesByStatus(ctx: Context, status: string): Promise<string> {

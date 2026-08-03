@@ -1,14 +1,9 @@
 /**
- * Puts readings into the one exact form the fingerprint is computed over: trimmed text, ISO
- * timestamps, temperatures to three decimals, in a fixed order.
+ * Converts parsed sensor rows into the stable representation used by hashing and signatures.
  *
- * Two runs over the same readings have to produce byte-identical output, or the hash means
- * nothing.
+ * Text and timestamps are normalised, while the signed sequence and signature remain untouched.
+ * This keeps equivalent input consistent without changing the bytes whose authenticity is checked.
  */
-// Every rule that decides what a reading *is* comes from the storage package, which is also where
-// the fingerprint and the signed payload are built. Keeping a private copy of any of them here
-// would mean the oracle could normalise a timestamp one way, then have the signature checked
-// against a payload normalised another way, and report readings nobody touched as forged.
 import {
   compareTemperatureReadings,
   normaliseRecordedAt,
@@ -34,10 +29,8 @@ export interface CanonicalTemperatureReading {
   readonly signature: string;
 }
 
-// The sequence and the signature are carried through rather than normalised. The sequence is part
-// of what the sensor signed, so changing it here would invalidate every signature; the signature
-// is opaque bytes. Neither takes part in the ordering, which stays exactly what the fingerprint is
-// built from.
+// Preserve signed sequence values and opaque signatures without normalising them.
+/** Normalises sensor rows while preserving the sequence and signature supplied by the sensor. */
 export function canonicaliseReadings(
   readings: readonly RawTemperatureReading[]
 ): readonly CanonicalTemperatureReading[] {
@@ -60,4 +53,3 @@ function normaliseTemperature(value: number): number {
 
   return roundCelsius(value);
 }
-

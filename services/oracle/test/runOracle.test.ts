@@ -23,8 +23,7 @@ const READINGS = [
   }
 ];
 
-// These tests are about the order the run does things in and how it recovers, not about whether a
-// signature is genuine. Real keys are used in verifyReadings.test.ts.
+// Signature authenticity is covered separately. These tests focus on ordering and recovery.
 const acceptsSignedReadings = async () => {};
 
 function recordingRepository() {
@@ -59,7 +58,7 @@ const anchorSucceeds = async () => ({
   complianceOutcome: "COMPLIANT" as const
 });
 
-// The ledger positively reports nothing anchored under this evidence ID.
+// Default to a confirmed missing anchor.
 const nothingAnchored = async () => undefined;
 
 describe("oracle run", () => {
@@ -77,7 +76,7 @@ describe("oracle run", () => {
       calls.map((call) => call.name),
       ["saveEvidence", "markAnchored"]
     );
-    // Written as PENDING first, so a failed submission is never mistaken for anchored evidence.
+    // Persist PENDING before attempting Fabric submission.
     const [saved] = calls[0].args as [Record<string, unknown>];
     assert.equal(saved.submissionStatus, "PENDING");
     assert.equal(saved.fabricTransactionId, null);
@@ -99,13 +98,13 @@ describe("oracle run", () => {
       { sensorId: "SENSOR-001", recordedAt: "2026-07-14T08:15:00.000Z", celsius: 3.6 }
     ]);
     assert.equal(result.evidenceHash, expected);
-    // The identifier is derived from the content, so the same readings always produce the same one.
+    // The evidence ID is content-derived and deterministic.
     assert.equal(result.evidenceId, `EV-BATCH-001-${expected.slice(0, 8)}`);
   });
 
   it("reports the contract's outcome rather than its own", async () => {
     const { repository } = recordingRepository();
-    // These readings are within range, yet the contract is the one that decides.
+    // The result uses the contract's verdict even for safe readings.
     const result = await runOracle(READINGS, {
       repository,
       verifyReadings: acceptsSignedReadings,
@@ -136,8 +135,7 @@ describe("oracle run", () => {
     );
   });
 
-  // Marking a committed transaction as failed would make verification report it as never
-  // anchored, and the deterministic evidence ID means it can never be submitted again.
+  // A post-commit client failure must remain recoverable from Fabric.
   it("leaves the row pending when the transaction landed but the follow-up did not", async () => {
     const { calls, repository } = recordingRepository();
 
@@ -180,8 +178,7 @@ describe("oracle run", () => {
     );
   });
 
-  // The evidence ID is derived from the readings, so the contract refuses a second submission.
-  // Adopting what is already there is the only way a half-finished run can ever complete.
+  // A retry adopts the existing record because the deterministic ID cannot be submitted twice.
   it("adopts the record already on the ledger when anchoring reports a failure", async () => {
     const { calls, repository } = recordingRepository();
 
@@ -195,7 +192,7 @@ describe("oracle run", () => {
     });
 
     assert.equal(result.fabricTransactionId, "tx-earlier");
-    // Reported by the contract, so the recovered run says what the ledger says.
+    // Recovery uses Fabric's verdict.
     assert.equal(result.complianceOutcome, "UNSAFE");
     assert.deepEqual(
       calls.map((call) => call.name),
@@ -220,7 +217,7 @@ describe("oracle run", () => {
       /must be IN_TRANSIT/
     );
 
-    // Not knowing whether the transaction landed is not proof that it did not.
+    // Inconclusive state remains PENDING.
     assert.deepEqual(
       calls.map((call) => call.name),
       ["saveEvidence"]
@@ -239,7 +236,7 @@ describe("oracle run", () => {
       }),
       /must all belong to one batch/
     );
-    // Nothing is written, because a fingerprint spanning batches could never be verified.
+    // Mixed-batch input is rejected before persistence.
     assert.equal(calls.length, 0);
   });
 

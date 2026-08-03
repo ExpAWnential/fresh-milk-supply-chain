@@ -10,8 +10,7 @@ const event = (eventName, payload) => ({
   payload: Buffer.from(typeof payload === "string" ? payload : JSON.stringify(payload))
 });
 
-// Every field the contract puts on the event. The archive stores all of them, so a fixture that
-// dropped one would be testing a payload the chaincode never emits.
+// Complete payload emitted by the temperature contract.
 const evidenceSubmitted = (overrides = {}) =>
   event("TemperatureEvidenceSubmitted", {
     evidenceId: "EV-1",
@@ -47,8 +46,6 @@ function recordingRepository(recordVerdict) {
   };
 }
 
-// The oracle stores its own reading of the range in its own database. The contract derives the
-// verdict again on chain, and that is the one the regulator's archive has to end up holding.
 test("the contract's verdict is archived exactly as the event reported it", async () => {
   const { verdicts, repository } = recordingRepository();
 
@@ -69,8 +66,7 @@ test("the contract's verdict is archived exactly as the event reported it", asyn
   ]);
 });
 
-// The contract announces an unsafe verdict under its own event name. Ignoring it would leave the
-// regulator with no record of the reading that matters most.
+// Unsafe evidence uses a separate event name and must still be archived.
 test("a cold-chain breach verdict is archived like any other", async () => {
   const { verdicts, repository } = recordingRepository();
 
@@ -97,8 +93,6 @@ test("a cold-chain breach verdict is archived like any other", async () => {
 test("events the listener has no business with are left alone", async () => {
   const { verdicts, repository } = recordingRepository();
 
-  // Resolving a breach does not revise the evidence: the reading was still unsafe when it was
-  // taken, and that stays on the record.
   for (const name of ["ColdChainBreachResolved", "BatchCreated", "BatchDelivered"]) {
     const applied = await applyComplianceEvent(event(name, { batchId: "B-1" }), repository);
     assert.equal(applied, undefined, name);
@@ -106,7 +100,6 @@ test("events the listener has no business with are left alone", async () => {
   assert.equal(verdicts.length, 0);
 });
 
-// A restart replays from the last checkpoint, so the same event arriving twice has to be safe.
 test("the same event applied twice archives the same thing", async () => {
   const { verdicts, repository } = recordingRepository();
   await applyComplianceEvent(evidenceSubmitted(), repository);
@@ -115,9 +108,7 @@ test("the same event applied twice archives the same thing", async () => {
   assert.deepEqual(verdicts[0], verdicts[1]);
 });
 
-// Every archived column is NOT NULL. A payload missing one would fail at the insert, and that
-// throw leaves the event uncheckpointed, so the same broken event would retry on every restart
-// forever. It has to be rejected here, before it ever reaches the database.
+// Malformed payloads must be rejected before the archive's NOT NULL constraints.
 test("an event that cannot be read is skipped rather than archived", async () => {
   const { verdicts, repository } = recordingRepository();
   const unreadable = [
@@ -150,14 +141,9 @@ test("every event in the stream is checkpointed once it has been handled", async
     }
   });
 
-  // Including the ones it ignores, otherwise the stream would never move past them.
   assert.deepEqual(checkpointed, ["TemperatureEvidenceSubmitted", "BatchCreated"]);
 });
 
-// The checkpoint is a single cursor. Carrying on past a failed write would move it beyond a
-// verdict that was never archived, and nothing would ever come back for it: the regulator's
-// archive would quietly disagree with the ledger forever. Stopping leaves the cursor on the last
-// event that really was archived, so a restart replays from exactly there.
 test("a failed archive write stops the stream instead of checkpointing past it", async () => {
   const { repository } = recordingRepository((verdict) => {
     if (verdict.evidenceId === "EV-BROKEN") {
@@ -179,12 +165,10 @@ test("a failed archive write stops the stream instead of checkpointing past it",
     /Could not archive a TemperatureEvidenceSubmitted event/
   );
 
-  // Neither the failed event nor the one after it. EV-2 is left for the restart to redeliver
-  // along with EV-BROKEN, and applying either twice writes the same values.
+  // Leave the failed event and everything after it for restart replay.
   assert.deepEqual(checkpointed, []);
 });
 
-// An event is only checkpointed once its write has actually landed.
 test("an event is checkpointed only after it has been archived", async () => {
   const order = [];
   const repository = {
@@ -207,14 +191,6 @@ test("an event is checkpointed only after it has been archived", async () => {
   assert.deepEqual(order, ["archived", "checkpointed"]);
 });
 
-// ---------------------------------------------------------------------------------------------
-// The regulator checking signatures itself, as each verdict lands, rather than when asked.
-// ---------------------------------------------------------------------------------------------
-
-// A failed archive write stops the stream, on purpose. A signature result must not, and the two
-// reasons are different: the verdict is already archived by the time this runs, and a forged
-// reading is a finding about the evidence rather than a hole in the archive. Stopping would let one
-// dishonest submission halt the archiving of every verdict after it.
 test("a forged reading is recorded and the stream carries on", async () => {
   const { verdicts, signatureChecks, repository } = recordingRepository();
 
@@ -236,8 +212,6 @@ test("a forged reading is recorded and the stream carries on", async () => {
   assert.equal(verdicts.length, 2, "the later verdict was still archived");
 });
 
-// The oracle being unreachable must not take the regulator's archive down with it. UNKNOWN says
-// "not checked", which is honestly different from "checked and forged".
 test("an unreachable oracle records UNKNOWN and still archives the verdict", async () => {
   const { verdicts, signatureChecks, repository } = recordingRepository();
   const checkpointed = [];
@@ -255,8 +229,6 @@ test("an unreachable oracle records UNKNOWN and still archives the verdict", asy
   assert.deepEqual(checkpointed, ["TemperatureEvidenceSubmitted"], "and the cursor still moved");
 });
 
-// The row already defaults to UNKNOWN, so a later look can still settle it. Losing the archive over
-// a failed status update would be the worse trade.
 test("a failure recording the check does not stop the stream either", async () => {
   const { verdicts, repository } = recordingRepository();
   repository.recordSignatureCheck = async () => {
@@ -271,7 +243,6 @@ test("a failure recording the check does not stop the stream either", async () =
   assert.equal(verdicts.length, 2);
 });
 
-// Events the archive ignores have no evidence to check, so nothing should be attempted for them.
 test("only archived verdicts are checked", async () => {
   const { signatureChecks, repository } = recordingRepository();
 
@@ -283,7 +254,6 @@ test("only archived verdicts are checked", async () => {
   assert.deepEqual(signatureChecks, [{ evidenceId: "EV-1", outcome: "PASSED" }]);
 });
 
-// A company with no archive keeps the listener it always had.
 test("a listener with no checker behaves exactly as before", async () => {
   const { verdicts, signatureChecks, repository } = recordingRepository();
 

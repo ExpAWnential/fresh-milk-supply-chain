@@ -2,12 +2,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
+# Fabric's peer configuration, mounted into every local peer. The upstream setting descriptions are
+# retained because many defaults and interactions are not apparent from the YAML values alone.
 
-###############################################################################
-#
-#    Peer section
-#
-###############################################################################
+# Peer configuration
 peer:
 
     # The peer id provides a name for this peer instance and is used when
@@ -321,9 +319,7 @@ peer:
         Default: SW
         # Settings for the SW crypto provider (i.e. when DEFAULT: SW)
         SW:
-            # TODO: The default Hash and Security level needs refactoring to be
-            # fully configurable. Changing these defaults requires coordination
-            # SHA2 is hardcoded in several places, not only BCCSP
+            # SHA2 is also fixed elsewhere in Fabric, so changing it here alone is unsupported.
             Hash: SHA2
             Security: 256
             # Location of Key Store
@@ -343,13 +339,7 @@ peer:
 
     # Path on the file system where peer will find MSP local configurations
     mspConfigPath: msp
-    # Identifier of the local MSP
-    # ----!!!!IMPORTANT!!!-!!!IMPORTANT!!!-!!!IMPORTANT!!!!----
-    # Deployers need to change the value of the localMspId string.
-    # In particular, the name of the local MSP ID of a peer needs
-    # to match the name of one of the MSPs in each of the channel
-    # that this peer is a member of. Otherwise this peer's messages
-    # will not be identified as valid by other nodes.
+    # Must match the peer's MSP ID in every channel it joins.
     localMspId: SampleOrg
 
     # CLI common client config options
@@ -486,11 +476,7 @@ peer:
     # Max message size in bytes GRPC server and client can send
     maxSendMsgSize: 104857600
 
-###############################################################################
-#
-#    VM section
-#
-###############################################################################
+# Chaincode container runtime
 vm:
 
     # Endpoint of the vm management system.  For docker can be one of the following in general
@@ -538,11 +524,7 @@ vm:
                    max-file: "5"
            Memory: 2147483648
 
-###############################################################################
-#
-#    Chaincode section
-#
-###############################################################################
+# Chaincode execution
 chaincode:
 
     # The id is used by the Chaincode stub to register the executing Chaincode
@@ -637,12 +619,7 @@ chaincode:
       # Format for the chaincode container logs
       format: '%{color}%{time:2006-01-02 15:04:05.000 MST} [%{module}] %{shortfunc} -> %{level:.4s} %{id:03x}%{color:reset} %{message}'
 
-###############################################################################
-#
-#    Ledger section - ledger configuration encompasses both the blockchain
-#    and the state
-#
-###############################################################################
+# Blockchain and world-state storage
 ledger:
 
   blockchain:
@@ -721,11 +698,7 @@ ledger:
     # Path on the file system where peer will store ledger snapshots
     rootDir: /var/hyperledger/production/snapshots
 
-###############################################################################
-#
-#    Operations section
-#
-###############################################################################
+# Operations endpoint
 operations:
     # host and port for the operations server
     listenAddress: 127.0.0.1:9443
@@ -752,11 +725,7 @@ operations:
         clientRootCAs:
             files: []
 
-###############################################################################
-#
-#    Metrics section
-#
-###############################################################################
+# Metrics export
 metrics:
     # metrics provider is one of statsd, prometheus, or disabled
     provider: disabled
