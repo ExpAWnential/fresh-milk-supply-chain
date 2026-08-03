@@ -1,15 +1,14 @@
 /**
- * The two things every route needs before it can talk to a contract: a chaincode and contract
+ * The two things most routes need before they can talk to a contract: a chaincode and contract
  * bound once, and a check that a request field really is a non-empty string.
  */
-import type { Request } from "express";
-import { withGateway, type GatewayConnector } from "./request.js";
+import { withGateway, type GatewayConnector } from "./connection.js";
 
 // Every route talks to one chaincode and one contract, so binding both once removes them from
 // each call site and leaves the handler showing only the transaction it runs.
 export interface BoundLedger {
-  submit(request: Request, transaction: string, ...args: string[]): Promise<void>;
-  evaluateJson(request: Request, transaction: string, ...args: string[]): Promise<unknown>;
+  submit(transaction: string, ...args: string[]): Promise<void>;
+  evaluateJson(transaction: string, ...args: string[]): Promise<unknown>;
 }
 
 export function bindLedger(
@@ -18,14 +17,14 @@ export function bindLedger(
   contractName: string
 ): BoundLedger {
   return {
-    async submit(request, transaction, ...args) {
-      await withGateway(connect, request, (client) =>
+    async submit(transaction, ...args) {
+      await withGateway(connect, (client) =>
         client.submitTransaction(chaincodeName, contractName, transaction, ...args)
       );
     },
 
-    async evaluateJson(request, transaction, ...args) {
-      const bytes = await withGateway(connect, request, (client) =>
+    async evaluateJson(transaction, ...args) {
+      const bytes = await withGateway(connect, (client) =>
         client.evaluateTransaction(chaincodeName, contractName, transaction, ...args)
       );
       return JSON.parse(Buffer.from(bytes).toString());

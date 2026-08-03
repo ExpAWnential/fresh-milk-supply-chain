@@ -6,7 +6,7 @@
  */
 import { pathToFileURL } from "node:url";
 import type { Pool } from "pg";
-import { createPool } from "./pool.js";
+import { createPool, ORACLE_DATABASE_URL } from "./pool.js";
 import { sha256TemperatureReadings } from "./evidenceHash.js";
 import {
   createTemperatureRepository,
@@ -114,8 +114,7 @@ export async function tamperWithEvidence(
 
 async function main(): Promise<void> {
   const options = parseArguments(process.argv.slice(2));
-  const connectionString =
-    process.env.DATABASE_URL ?? "postgres://freshmilk:freshmilk@localhost:5432/freshmilk";
+  const connectionString = process.env.DATABASE_URL ?? ORACLE_DATABASE_URL;
   const pool = createPool({ connectionString });
 
   try {

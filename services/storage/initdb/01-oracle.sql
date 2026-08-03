@@ -1,8 +1,13 @@
--- Off-chain storage for the fresh-milk cold-chain PoC.
+-- The oracle's own database: the raw sensor readings it collected, and its record of what it
+-- anchored for them. Runs against POSTGRES_DB, which the compose file sets to freshmilk_oracle.
 --
 -- Detailed operational data lives here. Only the evidence hash, the off-chain reference,
 -- the computed statistics and the compliance outcome are written to the ledger.
 -- No credentials, certificates or private keys are stored in this database.
+--
+-- compliance_outcome here is the oracle's own reading of the numbers. The verdict that counts is
+-- the one the contract derived, which lives in the regulator's database and is built from the
+-- ledger's events. Keeping them apart is what lets the two be compared.
 
 CREATE TABLE IF NOT EXISTS temperature_evidence (
     evidence_id TEXT PRIMARY KEY,

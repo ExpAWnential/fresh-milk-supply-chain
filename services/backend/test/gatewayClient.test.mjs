@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import test from "node:test";
 import { createFabricGatewayClient } from "../dist/fabric/gateway.js";
-import { getDemoIdentity } from "../dist/demoIdentity.js";
+import { findOrganisation, walletFor } from "../dist/organisations.js";
+import { config } from "../dist/config.js";
 
 // Building a client still reads the real certificate and key off disk, so these skip where the
 // network has not been brought up. Only the gateway itself is stubbed.
-const regulator = getDemoIdentity("regulator");
+const regulator = walletFor(findOrganisation("regulator"), config.fabricOrganizationsPath);
 const walletPresent = existsSync(regulator.userPath) && existsSync(regulator.peerTlsCaPath);
 const needsWallet = { skip: walletPresent ? false : "Fabric wallet material is not present" };
 

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   createPool,
   createTemperatureRepository,
+  ORACLE_DATABASE_URL,
   sha256TemperatureReadings
 } from "../dist/index.js";
 
@@ -15,7 +16,7 @@ test(
     const pool = createPool({
       connectionString:
         process.env.DATABASE_URL ??
-        "postgres://freshmilk:freshmilk@localhost:5432/freshmilk"
+        ORACLE_DATABASE_URL
     });
     const temperatureRepository = createTemperatureRepository(pool);
 

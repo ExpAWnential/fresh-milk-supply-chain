@@ -3,26 +3,25 @@
  *
  * Consumers hold no Fabric identity, so this route reads the ledger on their behalf and returns
  * only the filtered view, in wording written for them rather than for an operator.
+ *
+ * "On their behalf" means as the company running this backend. A shopper scanning a pack reaches
+ * the retailer's, and the retailer's own read permissions are what decide the answer.
  */
 import { Router, type Response } from "express";
 import { config } from "../config.js";
 import { BATCH_CONTRACT } from "../fabric/contracts.js";
 import type { FabricGatewayClient } from "../fabric/gateway.js";
-import { extractChaincodeMessage } from "../fabric/request.js";
+import { extractChaincodeMessage, type GatewayConnector } from "../fabric/connection.js";
 import { consumerView, type LedgerBatch, type LedgerHistoryEntry } from "../services/consumerView.js";
 
-// Opens a connection under the backend's own identity rather than the caller's, because the
-// request carries no identity header for this route.
-export type PublicReader = () => Promise<FabricGatewayClient>;
-
-export function createPublicRouter(readAsRegulator: PublicReader): Router {
+export function createPublicRouter(connect: GatewayConnector): Router {
   const router = Router();
 
   router.get("/batches/:batchId", async (req, res) => {
     // Inside the try, so a connection failure is reported rather than escaping the handler.
     let client: FabricGatewayClient | undefined;
     try {
-      client = await readAsRegulator();
+      client = await connect();
       const read = async (transaction: string): Promise<unknown> => {
         const bytes = await client!.evaluateTransaction(
           config.supplychainChaincodeName,

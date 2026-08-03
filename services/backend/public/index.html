@@ -26,7 +26,7 @@
       h1 small { font-weight: 400; color: var(--muted); font-size: .8rem; margin-left: .5rem; }
       .bar {
         display: flex; flex-wrap: wrap; gap: .75rem; align-items: center;
-        padding: .75rem; border: 2px solid var(--ink); border-radius: 8px; margin-bottom: 1rem;
+        padding: .75rem; border: 2px solid var(--ink); border-radius: 8px; margin-bottom: .75rem;
       }
       .bar label { font-weight: 600; }
       select, input, button {
@@ -37,6 +37,14 @@
       button { cursor: pointer; }
       button:hover { border-color: var(--ink); }
       button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+      /* One chip per company. Six separate processes is the claim, and this is the evidence. */
+      #backends { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: 1rem; }
+      .chip {
+        font-size: .8rem; padding: .25rem .6rem; border-radius: 999px;
+        border: 1px solid var(--line); color: var(--muted);
+      }
+      .chip.up { border-color: var(--ok); color: var(--ok); font-weight: 600; }
+      .chip.down { border-color: var(--broken); color: var(--broken); }
       .group { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: .5rem; }
       .group .name {
         width: 8rem; font-size: .75rem; letter-spacing: .07em; text-transform: uppercase;
@@ -68,12 +76,12 @@
   <body>
     <h1>
       Fresh Milk Cold Chain
-      <small>every request is signed by the company selected below</small>
+      <small>each company runs its own backend; the port that answered is shown on every line</small>
     </h1>
 
     <div class="bar">
-      <label for="identity">Acting as</label>
-      <select id="identity"></select>
+      <label for="company">Send to</label>
+      <select id="company"></select>
 
       <label for="batch">Batch</label>
       <input id="batch" list="batches" value="BATCH-001" />
@@ -84,18 +92,21 @@
       <button id="newBatch">new</button>
 
       <button id="setup" class="primary">Set up demo</button>
+      <button id="ping">Ping all</button>
       <button id="clear">Clear log</button>
     </div>
+
+    <div id="backends"></div>
 
     <div id="actions"></div>
 
     <div class="split">
       <section>
-        <h2>PostgreSQL — off-chain</h2>
+        <h2>PostgreSQL — the oracle's own record</h2>
         <pre id="offChain">Use "Show evidence" to fill this in.</pre>
       </section>
       <section>
-        <h2>Ledger — on-chain</h2>
+        <h2>Ledger — anchored</h2>
         <pre id="onChain">—</pre>
       </section>
     </div>
@@ -104,7 +115,7 @@
 
     <script>
       const $ = (id) => document.getElementById(id);
-      const identityField = $("identity");
+      const companyField = $("company");
       const batchField = $("batch");
 
       function log(tone, title, body) {
@@ -130,17 +141,38 @@
         return "broken";
       }
 
-      // `identity: null` sends no header at all, which is how the consumer endpoint is reached.
-      async function call(method, path, { body, identity } = {}) {
-        const signer = identity === null ? null : (identity ?? identityField.value);
-        const headers = {};
-        if (signer) headers["x-demo-identity"] = signer;
-        if (body) headers["content-type"] = "application/json";
+      let companies = [];
+      const originOf = (name) => companies.find((entry) => entry.name === name)?.origin;
+      // Which port answered, which is the only thing that decides who signs. Nothing in the request
+      // says who is calling, because nothing can: each backend holds one key and only that one.
+      // Tolerates a missing origin: new URL("") throws, and this runs while building the log label
+      // before any try block, so an unguarded version killed the click outright with no log line.
+      const portOf = (origin) => {
+        try {
+          return `:${new URL(origin).port}`;
+        } catch {
+          return "(no backend)";
+        }
+      };
+
+      async function call(method, path, { body, origin } = {}) {
+        const target = origin ?? companyField.value;
+        const company = companies.find((entry) => entry.origin === target);
+        const label = `${method} ${portOf(target)}${path}   as ${company?.name ?? "?"}`;
+
+        // Every action needs a company to send to, and until the directory loads there is none.
+        // Saying so is the whole point: the alternative was a button that did nothing at all.
+        if (!target) {
+          log("broken", `${label}   →   no backend selected`,
+            `The company directory has not loaded. Press "Ping all", or check that the backend ` +
+              `serving this page is running.`);
+          return { status: 0, body: null };
+        }
 
         try {
-          const response = await fetch(path, {
+          const response = await fetch(target + path, {
             method,
-            headers,
+            headers: body ? { "content-type": "application/json" } : {},
             body: body ? JSON.stringify(body) : undefined
           });
           const text = await response.text();
@@ -149,50 +181,97 @@
 
           log(
             toneFor(response.status),
-            `${method} ${path}   ${signer ? `as ${signer}` : "no identity"}   →   ${response.status}`,
+            `${label}   →   ${response.status}`,
             typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2)
           );
           return { status: response.status, body: parsed };
         } catch (error) {
-          // A failed fetch means the backend is unreachable, which is not the contract refusing.
-          log("broken", `${method} ${path}   →   could not reach the backend`, String(error));
+          // A cross-origin rejection and a backend that is not running are the same TypeError, so
+          // the port has to be in the message or there is no way to tell which happened.
+          log("broken", `${label}   →   ${target} did not answer`, String(error));
           return { status: 0, body: null };
         }
       }
 
-      let identities = [];
+      // The directory comes from whichever backend served this page. The six certificate IDs do
+      // not: each company reports its own, because that is the only certificate it holds.
+      async function loadConsortium() {
+        try {
+          const response = await fetch("/organisations");
+          if (!response.ok) {
+            throw new Error(`the directory answered ${response.status}`);
+          }
+          companies = await response.json();
+        } catch (error) {
+          // Without this the page rendered an empty dropdown and an empty chip row, looked fine,
+          // and every button did nothing. A demo that is silently dead is the worst failure here.
+          log("broken", "Could not load the company directory",
+            `${String(error)}\n\nThe backend serving this page is not answering. Check it is ` +
+              `running, then reload.`);
+          return;
+        }
 
-      async function loadIdentities() {
-        const result = await call("GET", "/demo/identities", { identity: null });
-        if (result.status !== 200) return;
-
-        identities = result.body;
-        identityField.innerHTML = identities
-          .map((entry) => `<option value="${entry.role}">${entry.role}</option>`)
+        companyField.innerHTML = companies
+          .map((entry) => `<option value="${entry.origin}">${entry.name} — ${portOf(entry.origin)}</option>`)
           .join("");
-        identityField.value = localStorage.getItem("identity") ?? "farm";
+        const remembered = localStorage.getItem("company");
+        companyField.value = companies.some((entry) => entry.origin === remembered)
+          ? remembered
+          : originOf("farm");
+
+        await pingAll();
+      }
+
+      async function pingAll() {
+        $("backends").innerHTML = companies
+          .map((entry) => `<span class="chip" id="chip-${entry.name}">${entry.name} ${portOf(entry.origin)}</span>`)
+          .join("");
+
+        await Promise.all(
+          companies.map(async (entry) => {
+            const chip = $(`chip-${entry.name}`);
+            try {
+              const response = await fetch(`${entry.origin}/identity`);
+              entry.certificateId = (await response.json()).certificateId;
+              chip.className = "chip up";
+            } catch {
+              entry.certificateId = undefined;
+              chip.className = "chip down";
+            }
+          })
+        );
       }
 
       // Bootstrap first: every other registration needs an active regulator to authorise it. The
       // six requests are made from here rather than server-side so each one appears in the log.
       async function setUpDemo() {
-        const regulator = identities.find((entry) => entry.role === "regulator");
-        if (!regulator) {
-          log("broken", "Set up demo   →   the identities have not loaded", "Reload the page.");
+        // Half a registry is worse than none, so this refuses rather than registering some
+        // companies and silently skipping the rest.
+        const missing = companies.filter((entry) => !entry.certificateId);
+        if (missing.length > 0) {
+          log(
+            "broken",
+            "Set up demo   →   not every company answered",
+            `No certificate from: ${missing.map((entry) => portOf(entry.origin)).join(", ")}.\n` +
+              `All six backends have to be running. Try "Ping all".`
+          );
           return;
         }
 
+        const regulator = companies.find((entry) => entry.name === "regulator");
         await call("POST", "/stakeholders/bootstrap", {
-          identity: "regulator",
+          origin: regulator.origin,
           body: { stakeholderId: regulator.stakeholderId }
         });
 
-        for (const entry of identities.filter((candidate) => candidate.role !== "regulator")) {
+        // Registration is the regulator's to do, so every one of these goes to the regulator's
+        // backend, carrying the certificate ID that company reported for itself.
+        for (const entry of companies.filter((candidate) => candidate.name !== "regulator")) {
           await call("POST", "/stakeholders", {
-            identity: "regulator",
+            origin: regulator.origin,
             body: {
               stakeholderId: entry.stakeholderId,
-              role: entry.role.toUpperCase(),
+              role: entry.name.toUpperCase(),
               certificateId: entry.certificateId
             }
           });
@@ -204,8 +283,14 @@
 
       // The left column is what PostgreSQL holds, the right is what the ledger holds. Side by side
       // they are the architecture: bulk readings off-chain, a fingerprint on-chain.
+      //
+      // Two backends answer here. Only the oracle keeps the readings, so the listing goes to it,
+      // while the verification runs on whichever company is selected. That company fetches the
+      // readings from the oracle itself and recomputes the hash, which is the whole point: a
+      // retailer can catch its supplier altering records.
       async function showEvidence() {
-        const listed = await call("GET", `/temperature/batches/${batch()}/evidence`);
+        const oracle = originOf("oracle");
+        const listed = await call("GET", `/temperature/batches/${batch()}/evidence`, { origin: oracle });
         if (listed.status !== 200 || !Array.isArray(listed.body) || listed.body.length === 0) {
           $("offChain").textContent = "No evidence recorded for this batch yet.";
           $("onChain").textContent = "—";
@@ -214,7 +299,7 @@
 
         const evidenceId = listed.body[listed.body.length - 1].evidenceId;
         const [readings, verified] = await Promise.all([
-          call("GET", `/temperature/evidence/${evidence(evidenceId)}/readings`),
+          call("GET", `/temperature/evidence/${evidence(evidenceId)}/readings`, { origin: oracle }),
           call("GET", `/temperature/evidence/${evidence(evidenceId)}/verify`)
         ]);
 
@@ -224,29 +309,36 @@
             readings.body
               .map((r) => `${String(r.celsius).padStart(6)} °C   ${r.recordedAt}   ${r.sensorId}`)
               .join("\n") +
-            `\n\n${readings.body.length} readings`;
+            `\n\n${readings.body.length} readings, held by the oracle`;
         }
 
         if (verified.status === 200) {
           const v = verified.body;
           const statistics = v.anchoredStatistics;
+          const checker = companies.find((entry) => entry.origin === companyField.value);
           $("onChain").textContent =
             `hash        ${v.anchoredHash}\n` +
             `recomputed  ${v.recomputedHash}\n\n` +
             (statistics ? `min ${statistics.minCelsius}   max ${statistics.maxCelsius}   avg ${statistics.averageCelsius}\n\n` : "") +
             `readings match anchor     ${v.match ? "yes" : "NO — tampered"}\n` +
             `statistics match anchor   ${v.statisticsMatch === null ? "not recorded" : v.statisticsMatch ? "yes" : "NO"}\n` +
-            `transaction               ${v.fabricTransactionId ?? "—"}`;
+            // Null whenever the checker is not the company holding the readings, which is every
+            // company but the oracle. It never saw the holder's own bookkeeping and does not need to.
+            `holder's own hash         ${v.databaseHashMatchesAnchor === null ? "not disclosed" : v.databaseHashMatchesAnchor ? "matches" : "ALTERED"}\n` +
+            `transaction               ${v.fabricTransactionId ?? "—"}\n\n` +
+            `checked by ${checker?.name ?? "?"}, readings from the oracle`;
         } else {
           $("onChain").textContent = `Could not verify (${verified.status}).`;
         }
       }
 
+      const regulator = () => ({ origin: originOf("regulator") });
+
       const actions = [
         ["Stakeholders", [
           ["Look up farm", () => call("GET", "/stakeholders/farm-001")],
-          ["Suspend farm", () => call("POST", "/stakeholders/farm-001/suspend", { identity: "regulator" })],
-          ["Reactivate farm", () => call("POST", "/stakeholders/farm-001/reactivate", { identity: "regulator" })]
+          ["Suspend farm", () => call("POST", "/stakeholders/farm-001/suspend", regulator())],
+          ["Reactivate farm", () => call("POST", "/stakeholders/farm-001/reactivate", regulator())]
         ]],
         ["Batch", [
           ["Create", () => call("POST", "/batches", {
@@ -262,7 +354,7 @@
             body: { eventType: "DELIVERY", location: "Sydney Depot" }
           })],
           ["Recall", () => call("POST", `/batches/${batch()}/recall`, {
-            identity: "regulator", body: { reason: "Investigation opened" }
+            ...regulator(), body: { reason: "Investigation opened" }
           })],
           ["Get", () => call("GET", `/batches/${batch()}`)],
           ["History", () => call("GET", `/batches/${batch()}/history`)],
@@ -271,11 +363,13 @@
         ["Temperature", [
           ["Show evidence", showEvidence],
           ["Clear breach", () => call("POST", `/temperature/batches/${batch()}/resolve-breach`, {
-            identity: "regulator", body: { reason: "Cold store repaired and stock rechecked" }
-          })]
+            ...regulator(), body: { reason: "Cold store repaired and stock rechecked" }
+          })],
+          // The regulator's own database, which nobody else holds a copy of.
+          ["Regulator's archive", () => call("GET", `/verdicts/batches/${batch()}`, regulator())]
         ]],
         ["Consumer", [
-          ["Public lookup", () => call("GET", `/public/batches/${batch()}`, { identity: null })]
+          ["Public lookup", () => call("GET", `/public/batches/${batch()}`, { origin: originOf("retailer") })]
         ]]
       ];
 
@@ -297,8 +391,8 @@
       });
 
       // Remembered so a refresh mid-demo does not lose your place.
-      identityField.addEventListener("change", () =>
-        localStorage.setItem("identity", identityField.value)
+      companyField.addEventListener("change", () =>
+        localStorage.setItem("company", companyField.value)
       );
       batchField.addEventListener("change", () => localStorage.setItem("batch", batchField.value));
       batchField.value = localStorage.getItem("batch") ?? "BATCH-001";
@@ -311,9 +405,14 @@
       });
 
       $("setup").addEventListener("click", setUpDemo);
+      $("ping").addEventListener("click", pingAll);
       $("clear").addEventListener("click", () => { $("log").innerHTML = ""; });
 
-      loadIdentities();
+      // Caught inside, but a floating promise with no handler here would still lose anything the
+      // rendering after it threw on.
+      loadConsortium().catch((error) =>
+        log("broken", "The page could not start up", String(error))
+      );
     </script>
   </body>
 </html>

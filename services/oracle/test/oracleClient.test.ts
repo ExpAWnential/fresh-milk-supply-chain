@@ -41,11 +41,10 @@ describe("anchoring evidence through the backend", () => {
     assert.equal(anchored.complianceOutcome, "COMPLIANT");
 
     const [submit] = requests;
-    assert.match(submit.url, /\/temperature\/batches\/BATCH-001\/evidence$/);
-    assert.equal(
-      (submit.init?.headers as Record<string, string>)["x-demo-identity"],
-      "oracle"
-    );
+    // The oracle's own backend, on its own port. It is the only one holding the oracle's key, so
+    // there is nothing in the request that says who is calling and nothing that could.
+    assert.match(submit.url, /^http:\/\/localhost:3006\/temperature\/batches\/BATCH-001\/evidence$/);
+    assert.deepEqual(Object.keys(submit.init?.headers ?? {}), ["content-type"]);
     const body = JSON.parse(String(submit.init?.body));
     assert.deepEqual(Object.keys(body).sort(), [
       "evidenceHash",

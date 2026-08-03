@@ -108,26 +108,22 @@ test("missing required fields are refused before the ledger is reached", async (
   });
 });
 
-test("verification is unavailable rather than wrong when storage is not configured", async () => {
+// Four of the six companies keep no off-chain database, so this is the ordinary answer on most of
+// the network rather than a misconfiguration. It must say so instead of reporting a fault. Only
+// the routes that serve stored rows are affected: verification is not, because it fetches the
+// readings from whoever holds them.
+test("the routes that serve stored rows are unavailable rather than wrong without a database", async () => {
+  const needStorage = [
+    "/temperature/evidence/e1/readings",
+    "/temperature/batches/BATCH-001/evidence"
+  ];
+
   await withServer({}, async ({ call }) => {
-    const result = await call("GET", "/temperature/evidence/e1/verify");
-    assert.equal(result.status, 503);
-    assert.match(result.body.error, /storage is not configured/);
-  });
-});
-
-// Verification reads the anchor as the caller, so it needs an identity like every other route.
-// Reporting that as a server fault would tell an operator following the setup guide that the
-// backend broke, when the request simply did not say who was asking.
-test("verification refuses a missing identity the way every other route does", async () => {
-  const readerForRequest = () => {
-    throw new Error("Missing x-demo-identity header. Expected one of: regulator, oracle.");
-  };
-
-  await withServer({ temperatureRepository: repositoryStub(), readerForRequest }, async ({ call }) => {
-    const result = await call("GET", "/temperature/evidence/EV-1/verify");
-    assert.equal(result.status, 400);
-    assert.match(result.body.error, /Missing x-demo-identity header/);
+    for (const path of needStorage) {
+      const result = await call("GET", path);
+      assert.equal(result.status, 503, path);
+      assert.match(result.body.error, /storage is not configured/);
+    }
   });
 });
 
@@ -196,12 +192,13 @@ test("a match is only reported when the ledger itself supplies the anchor", asyn
         getEvidence: async () => storedEvidence({ evidenceHash: anchored }),
         getReadings: async () => readings
       }),
-      readerForRequest: () => ({
+      anchoredEvidenceReader: {
         getAnchoredEvidence: async () => ({
+          batchId: "B-1",
           evidenceHash: anchored,
           fabricTransactionId: "tx-from-ledger"
         })
-      })
+      }
     },
     async ({ call }) => {
       const result = await call("GET", "/temperature/evidence/EV-1/verify");
@@ -228,9 +225,9 @@ test("an anchor with no transaction ID is reported as missing, not filled in fro
           storedEvidence({ evidenceHash: anchored, fabricTransactionId: "tx-from-database" }),
         getReadings: async () => readings
       }),
-      readerForRequest: () => ({
-        getAnchoredEvidence: async () => ({ evidenceHash: anchored })
-      })
+      anchoredEvidenceReader: {
+        getAnchoredEvidence: async () => ({ batchId: "B-1", evidenceHash: anchored })
+      }
     },
     async ({ call }) => {
       const result = await call("GET", "/temperature/evidence/EV-1/verify");
@@ -247,9 +244,13 @@ test("an altered reading breaks the match while the ledger's hash stays put", as
       temperatureRepository: repositoryStub({
         getEvidence: async () => storedEvidence({ evidenceHash: anchored })
       }),
-      readerForRequest: () => ({
-        getAnchoredEvidence: async () => ({ evidenceHash: anchored, fabricTransactionId: "tx-1" })
-      })
+      anchoredEvidenceReader: {
+        getAnchoredEvidence: async () => ({
+          batchId: "B-1",
+          evidenceHash: anchored,
+          fabricTransactionId: "tx-1"
+        })
+      }
     },
     async ({ call }) => {
       const result = await call("GET", "/temperature/evidence/EV-1/verify");

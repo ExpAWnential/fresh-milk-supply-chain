@@ -19,7 +19,7 @@ import { createPrivateKey } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "../config.js";
-import type { DemoIdentity } from "../demoIdentity.js";
+import type { OrganisationIdentity } from "../organisations.js";
 
 export interface FabricGatewayClient {
   // Chaincode and contract are both required: the supply-chain chaincode holds two contracts, so
@@ -61,7 +61,7 @@ export async function singleFileIn(directory: string): Promise<string> {
 // every call is pure waste.
 const wallets = new Map<string, Promise<Wallet>>();
 
-function loadWallet(identity: DemoIdentity): Promise<Wallet> {
+function loadWallet(identity: OrganisationIdentity): Promise<Wallet> {
   // Keyed by the paths it actually reads, not by the identity name, so the cache can never return
   // material loaded from somewhere else.
   const key = `${identity.userPath}\u0000${identity.peerTlsCaPath}`;
@@ -95,7 +95,7 @@ function loadWallet(identity: DemoIdentity): Promise<Wallet> {
   return loading;
 }
 
-function createGrpcClient(identity: DemoIdentity, tlsRootCert: Buffer): Client {
+function createGrpcClient(identity: OrganisationIdentity, tlsRootCert: Buffer): Client {
   return new Client(
     identity.peerEndpoint,
     credentials.createSsl(tlsRootCert),
@@ -125,7 +125,7 @@ export interface LedgerEventStream {
 // call deadlines above: those exist to stop a request hanging, and this one is meant to stay open.
 // The checkpoint file is what makes a restart resume rather than replay the whole chain.
 export async function createLedgerEventStream(
-  identity: DemoIdentity,
+  identity: OrganisationIdentity,
   chaincodeName: string,
   checkpointFile: string
 ): Promise<LedgerEventStream> {
@@ -145,16 +145,28 @@ export async function createLedgerEventStream(
     throw error;
   }
 
-  const checkpointer = await checkpointers.file(checkpointFile);
-  const events = await gateway
-    .getNetwork(config.fabricChannelName)
-    // startBlock applies only while the checkpoint is empty, so a first run reads the chain from
-    // the beginning and every later run resumes. Without it a fresh listener starts at the next
-    // block and silently never sees anything already recorded.
-    .getChaincodeEvents(chaincodeName, {
-      checkpoint: checkpointer,
-      startBlock: BigInt(0)
-    });
+  // Both of these can fail: an unwritable or corrupt checkpoint file, or a peer that refuses the
+  // subscription. Neither is covered by the catch above, and once this function has returned the
+  // caller has no handle to close, so the gateway and its gRPC channel would stay open for the
+  // life of the process and keep it from ever exiting.
+  let checkpointer: Awaited<ReturnType<typeof checkpointers.file>>;
+  let events: Awaited<ReturnType<ReturnType<Gateway["getNetwork"]>["getChaincodeEvents"]>>;
+  try {
+    checkpointer = await checkpointers.file(checkpointFile);
+    events = await gateway
+      .getNetwork(config.fabricChannelName)
+      // startBlock applies only while the checkpoint is empty, so a first run reads the chain from
+      // the beginning and every later run resumes. Without it a fresh listener starts at the next
+      // block and silently never sees anything already recorded.
+      .getChaincodeEvents(chaincodeName, {
+        checkpoint: checkpointer,
+        startBlock: BigInt(0)
+      });
+  } catch (error) {
+    gateway.close();
+    client.close();
+    throw error;
+  }
 
   return {
     events,
@@ -175,7 +187,7 @@ export async function createLedgerEventStream(
 export type GatewayOpener = (options: Parameters<typeof connect>[0]) => Gateway;
 
 export async function createFabricGatewayClient(
-  identity: DemoIdentity,
+  identity: OrganisationIdentity,
   openGateway: GatewayOpener = connect
 ): Promise<FabricGatewayClient> {
   const wallet = await loadWallet(identity);

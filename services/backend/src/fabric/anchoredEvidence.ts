@@ -4,9 +4,8 @@
  * Verification needs an anchor from outside the database it is checking, and this is the only
  * place that anchor comes from.
  */
-import type { Request as ExpressRequest } from "express";
 import { config } from "../config.js";
-import { resolveDemoIdentity, type DemoIdentity } from "../demoIdentity.js";
+import type { OrganisationIdentity } from "../organisations.js";
 import { createFabricGatewayClient, type FabricGatewayClient } from "./gateway.js";
 import { TEMPERATURE_CONTRACT } from "./contracts.js";
 import type { TemperatureStatistics } from "@fresh-milk/storage";
@@ -17,6 +16,7 @@ import type {
 
 // The parts of the ledger's evidence record this reader uses.
 interface AnchoredEvidenceRecord {
+  readonly batchId: string;
   readonly evidenceHash: string;
   readonly submittedTxId: string;
   readonly statistics?: TemperatureStatistics;
@@ -26,16 +26,16 @@ interface AnchoredEvidenceRecord {
 // readings, which proves nothing. Reading the hash back off the ledger is what makes tampering
 // detectable, so the comparison is against a record no single party can rewrite.
 //
-// It runs as the caller, so the contract decides who may read the anchored evidence rather than
-// the backend granting it to anyone who asks.
+// It reads as this company, using this process's own certificate, so what it can see is whatever
+// the contract allows that company to see.
 // The connector is a parameter for the same reason every route takes one: it is the seam that
 // lets this be exercised without a live network.
-export function createReaderForRequest(
-  request: ExpressRequest,
-  connect: (identity: DemoIdentity) => Promise<FabricGatewayClient> = createFabricGatewayClient
+export function createAnchoredEvidenceReader(
+  identity: OrganisationIdentity,
+  connect: (
+    identity: OrganisationIdentity
+  ) => Promise<FabricGatewayClient> = createFabricGatewayClient
 ): AnchoredEvidenceReader {
-  const identity = resolveDemoIdentity(request);
-
   return {
     async getAnchoredEvidence(evidenceId: string): Promise<AnchoredEvidence | undefined> {
       const client = await connect(identity);
@@ -49,6 +49,9 @@ export function createReaderForRequest(
         const anchored = JSON.parse(Buffer.from(bytes).toString()) as AnchoredEvidenceRecord;
 
         return {
+          // Taken from the ledger rather than from whoever holds the readings, so recomputing the
+          // fingerprint does not depend on the party being checked.
+          batchId: anchored.batchId,
           evidenceHash: anchored.evidenceHash,
           fabricTransactionId: anchored.submittedTxId,
           // The summary the contract judged. Carried through so verification can check it against

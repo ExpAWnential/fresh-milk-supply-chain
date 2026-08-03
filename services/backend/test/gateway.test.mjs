@@ -5,12 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createFabricGatewayClient } from "../dist/fabric/gateway.js";
-import { getDemoIdentity } from "../dist/demoIdentity.js";
+import { findOrganisation, walletFor } from "../dist/organisations.js";
+import { config } from "../dist/config.js";
 
 // Building a gateway reads the certificate and private key off disk and parses the key. None of
 // that needs the network to be running, but it does need the wallet material the network
 // generates, so the suite skips where that is absent.
-const regulator = getDemoIdentity("regulator");
+const regulator = walletFor(findOrganisation("regulator"), config.fabricOrganizationsPath);
 const walletPresent = existsSync(regulator.userPath) && existsSync(regulator.peerTlsCaPath);
 
 test(

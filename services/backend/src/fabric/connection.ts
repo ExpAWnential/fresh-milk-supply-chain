@@ -1,27 +1,31 @@
 /**
- * Turns a request into a Fabric connection, and a Fabric failure into an HTTP status.
+ * Opens a Fabric connection as this company, and turns a Fabric failure into an HTTP status.
  *
  * The distinction it exists to draw: a contract refusing a transaction is the caller's problem,
  * while an unreachable peer or a defect in this service is not. The three must not read alike.
  */
-import type { Request, Response } from "express";
-import { resolveDemoIdentity } from "../demoIdentity.js";
+import type { Response } from "express";
+import type { OrganisationIdentity } from "../organisations.js";
 import { createFabricGatewayClient, type FabricGatewayClient } from "./gateway.js";
 
 // Opening the connection is a separate step so routes can be exercised against a stub instead of
 // a live network. A connection is made per request rather than pooled: for a proof of concept an
 // obviously correct identity per call is worth more than saving a TLS handshake.
-export type GatewayConnector = (request: Request) => Promise<FabricGatewayClient>;
+//
+// It takes no arguments because this process has exactly one identity. Nothing a caller sends can
+// change which certificate signs.
+export type GatewayConnector = () => Promise<FabricGatewayClient>;
 
-export const connectAsRequestIdentity: GatewayConnector = (request) =>
-  createFabricGatewayClient(resolveDemoIdentity(request));
+export const connectAs =
+  (identity: OrganisationIdentity): GatewayConnector =>
+  () =>
+    createFabricGatewayClient(identity);
 
 export async function withGateway<T>(
   connect: GatewayConnector,
-  request: Request,
   work: (client: FabricGatewayClient) => Promise<T>
 ): Promise<T> {
-  const client = await connect(request);
+  const client = await connect();
   try {
     return await work(client);
   } finally {
@@ -48,9 +52,9 @@ export function extractChaincodeMessage(error: unknown): string | undefined {
     }
   }
 
-  // Only the details array carries the contract's own words. A transport failure has none, and
-  // reading its message as a refusal is what made the unreachable-network response below dead
-  // code and told operators with a peer down that their request was malformed.
+  // Only the details array carries the contract's own words, and a transport failure has none.
+  // Reading one as a refusal would tell an operator with a peer down that their request was
+  // malformed.
   if (isTransportFailure(error)) {
     return undefined;
   }

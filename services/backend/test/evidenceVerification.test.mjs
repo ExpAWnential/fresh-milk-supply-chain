@@ -5,6 +5,7 @@ import {
   EvidenceVerificationError,
   verifyTemperatureEvidence
 } from "../dist/services/evidenceVerification.js";
+import { localReadingsSource } from "../dist/services/readingsSource.js";
 import { repositoryStub, storedEvidence } from "./harness.mjs";
 
 const originalReadings = [
@@ -13,12 +14,21 @@ const originalReadings = [
 ];
 const anchoredHash = sha256TemperatureReadings("MILK-001", originalReadings);
 
-function repository(readings = originalReadings, overrides = {}) {
-  return repositoryStub({
-    getEvidence: async () =>
-      storedEvidence({ batchId: "MILK-001", evidenceHash: anchoredHash, ...overrides }),
-    getReadings: async () => readings
-  });
+// The oracle's own view: it holds the row, so it can report what its record claims the hash is.
+function heldLocally(readings = originalReadings, overrides = {}) {
+  return localReadingsSource(
+    repositoryStub({
+      getEvidence: async () =>
+        storedEvidence({ batchId: "MILK-001", evidenceHash: anchoredHash, ...overrides }),
+      getReadings: async () => readings
+    })
+  );
+}
+
+// Any other company's view: readings arrive over HTTP and nothing is claimed about the holder's
+// own bookkeeping.
+function fetchedFromTheHolder(readings = originalReadings) {
+  return { getReadings: async () => ({ readings }) };
 }
 
 // The honest summary of originalReadings, which is what the oracle should have anchored.
@@ -30,12 +40,19 @@ const honestStatistics = {
 };
 
 function ledgerHolding(evidenceHash, fabricTransactionId = "tx-on-ledger", statistics = honestStatistics) {
-  return { getAnchoredEvidence: async () => ({ evidenceHash, fabricTransactionId, statistics }) };
+  return {
+    getAnchoredEvidence: async () => ({
+      batchId: "MILK-001",
+      evidenceHash,
+      fabricTransactionId,
+      statistics
+    })
+  };
 }
 
 test("unchanged readings still hash to what the ledger anchored", async () => {
   const result = await verifyTemperatureEvidence("EV-1", {
-    temperatureRepository: repository(),
+    readingsSource: heldLocally(),
     anchoredEvidenceReader: ledgerHolding(anchoredHash)
   });
 
@@ -58,11 +75,13 @@ test("an honest reading set with a flattering summary is caught", async () => {
   const hashOfThoseReadings = sha256TemperatureReadings("MILK-001", readingsWithASpike);
 
   const result = await verifyTemperatureEvidence("EV-1", {
-    temperatureRepository: repositoryStub({
-      getEvidence: async () =>
-        storedEvidence({ batchId: "MILK-001", evidenceHash: hashOfThoseReadings }),
-      getReadings: async () => readingsWithASpike
-    }),
+    readingsSource: localReadingsSource(
+      repositoryStub({
+        getEvidence: async () =>
+          storedEvidence({ batchId: "MILK-001", evidenceHash: hashOfThoseReadings }),
+        getReadings: async () => readingsWithASpike
+      })
+    ),
     // Claims a 3.5 maximum, comfortably inside the safe range, for readings that hit 9.4.
     anchoredEvidenceReader: ledgerHolding(hashOfThoseReadings, "tx-on-ledger", {
       minCelsius: 3.2,
@@ -83,10 +102,11 @@ test("an honest reading set with a flattering summary is caught", async () => {
 
 test("a record anchored without statistics reports the check as unavailable", async () => {
   const result = await verifyTemperatureEvidence("EV-1", {
-    temperatureRepository: repository(),
+    readingsSource: heldLocally(),
     // Built inline rather than through the helper, whose default would fill the statistics back in.
     anchoredEvidenceReader: {
       getAnchoredEvidence: async () => ({
+        batchId: "MILK-001",
         evidenceHash: anchoredHash,
         fabricTransactionId: "tx-on-ledger"
       })
@@ -102,7 +122,7 @@ test("a record anchored without statistics reports the check as unavailable", as
 test("a modified reading no longer matches the anchor", async () => {
   const changed = [{ ...originalReadings[0], celsius: 4.2 }, originalReadings[1]];
   const result = await verifyTemperatureEvidence("EV-1", {
-    temperatureRepository: repository(changed),
+    readingsSource: heldLocally(changed),
     anchoredEvidenceReader: ledgerHolding(anchoredHash)
   });
 
@@ -114,7 +134,7 @@ test("a modified reading no longer matches the anchor", async () => {
 
 test("a rewritten stored hash is distinguished from rewritten readings", async () => {
   const result = await verifyTemperatureEvidence("EV-1", {
-    temperatureRepository: repository(originalReadings, { evidenceHash: "f".repeat(64) }),
+    readingsSource: heldLocally(originalReadings, { evidenceHash: "f".repeat(64) }),
     anchoredEvidenceReader: ledgerHolding(anchoredHash)
   });
 
@@ -127,7 +147,7 @@ test("a rewritten stored hash is distinguished from rewritten readings", async (
 test("the ledger's anchor wins over the database's record of it", async () => {
   const ledgerHash = "e".repeat(64);
   const result = await verifyTemperatureEvidence("EV-1", {
-    temperatureRepository: repository(),
+    readingsSource: heldLocally(),
     anchoredEvidenceReader: ledgerHolding(ledgerHash)
   });
 
@@ -139,7 +159,7 @@ test("the ledger's anchor wins over the database's record of it", async () => {
 test("evidence that was never anchored is refused rather than checked", async () => {
   await assert.rejects(
     verifyTemperatureEvidence("EV-1", {
-      temperatureRepository: repository(originalReadings, {
+      readingsSource: heldLocally(originalReadings, {
         submissionStatus: "PENDING",
         fabricTransactionId: null
       }),
@@ -147,5 +167,55 @@ test("evidence that was never anchored is refused rather than checked", async ()
     }),
     (error) =>
       error instanceof EvidenceVerificationError && error.code === "EVIDENCE_NOT_ANCHORED"
+  );
+});
+
+// The whole point of the split. The company being checked publishes only the readings, and the
+// checker still catches an alteration, because the fingerprint it compares against came off the
+// ledger rather than from the holder.
+test("a company holding no database still catches altered readings", async () => {
+  const changed = [{ ...originalReadings[0], celsius: 4.2 }, originalReadings[1]];
+  const result = await verifyTemperatureEvidence("EV-1", {
+    readingsSource: fetchedFromTheHolder(changed),
+    anchoredEvidenceReader: ledgerHolding(anchoredHash)
+  });
+
+  assert.equal(result.match, false);
+  assert.notEqual(result.recomputedHash, anchoredHash);
+  // Reported as unavailable rather than false. The checker never saw the holder's own record, and
+  // saying "does not match" about a value it was never given would be an accusation it cannot make.
+  assert.equal(result.databaseHash, null);
+  assert.equal(result.databaseHashMatchesAnchor, null);
+});
+
+test("readings fetched from another company are verified against the ledger's own batch", async () => {
+  const result = await verifyTemperatureEvidence("EV-1", {
+    readingsSource: fetchedFromTheHolder(),
+    anchoredEvidenceReader: ledgerHolding(anchoredHash)
+  });
+
+  assert.equal(result.match, true);
+  assert.equal(result.batchId, "MILK-001");
+});
+
+// The batch ID goes into the fingerprint, so taking it from the holder would let a company that
+// rewrote its own batch column produce readings that still hash correctly.
+test("the batch the fingerprint covers comes from the ledger, not the readings holder", async () => {
+  const result = await verifyTemperatureEvidence("EV-1", {
+    readingsSource: heldLocally(originalReadings, { batchId: "MILK-999" }),
+    anchoredEvidenceReader: ledgerHolding(anchoredHash)
+  });
+
+  assert.equal(result.batchId, "MILK-001");
+  assert.equal(result.match, true);
+});
+
+test("evidence with no readings anywhere is refused rather than reported as matching nothing", async () => {
+  await assert.rejects(
+    verifyTemperatureEvidence("EV-1", {
+      readingsSource: { getReadings: async () => undefined },
+      anchoredEvidenceReader: ledgerHolding(anchoredHash)
+    }),
+    (error) => error instanceof EvidenceVerificationError && error.code === "READINGS_NOT_FOUND"
   );
 });

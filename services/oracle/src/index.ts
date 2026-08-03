@@ -2,14 +2,13 @@
  * `pnpm oracle:dev`. Reads a readings file, runs the oracle against the real backend and database,
  * and prints the result.
  */
-import { createPool, createTemperatureRepository } from "@fresh-milk/storage";
+import { createPool, createTemperatureRepository, ORACLE_DATABASE_URL } from "@fresh-milk/storage";
 import { readTemperatureReadingsCsv } from "./csvReader.js";
 import { readAnchoredEvidence, submitTemperatureEvidence } from "./oracleClient.js";
 import { runOracle } from "./runOracle.js";
 
 const inputPath = process.argv[2] ?? "data/compliant-readings.csv";
-const databaseUrl =
-  process.env.DATABASE_URL ?? "postgres://freshmilk:freshmilk@localhost:5432/freshmilk";
+const databaseUrl = process.env.DATABASE_URL ?? ORACLE_DATABASE_URL;
 
 const pool = createPool({ connectionString: databaseUrl });
 

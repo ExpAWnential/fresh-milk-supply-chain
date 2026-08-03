@@ -5,17 +5,26 @@
  * whether the summary the contract passed judgement on ever described those readings, which the
  * hash cannot tell you because it does not cover that summary.
  *
- * Whether the readings changed and whether the database's own copy of the hash changed are
- * reported separately too, because those point at different culprits.
+ * Whether the readings changed and whether the holder's own copy of the hash changed are reported
+ * separately too, because those point at different culprits.
+ *
+ * The readings and the anchor deliberately come from different places. Any company can run this:
+ * it fetches the readings from whoever holds them, reads the anchor off the ledger with its own
+ * certificate, and does the arithmetic itself. That is what makes it a check on the holder rather
+ * than a report from them.
  */
 import {
   calculateTemperatureStatistics,
   sha256TemperatureReadings,
-  type TemperatureRepository,
+  type StoredTemperatureReading,
   type TemperatureStatistics
 } from "@fresh-milk/storage";
 
 export interface AnchoredEvidence {
+  // The fingerprint covers the batch ID as well as the readings, and this is the ledger's copy of
+  // it. Recomputing from the holder's copy would let a party that altered its own batch_id column
+  // still produce a matching hash.
+  readonly batchId: string;
   readonly evidenceHash: string;
   readonly fabricTransactionId?: string | null;
   // The summary the contract derived its verdict from. The hash covers the readings but not this,
@@ -27,9 +36,22 @@ export interface AnchoredEvidenceReader {
   getAnchoredEvidence(evidenceId: string): Promise<AnchoredEvidence | undefined>;
 }
 
+export interface SourcedReadings {
+  readonly readings: readonly StoredTemperatureReading[];
+  // What the holder's own record claims the fingerprint is. Only a company that holds the row can
+  // answer this, so it is absent when the readings arrived over HTTP from the company that does.
+  readonly declaredHash?: string;
+}
+
+// Where the readings come from. The oracle reads its own database; everyone else asks the oracle
+// for them over HTTP, which is what makes this a cross-company check rather than a self-report.
+export interface ReadingsSource {
+  getReadings(evidenceId: string): Promise<SourcedReadings | undefined>;
+}
+
 export interface EvidenceVerificationDependencies {
-  readonly temperatureRepository: TemperatureRepository;
-  // Required. Comparing the stored hash against readings from that same database proves nothing,
+  readonly readingsSource: ReadingsSource;
+  // Required. Comparing a holder's hash against that same holder's readings proves nothing,
   // because both move together when a row is altered. The anchor has to come off the ledger.
   readonly anchoredEvidenceReader: AnchoredEvidenceReader;
 }
@@ -39,11 +61,13 @@ export interface EvidenceVerificationResult {
   readonly batchId: string;
   // Whether the stored readings still hash to what the ledger anchored.
   readonly match: boolean;
-  // Whether the database's own record of the hash also matches the ledger. A false here with a
-  // true above would mean the stored hash was altered rather than the readings.
-  readonly databaseHashMatchesAnchor: boolean;
+  // Whether the holder's own record of the hash also matches the ledger. A false here with a true
+  // above would mean the stored hash was altered rather than the readings.
+  // Null when the readings came from another company, which publishes readings and not its
+  // bookkeeping. It is not needed for the check above and proves nothing on its own.
+  readonly databaseHashMatchesAnchor: boolean | null;
   readonly anchoredHash: string;
-  readonly databaseHash: string;
+  readonly databaseHash: string | null;
   readonly recomputedHash: string;
   // Whether the summary the contract judged actually describes the stored readings. A hash match
   // with this false means nobody edited the readings, but the oracle's summary of them was wrong,
@@ -52,7 +76,6 @@ export interface EvidenceVerificationResult {
   readonly statisticsMatch: boolean | null;
   readonly anchoredStatistics: TemperatureStatistics | null;
   readonly recomputedStatistics: TemperatureStatistics;
-  readonly readingCount: number;
   // Null when the anchored record carries no transaction ID. Reported as missing rather than
   // filled in from the database, so this field always means what it says.
   readonly fabricTransactionId: string | null;
@@ -79,27 +102,16 @@ export async function verifyTemperatureEvidence(
   dependencies: EvidenceVerificationDependencies
 ): Promise<EvidenceVerificationResult> {
   const normalisedEvidenceId = evidenceId.trim();
-  const evidence = await dependencies.temperatureRepository.getEvidence(normalisedEvidenceId);
-  if (!evidence) {
-    throw new EvidenceVerificationError(
-      "EVIDENCE_NOT_FOUND",
-      `Evidence '${normalisedEvidenceId}' does not exist.`
-    );
-  }
-  if (evidence.submissionStatus !== "ANCHORED" || !evidence.fabricTransactionId) {
-    throw new EvidenceVerificationError(
-      "EVIDENCE_NOT_ANCHORED",
-      `Evidence '${normalisedEvidenceId}' has not been anchored to Fabric.`
-    );
-  }
 
-  // The database read and the ledger read are independent, so neither waits on the other.
-  const [readings, fabricEvidence] = await Promise.all([
-    dependencies.temperatureRepository.getReadings(normalisedEvidenceId),
+  // The two reads are independent and come from different parties, so neither waits on the other.
+  // A source that holds the row raises EVIDENCE_NOT_FOUND or EVIDENCE_NOT_ANCHORED from in here,
+  // because only a holder can tell those apart.
+  const [sourced, fabricEvidence] = await Promise.all([
+    dependencies.readingsSource.getReadings(normalisedEvidenceId),
     dependencies.anchoredEvidenceReader.getAnchoredEvidence(normalisedEvidenceId)
   ]);
 
-  if (readings.length === 0) {
+  if (!sourced || sourced.readings.length === 0) {
     throw new EvidenceVerificationError(
       "READINGS_NOT_FOUND",
       `Evidence '${normalisedEvidenceId}' has no off-chain readings.`
@@ -112,9 +124,10 @@ export async function verifyTemperatureEvidence(
     );
   }
 
+  const readings = sourced.readings;
   const anchoredHash = fabricEvidence.evidenceHash.toLowerCase();
-  const databaseHash = evidence.evidenceHash.toLowerCase();
-  const recomputedHash = sha256TemperatureReadings(evidence.batchId, readings);
+  const databaseHash = sourced.declaredHash?.toLowerCase() ?? null;
+  const recomputedHash = sha256TemperatureReadings(fabricEvidence.batchId, readings);
 
   // The hash proves the readings were not edited after anchoring. It says nothing about whether
   // the summary sent alongside it described those readings, and the summary is what the contract
@@ -124,9 +137,9 @@ export async function verifyTemperatureEvidence(
 
   return {
     evidenceId: normalisedEvidenceId,
-    batchId: evidence.batchId,
+    batchId: fabricEvidence.batchId,
     match: recomputedHash === anchoredHash,
-    databaseHashMatchesAnchor: databaseHash === anchoredHash,
+    databaseHashMatchesAnchor: databaseHash === null ? null : databaseHash === anchoredHash,
     anchoredHash,
     databaseHash,
     recomputedHash,
@@ -135,7 +148,6 @@ export async function verifyTemperatureEvidence(
       : null,
     anchoredStatistics,
     recomputedStatistics,
-    readingCount: readings.length,
     // Only ever the ledger's. Falling back to the database's copy would hand an auditor a
     // transaction ID from the very record they are checking, under a field that says otherwise.
     fabricTransactionId: fabricEvidence.fabricTransactionId ?? null

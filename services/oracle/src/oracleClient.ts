@@ -32,7 +32,9 @@ export class AnchorError extends Error {
   }
 }
 
-const backendUrl = process.env.BACKEND_URL ?? "http://localhost:3000";
+// The oracle's own backend, which is the only one holding the oracle's certificate. Every other
+// company's backend would sign as itself and be refused by the contract.
+const backendUrl = process.env.BACKEND_URL ?? "http://localhost:3006";
 
 // The compliance outcome is deliberately absent from the submission. The oracle reports the
 // statistics and the contract decides, so the oracle cannot simply assert that unsafe milk passed.
@@ -45,10 +47,7 @@ export async function submitTemperatureEvidence(
     `${backendUrl}/temperature/batches/${encodeURIComponent(submission.batchId)}/evidence`,
     {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-demo-identity": "oracle"
-      },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({
         evidenceId: submission.evidenceId,
         evidenceHash: submission.evidenceHash,
@@ -90,8 +89,7 @@ export async function readAnchoredEvidence(
   evidenceId: string
 ): Promise<AnchoredEvidence | undefined> {
   const response = await fetch(
-    `${backendUrl}/temperature/evidence/${encodeURIComponent(evidenceId)}`,
-    { headers: { "x-demo-identity": "oracle" } }
+    `${backendUrl}/temperature/evidence/${encodeURIComponent(evidenceId)}`
   );
 
   if (response.status === 404) {

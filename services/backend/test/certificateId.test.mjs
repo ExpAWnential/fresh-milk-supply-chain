@@ -3,11 +3,12 @@ import test from "node:test";
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { deriveCertificateId } from "../dist/fabric/certificateId.js";
-import { getDemoIdentity } from "../dist/demoIdentity.js";
+import { findOrganisation, walletFor } from "../dist/organisations.js";
+import { config } from "../dist/config.js";
 
 // Resolved the same way the backend resolves it, rather than rebuilt here. A second copy of the
 // path logic would keep passing after the real one moved, which is exactly what it must not do.
-const farm = getDemoIdentity("farm");
+const farm = walletFor(findOrganisation("farm"), config.fabricOrganizationsPath);
 
 // The certificates the network generated are the only fixture worth testing against, because the
 // point of this helper is matching what Fabric itself reports. A machine that has never started the
