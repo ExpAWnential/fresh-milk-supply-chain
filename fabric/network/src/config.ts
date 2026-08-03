@@ -57,6 +57,10 @@ export const networkPath =
 export const fabricSamplesPath =
   process.env.FABRIC_SAMPLES_HOME ?? join(homedir(), "fabric-samples");
 
+// Where the backends write their ledger event checkpoints. Tearing the network down has to remove
+// them, because they hold block numbers from a chain that is about to stop existing.
+export const backendPath = resolve(fabricDirectory, "..", "services", "backend");
+
 export const channelName = process.env.FABRIC_CHANNEL_NAME ?? "milkchannel";
 
 // CouchDB rather than LevelDB, because the traceability lookups need rich queries.
