@@ -75,7 +75,9 @@ function parseUnsignedCsv(csv: string): readonly Record<string, string>[] {
   return lines.slice(1).map((line, index) => {
     const values = line.split(",").map((value) => value.trim());
     if (values.length !== headers.length) {
-      throw new Error(`Row ${index + 2} has ${values.length} values but expected ${headers.length}.`);
+      throw new Error(
+        `Row ${index + 2} has ${values.length} values but expected ${headers.length}.`
+      );
     }
     return Object.fromEntries(headers.map((header, column) => [header, values[column]]));
   });

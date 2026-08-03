@@ -21,10 +21,7 @@ describe("tamper demo arguments", () => {
 
   it("treats the confirmation flag as absent unless it is given", () => {
     assert.equal(parseArguments(["--evidence", "EV-1"]).confirmed, false);
-    assert.equal(
-      parseArguments(["--evidence", "EV-1", "--confirm-tamper"]).confirmed,
-      true
-    );
+    assert.equal(parseArguments(["--evidence", "EV-1", "--confirm-tamper"]).confirmed, true);
   });
 
   it("defaults the change to one degree", () => {
@@ -112,7 +109,10 @@ describe("tampering with anchored evidence", () => {
 
   it("refuses evidence that already fails verification", async () => {
     await assert.rejects(
-      tamperWithEvidence(confirmed, tamperableStore(anchoredEvidence({ evidenceHash: "b".repeat(64) }))),
+      tamperWithEvidence(
+        confirmed,
+        tamperableStore(anchoredEvidence({ evidenceHash: "b".repeat(64) }))
+      ),
       /already fails verification/
     );
   });

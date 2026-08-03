@@ -16,9 +16,7 @@ export function isBatchStatus(value: string): value is BatchStatus {
 }
 
 export function parseBatch(value: Uint8Array, expectedBatchId?: string): Batch {
-  const invalid = new Error(
-    `Batch '${expectedBatchId ?? "record"}' contains invalid ledger data.`
-  );
+  const invalid = new Error(`Batch '${expectedBatchId ?? "record"}' contains invalid ledger data.`);
 
   let parsed: unknown;
   try {

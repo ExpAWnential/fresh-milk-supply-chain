@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chaincodeRejection, failingLedger, refusingLedger, stubLedger, withServer } from "./harness.mjs";
+import {
+  chaincodeRejection,
+  failingLedger,
+  refusingLedger,
+  stubLedger,
+  withServer
+} from "./harness.mjs";
 
 const PUBLIC_KEY = "MCowBQYDK2VwAyEAGb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDpp7XFKhwuk=";
 

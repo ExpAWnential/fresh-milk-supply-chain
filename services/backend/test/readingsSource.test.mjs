@@ -45,9 +45,7 @@ test("readings are fetched from the company that holds them, under a deadline", 
   );
 
   assert.deepEqual(sourced.readings, READINGS);
-  assert.deepEqual(urls, [
-    "http://localhost:3006/temperature/evidence/EV-BATCH-001-a3f9/readings"
-  ]);
+  assert.deepEqual(urls, ["http://localhost:3006/temperature/evidence/EV-BATCH-001-a3f9/readings"]);
   // A stalled holder must not keep verification open indefinitely.
   assert.ok(signals[0] instanceof AbortSignal, "the request carried no deadline");
 });
@@ -63,7 +61,9 @@ test("an evidence ID with awkward characters is escaped rather than pasted into 
 test("readings fetched from another company make no claim about its stored hash", async () => {
   const { fetchImpl } = stubFetch(() => json(READINGS));
 
-  const sourced = await remoteReadingsSource("http://localhost:3006", fetchImpl).getReadings("EV-1");
+  const sourced = await remoteReadingsSource("http://localhost:3006", fetchImpl).getReadings(
+    "EV-1"
+  );
 
   assert.equal(sourced.declaredHash, undefined);
 });
@@ -128,9 +128,7 @@ test("a holder answering with readings of the wrong shape raises rather than cra
 });
 
 test("a holder answering with something that is not JSON raises rather than escaping", async () => {
-  const { fetchImpl } = stubFetch(
-    () => new Response("<html>proxy error</html>", { status: 200 })
-  );
+  const { fetchImpl } = stubFetch(() => new Response("<html>proxy error</html>", { status: 200 }));
 
   await assert.rejects(
     remoteReadingsSource("http://localhost:3006", fetchImpl).getReadings("EV-1"),

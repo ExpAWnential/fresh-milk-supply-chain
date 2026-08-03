@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chaincodeRejection, failingLedger, repositoryStub, stubLedger, withServer } from "./harness.mjs";
+import {
+  chaincodeRejection,
+  failingLedger,
+  repositoryStub,
+  stubLedger,
+  withServer
+} from "./harness.mjs";
 
 test("a batch's evidence can be found without knowing the evidence ID", async () => {
   const ledger = stubLedger({
@@ -95,9 +101,7 @@ test("a caller the contract refuses cannot read the readings", async () => {
 
 // Distinguished from a refusal by the status alone, so a caller need not match on wording.
 test("readings for evidence the ledger has never seen answer 404", async () => {
-  const ledger = failingLedger(
-    chaincodeRejection("Temperature evidence 'EV-9' does not exist.")
-  );
+  const ledger = failingLedger(chaincodeRejection("Temperature evidence 'EV-9' does not exist."));
 
   await withServer({ ledger, temperatureRepository: repositoryStub() }, async ({ call }) => {
     const result = await call("GET", "/temperature/evidence/EV-9/readings");

@@ -37,8 +37,7 @@ const fabricDirectory = resolve(networkPackageDirectory, "..");
 export const buildDirectory = join(networkPackageDirectory, "build");
 
 // The version-controlled network definition keeps local topology consistent.
-export const networkPath =
-  process.env.FABRIC_NETWORK_PATH ?? join(fabricDirectory, "milk-network");
+export const networkPath = process.env.FABRIC_NETWORK_PATH ?? join(fabricDirectory, "milk-network");
 
 // Fabric binaries and core.yaml still come from the local fabric-samples installation.
 export const fabricSamplesPath =

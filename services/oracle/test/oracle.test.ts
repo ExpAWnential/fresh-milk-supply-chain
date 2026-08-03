@@ -37,7 +37,8 @@ BATCH-001,SENSOR-001,2,2026-07-14T08:15:00Z,3.6,${SIG}`
 
   it("rejects missing required CSV headers", () => {
     assert.throws(
-      () => parseTemperatureReadingsCsv(`batchId,sensorId,sequence,recordedAt,signature
+      () =>
+        parseTemperatureReadingsCsv(`batchId,sensorId,sequence,recordedAt,signature
 BATCH-001,SENSOR-001,1,2026-07-14T08:00:00Z,sig`),
       /missing required header: celsius/
     );
@@ -90,7 +91,10 @@ BATCH-001,SENSOR-001,1,2026-07-14T08:00:00Z,sig`),
   });
 
   it("produces the same fingerprint for the same readings in different order", () => {
-    const readings = [raw(), raw({ sequence: 2, recordedAt: "2026-07-14T08:15:00Z", celsius: 3.6 })];
+    const readings = [
+      raw(),
+      raw({ sequence: 2, recordedAt: "2026-07-14T08:15:00Z", celsius: 3.6 })
+    ];
     const strip = (list: readonly { sensorId: string; recordedAt: string; celsius: number }[]) =>
       list.map(({ sensorId, recordedAt, celsius }) => ({ sensorId, recordedAt, celsius }));
 
@@ -130,18 +134,9 @@ BATCH-001,SENSOR-001,1,2026-07-14T08:00:00Z,sig`),
   });
 
   it("applies the same 0-5C range as the on-chain contract", () => {
-    assert.equal(
-      assessCompliance({ minCelsius: 0, maxCelsius: 5, readingCount: 2 }),
-      "COMPLIANT"
-    );
-    assert.equal(
-      assessCompliance({ minCelsius: -0.1, maxCelsius: 3, readingCount: 2 }),
-      "UNSAFE"
-    );
-    assert.equal(
-      assessCompliance({ minCelsius: 3, maxCelsius: 5.1, readingCount: 2 }),
-      "UNSAFE"
-    );
+    assert.equal(assessCompliance({ minCelsius: 0, maxCelsius: 5, readingCount: 2 }), "COMPLIANT");
+    assert.equal(assessCompliance({ minCelsius: -0.1, maxCelsius: 3, readingCount: 2 }), "UNSAFE");
+    assert.equal(assessCompliance({ minCelsius: 3, maxCelsius: 5.1, readingCount: 2 }), "UNSAFE");
   });
 
   it("refuses to calculate statistics for no readings at all", () => {

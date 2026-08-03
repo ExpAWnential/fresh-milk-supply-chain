@@ -42,10 +42,14 @@ export function parseTemperatureReadingsCsv(csv: string): readonly RawTemperatur
     const values = splitCsvLine(line);
 
     if (values.length !== headers.length) {
-      throw new Error(`CSV row ${index + 2} has ${values.length} values but expected ${headers.length}.`);
+      throw new Error(
+        `CSV row ${index + 2} has ${values.length} values but expected ${headers.length}.`
+      );
     }
 
-    const row = Object.fromEntries(headers.map((header, columnIndex) => [header, values[columnIndex]]));
+    const row = Object.fromEntries(
+      headers.map((header, columnIndex) => [header, values[columnIndex]])
+    );
     const celsius = Number(row.celsius);
 
     if (!Number.isFinite(celsius)) {

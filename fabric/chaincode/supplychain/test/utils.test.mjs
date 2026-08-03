@@ -52,7 +52,10 @@ test("audit metadata is rejected when Fabric supplies an unusable timestamp or I
     () => getTransactionMetadata(context({ seconds: Number.MAX_SAFE_INTEGER * 2 })),
     /invalid transaction timestamp/
   );
-  assert.throws(() => getTransactionMetadata(context({ nanos: 1.5 })), /invalid transaction timestamp/);
+  assert.throws(
+    () => getTransactionMetadata(context({ nanos: 1.5 })),
+    /invalid transaction timestamp/
+  );
   assert.throws(() => getTransactionMetadata(context({ txId: "   " })), /empty transaction ID/);
 });
 
@@ -60,7 +63,10 @@ test("audit metadata is rejected when Fabric supplies an unusable timestamp or I
 // the value is outside the range one can represent. Left through, it would write "Invalid Date"
 // into an audit trail.
 test("a timestamp beyond what a date can hold is refused, not written as an invalid one", () => {
-  assert.throws(() => getTransactionMetadata(context({ seconds: 1e15 })), /invalid transaction timestamp/);
+  assert.throws(
+    () => getTransactionMetadata(context({ seconds: 1e15 })),
+    /invalid transaction timestamp/
+  );
   assert.throws(
     () => getTransactionMetadata(context({ seconds: -1e15 })),
     /invalid transaction timestamp/
@@ -76,18 +82,27 @@ test("audit metadata converts Fabric's seconds and nanoseconds to an ISO timesta
 
 test("an authorisation answer the registry did not properly give is never trusted", async () => {
   const cases = [
-    [{ status: 500, message: "Stakeholder 'farm-001' is suspended.", payload: Buffer.alloc(0) }, /is suspended/],
+    [
+      { status: 500, message: "Stakeholder 'farm-001' is suspended.", payload: Buffer.alloc(0) },
+      /is suspended/
+    ],
     [{ status: 500, message: "", payload: Buffer.alloc(0) }, /rejected the caller's authorisation/],
     [{ status: 200, payload: Buffer.alloc(0) }, /empty authorisation response/],
     [{ status: 200, payload: Buffer.from("not json") }, /invalid authorisation response/],
-    [{ status: 200, payload: Buffer.from(JSON.stringify({ role: "FARM" })) }, /incomplete authorisation response/],
+    [
+      { status: 200, payload: Buffer.from(JSON.stringify({ role: "FARM" })) },
+      /incomplete authorisation response/
+    ],
     // Valid JSON, but not a record. It would otherwise be read field by field off a number or a
     // null, and an authorisation answer is the last thing to be lenient about.
     [{ status: 200, payload: Buffer.from("null") }, /incomplete authorisation response/],
     [{ status: 200, payload: Buffer.from("42") }, /incomplete authorisation response/],
     [{ status: 200, payload: Buffer.from('"FARM"') }, /incomplete authorisation response/],
     [
-      { status: 200, payload: Buffer.from(JSON.stringify({ stakeholderId: "f", role: "WIZARD", active: true })) },
+      {
+        status: 200,
+        payload: Buffer.from(JSON.stringify({ stakeholderId: "f", role: "WIZARD", active: true }))
+      },
       /incomplete authorisation response/
     ]
   ];

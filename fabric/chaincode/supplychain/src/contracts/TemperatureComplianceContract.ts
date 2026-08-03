@@ -8,10 +8,7 @@
 // Fabric's decorators inspect Context at runtime, so it must remain a value import.
 import { Context, Contract, Info, Returns, Transaction } from "fabric-contract-api";
 import type { Batch } from "../models/Batch.js";
-import type {
-  TemperatureEvidence,
-  TemperatureStatistics
-} from "../models/TemperatureEvidence.js";
+import type { TemperatureEvidence, TemperatureStatistics } from "../models/TemperatureEvidence.js";
 import { temperatureEvidenceKey } from "../utils/ledgerKeys.js";
 import { getBatchRecord, putBatch, requireValue } from "../utils/batchStore.js";
 import { assertActiveRole, getInvokingStakeholder } from "../utils/stakeholderClient.js";
@@ -179,7 +176,6 @@ export class TemperatureComplianceContract extends Contract {
 
     return value.toString();
   }
-
 }
 
 function parseSha256Hash(value: string): string {
@@ -235,8 +231,7 @@ function requireFiniteNumber(value: unknown, fieldName: string): number {
 function deriveComplianceOutcome(
   statistics: TemperatureStatistics
 ): TemperatureEvidence["complianceOutcome"] {
-  return statistics.minCelsius >= MIN_SAFE_CELSIUS &&
-    statistics.maxCelsius <= MAX_SAFE_CELSIUS
+  return statistics.minCelsius >= MIN_SAFE_CELSIUS && statistics.maxCelsius <= MAX_SAFE_CELSIUS
     ? "COMPLIANT"
     : "UNSAFE";
 }

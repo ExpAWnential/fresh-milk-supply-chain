@@ -4,7 +4,11 @@ import { config } from "../config.js";
 import { BATCH_CONTRACT } from "../fabric/contracts.js";
 import type { FabricGatewayClient } from "../fabric/gateway.js";
 import { extractChaincodeMessage, type GatewayConnector } from "../fabric/connection.js";
-import { consumerView, type LedgerBatch, type LedgerHistoryEntry } from "../services/consumerView.js";
+import {
+  consumerView,
+  type LedgerBatch,
+  type LedgerHistoryEntry
+} from "../services/consumerView.js";
 
 export function createPublicRouter(connect: GatewayConnector): Router {
   const router = Router();
@@ -44,9 +48,9 @@ export function createPublicRouter(connect: GatewayConnector): Router {
 function sendPublicError(response: Response, error: unknown): void {
   const message = extractChaincodeMessage(error);
   if (message && /^Batch '.*' does not exist\.?$/i.test(message)) {
-    response
-      .status(404)
-      .json({ error: "We could not find that batch code. Check the code on the pack and try again." });
+    response.status(404).json({
+      error: "We could not find that batch code. Check the code on the pack and try again."
+    });
     return;
   }
 

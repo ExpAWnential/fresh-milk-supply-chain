@@ -86,9 +86,7 @@ function assertContiguousSequence(
   const expected = wrong + 1;
 
   if (wrong > 0 && found === sequences[wrong - 1]) {
-    throw new ReadingsRejected(
-      `Sensor '${sensorId}' reported reading ${found} more than once.`
-    );
+    throw new ReadingsRejected(`Sensor '${sensorId}' reported reading ${found} more than once.`);
   }
   if (wrong === 0) {
     throw new ReadingsRejected(

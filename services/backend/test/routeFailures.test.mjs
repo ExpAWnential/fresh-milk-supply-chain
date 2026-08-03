@@ -97,12 +97,7 @@ test("missing required fields are refused before the ledger is reached", async (
       ["PATCH", "/stakeholders/f1/role", {}, /role/],
       ["POST", "/sensors", {}, /sensorId/],
       ["POST", "/sensors", { sensorId: "SENSOR-001" }, /publicKey/],
-      [
-        "POST",
-        "/sensors",
-        { sensorId: "SENSOR-001", publicKey: "MCowBQYDK2Vw" },
-        /algorithm/
-      ],
+      ["POST", "/sensors", { sensorId: "SENSOR-001", publicKey: "MCowBQYDK2Vw" }, /algorithm/],
       ["POST", "/batches", {}, /batchId/],
       ["POST", "/batches/b1/events", {}, /eventType/],
       ["POST", "/batches/b1/recall", {}, /reason/],

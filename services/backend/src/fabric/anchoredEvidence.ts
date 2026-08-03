@@ -9,10 +9,7 @@ import type { OrganisationIdentity } from "../organisations.js";
 import { createFabricGatewayClient, type FabricGatewayClient } from "./gateway.js";
 import { TEMPERATURE_CONTRACT } from "./contracts.js";
 import type { TemperatureStatistics } from "@fresh-milk/storage";
-import type {
-  AnchoredEvidence,
-  AnchoredEvidenceReader
-} from "../services/evidenceVerification.js";
+import type { AnchoredEvidence, AnchoredEvidenceReader } from "../services/evidenceVerification.js";
 
 interface AnchoredEvidenceRecord {
   readonly batchId: string;

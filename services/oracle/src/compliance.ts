@@ -14,8 +14,7 @@ const MAX_SAFE_CELSIUS = 5;
 
 /** Applies the same safe temperature limits that the contract will enforce authoritatively. */
 export function assessCompliance(statistics: TemperatureStatistics): ComplianceOutcome {
-  return statistics.minCelsius >= MIN_SAFE_CELSIUS &&
-    statistics.maxCelsius <= MAX_SAFE_CELSIUS
+  return statistics.minCelsius >= MIN_SAFE_CELSIUS && statistics.maxCelsius <= MAX_SAFE_CELSIUS
     ? "COMPLIANT"
     : "UNSAFE";
 }

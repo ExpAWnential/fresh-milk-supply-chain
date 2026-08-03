@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  applyComplianceEvent,
-  consumeComplianceEvents
-} from "../dist/events/complianceEvents.js";
+import { applyComplianceEvent, consumeComplianceEvents } from "../dist/events/complianceEvents.js";
 
 const event = (eventName, payload) => ({
   eventName,
@@ -195,10 +192,7 @@ test("a forged reading is recorded and the stream carries on", async () => {
   const { verdicts, signatureChecks, repository } = recordingRepository();
 
   await consumeComplianceEvents(
-    [
-      evidenceSubmitted({ evidenceId: "EV-FORGED" }),
-      evidenceSubmitted({ evidenceId: "EV-FINE" })
-    ],
+    [evidenceSubmitted({ evidenceId: "EV-FORGED" }), evidenceSubmitted({ evidenceId: "EV-FINE" })],
     {
       verdictRepository: repository,
       checkSignatures: async (evidenceId) => (evidenceId === "EV-FORGED" ? "FAILED" : "PASSED")
@@ -246,10 +240,10 @@ test("a failure recording the check does not stop the stream either", async () =
 test("only archived verdicts are checked", async () => {
   const { signatureChecks, repository } = recordingRepository();
 
-  await consumeComplianceEvents(
-    [event("BatchCreated", { batchId: "B-1" }), evidenceSubmitted()],
-    { verdictRepository: repository, checkSignatures: async () => "PASSED" }
-  );
+  await consumeComplianceEvents([event("BatchCreated", { batchId: "B-1" }), evidenceSubmitted()], {
+    verdictRepository: repository,
+    checkSignatures: async () => "PASSED"
+  });
 
   assert.deepEqual(signatureChecks, [{ evidenceId: "EV-1", outcome: "PASSED" }]);
 });

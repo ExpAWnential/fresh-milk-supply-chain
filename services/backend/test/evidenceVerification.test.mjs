@@ -41,7 +41,11 @@ const honestStatistics = {
   readingCount: 2
 };
 
-function ledgerHolding(evidenceHash, fabricTransactionId = "tx-on-ledger", statistics = honestStatistics) {
+function ledgerHolding(
+  evidenceHash,
+  fabricTransactionId = "tx-on-ledger",
+  statistics = honestStatistics
+) {
   return {
     getAnchoredEvidence: async () => ({
       batchId: "MILK-001",
@@ -169,10 +173,9 @@ test("evidence that was never anchored is refused rather than checked", async ()
         fabricTransactionId: null
       }),
       sensorKeyReader: noKeyAvailable,
-    anchoredEvidenceReader: ledgerHolding(anchoredHash)
+      anchoredEvidenceReader: ledgerHolding(anchoredHash)
     }),
-    (error) =>
-      error instanceof EvidenceVerificationError && error.code === "EVIDENCE_NOT_ANCHORED"
+    (error) => error instanceof EvidenceVerificationError && error.code === "EVIDENCE_NOT_ANCHORED"
   );
 });
 
@@ -220,7 +223,7 @@ test("evidence with no readings anywhere is refused rather than reported as matc
     verifyTemperatureEvidence("EV-1", {
       readingsSource: { getReadings: async () => undefined },
       sensorKeyReader: noKeyAvailable,
-    anchoredEvidenceReader: ledgerHolding(anchoredHash)
+      anchoredEvidenceReader: ledgerHolding(anchoredHash)
     }),
     (error) => error instanceof EvidenceVerificationError && error.code === "READINGS_NOT_FOUND"
   );
@@ -229,7 +232,9 @@ test("evidence with no readings anywhere is refused rather than reported as matc
 // Signature verification uses the sensor key registered on Fabric.
 
 const SENSOR = generateKeyPairSync("ed25519");
-const SENSOR_PUBLIC_KEY = SENSOR.publicKey.export({ format: "der", type: "spki" }).toString("base64");
+const SENSOR_PUBLIC_KEY = SENSOR.publicKey
+  .export({ format: "der", type: "spki" })
+  .toString("base64");
 const SENSOR_PRIVATE_KEY = SENSOR.privateKey
   .export({ format: "der", type: "pkcs8" })
   .toString("base64");
@@ -322,7 +327,11 @@ test("a ledger that cannot be read reports null rather than a verdict", async ()
 test("readings from two sensors under one evidence record are not verified", async () => {
   const mixed = [SIGNED_READINGS[0], { ...SIGNED_READINGS[1], sensorId: "SENSOR-99" }];
 
-  const result = await verifySigned(mixed, registeredKey(), sha256TemperatureReadings("MILK-001", mixed));
+  const result = await verifySigned(
+    mixed,
+    registeredKey(),
+    sha256TemperatureReadings("MILK-001", mixed)
+  );
 
   assert.equal(result.signaturesMatch, false);
   assert.equal(result.signatureIssue, "MIXED_SENSORS");

@@ -54,7 +54,8 @@ describe("reading sensor CSV", () => {
   // a partial row would put a fingerprint on the ledger that covers the wrong readings.
   it("refuses a row with the wrong number of values, naming the line", () => {
     assert.throws(
-      () => parseTemperatureReadingsCsv([HEADER, "BATCH-1,SENSOR-1,1,2026-07-14T08:00:00Z"].join("\n")),
+      () =>
+        parseTemperatureReadingsCsv([HEADER, "BATCH-1,SENSOR-1,1,2026-07-14T08:00:00Z"].join("\n")),
       /row 2 has 4 values but expected 6/
     );
   });
@@ -63,11 +64,7 @@ describe("reading sensor CSV", () => {
     assert.throws(
       () =>
         parseTemperatureReadingsCsv(
-          [
-            HEADER,
-            ROW,
-            `BATCH-1,SENSOR-1,2,2026-07-14T08:15:00Z,warm,${SIGNATURE}`
-          ].join("\n")
+          [HEADER, ROW, `BATCH-1,SENSOR-1,2,2026-07-14T08:15:00Z,warm,${SIGNATURE}`].join("\n")
         ),
       /row 3 has invalid celsius value: warm/
     );
@@ -80,7 +77,9 @@ describe("reading sensor CSV", () => {
       assert.throws(
         () =>
           parseTemperatureReadingsCsv(
-            [HEADER, `BATCH-1,SENSOR-1,${sequence},2026-07-14T08:00:00Z,3.2,${SIGNATURE}`].join("\n")
+            [HEADER, `BATCH-1,SENSOR-1,${sequence},2026-07-14T08:00:00Z,3.2,${SIGNATURE}`].join(
+              "\n"
+            )
           ),
         /row 2 has invalid sequence value/,
         `sequence '${sequence}'`
@@ -112,7 +111,10 @@ describe("reading sensor CSV", () => {
 
   it("names the header that is missing", () => {
     assert.throws(
-      () => parseTemperatureReadingsCsv(["batchId,sensorId,celsius", "BATCH-1,SENSOR-1,3.2"].join("\n")),
+      () =>
+        parseTemperatureReadingsCsv(
+          ["batchId,sensorId,celsius", "BATCH-1,SENSOR-1,3.2"].join("\n")
+        ),
       /missing required header: sequence/
     );
     assert.throws(

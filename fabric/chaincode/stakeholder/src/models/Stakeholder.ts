@@ -1,11 +1,6 @@
 /** Ledger representation of a consortium identity and its immutable audit provenance. */
 export type StakeholderRole =
-  | "REGULATOR"
-  | "FARM"
-  | "PROCESSOR"
-  | "LOGISTICS"
-  | "RETAILER"
-  | "ORACLE";
+  "REGULATOR" | "FARM" | "PROCESSOR" | "LOGISTICS" | "RETAILER" | "ORACLE";
 
 export interface Stakeholder {
   readonly stakeholderId: string;

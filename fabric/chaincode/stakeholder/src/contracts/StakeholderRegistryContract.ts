@@ -8,19 +8,10 @@
 
 // Fabric's decorators inspect Context at runtime, so it must remain a value import.
 import { Context, Contract, Info, Returns, Transaction } from "fabric-contract-api";
-import {
-  SensorKey,
-  SensorKeyAlgorithm
-} from "../models/SensorKey.js";
-import {
-  Stakeholder,
-  StakeholderRole
-} from "../models/Stakeholder.js";
+import { SensorKey, SensorKeyAlgorithm } from "../models/SensorKey.js";
+import { Stakeholder, StakeholderRole } from "../models/Stakeholder.js";
 import { getInvokingIdentity } from "../utils/identity.js";
-import {
-  getTransactionMetadata,
-  TransactionMetadata
-} from "../utils/txContext.js";
+import { getTransactionMetadata, TransactionMetadata } from "../utils/txContext.js";
 
 const STAKEHOLDER_KEY_PREFIX = "stakeholder";
 const CERTIFICATE_KEY_PREFIX = "certificate";
@@ -145,12 +136,7 @@ export class StakeholderRegistryContract extends Contract {
 
     const id = requireValue(stakeholderId, "Stakeholder ID");
     const metadata = getTransactionMetadata(ctx);
-    const stakeholder = this.createStakeholder(
-      id,
-      "REGULATOR",
-      identity.certificateId,
-      metadata
-    );
+    const stakeholder = this.createStakeholder(id, "REGULATOR", identity.certificateId, metadata);
 
     await this.putNewStakeholder(ctx, stakeholder);
     await ctx.stub.putState(ACTIVE_REGULATOR_COUNT_KEY, Buffer.from("1"));
@@ -197,9 +183,7 @@ export class StakeholderRegistryContract extends Contract {
     const stakeholder = await this.getStakeholderRecord(ctx, stakeholderId);
     const newRole = parseRole(role);
     if (stakeholder.role === newRole) {
-      throw new Error(
-        `Stakeholder '${stakeholder.stakeholderId}' already has role '${newRole}'.`
-      );
+      throw new Error(`Stakeholder '${stakeholder.stakeholderId}' already has role '${newRole}'.`);
     }
 
     // Update the lockout guard when this change adds or removes an active regulator.
@@ -466,10 +450,7 @@ export class StakeholderRegistryContract extends Contract {
     );
   }
 
-  private async getStakeholderRecord(
-    ctx: Context,
-    stakeholderId: string
-  ): Promise<Stakeholder> {
+  private async getStakeholderRecord(ctx: Context, stakeholderId: string): Promise<Stakeholder> {
     const id = requireValue(stakeholderId, "Stakeholder ID");
     const value = await ctx.stub.getState(this.stakeholderKey(ctx, id));
     if (value.length === 0) {
