@@ -72,14 +72,20 @@ export const chaincodes: readonly ChaincodeDefinition[] = [
   {
     name: "stakeholder",
     packageName: "@fresh-milk/chaincode-stakeholder",
-    sourcePath: join(fabricDirectory, "chaincode", "stakeholder")
+    sourcePath: join(fabricDirectory, "chaincode", "stakeholder"),
+    // Every write here is a regulator-only attestation: who holds which role, and which public key
+    // belongs to which sensor. The contract checks the submitter's certificate, but without this
+    // the regulator's own peer need not have run the transaction and agreed, so the ledger would
+    // record an attestation the attesting party never executed.
+    //
+    // Reads are unaffected. A cross-chaincode read runs inside the calling transaction and is
+    // covered by that chaincode's policy, which is why this costs nothing on the hot path.
+    endorsementPolicy: regulatorMustEndorse
   },
   {
     name: "supplychain",
     packageName: "@fresh-milk/chaincode-supplychain",
     sourcePath: join(fabricDirectory, "chaincode", "supplychain"),
-    // Only this one. The registry is read across chaincodes on every call, and requiring a
-    // specific endorser for those reads would buy nothing.
     endorsementPolicy: regulatorMustEndorse
   }
 ];

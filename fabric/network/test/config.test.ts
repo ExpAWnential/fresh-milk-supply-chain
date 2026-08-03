@@ -125,10 +125,14 @@ describe("the endorsement policy", () => {
     assert.doesNotMatch(policy, /\s/);
   });
 
-  // Requiring a specific endorser for a read that happens on every single call would buy nothing.
-  it("leaves the registry on the channel's own policy", () => {
+  // Every registry write is an attestation the regulator makes about somebody else: what role a
+  // company holds, which public key belongs to which sensor. Without this the regulator's own peer
+  // need not have run the transaction, so the ledger could record an attestation the attesting
+  // party never executed. Both chaincodes share one policy rather than two literals that could
+  // drift apart.
+  it("holds the registry to the same policy, because its writes are attestations too", () => {
     const stakeholder = config.chaincodes.find((chaincode) => chaincode.name === "stakeholder");
-    assert.equal(stakeholder?.endorsementPolicy, undefined);
+    assert.equal(stakeholder?.endorsementPolicy, policy);
   });
 });
 
