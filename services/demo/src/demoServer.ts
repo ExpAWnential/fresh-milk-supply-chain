@@ -42,6 +42,8 @@ const repository = createTemperatureRepository(pool);
 interface RunRequest {
   readonly batchId: string;
   readonly readings: readonly { recordedAt: string; celsius: number }[];
+  // Original sensor measurements, supplied only when the oracle stores different values.
+  readonly signedReadings?: readonly { recordedAt: string; celsius: number }[];
   // Allows the submitted summary to differ from the readings stored under the same evidence hash.
   readonly lieAboutSummary?: boolean;
   readonly fakeStatistics?: { minCelsius: number; maxCelsius: number };
@@ -49,6 +51,14 @@ interface RunRequest {
 
 // This value sits comfortably inside the safe range, so substituting it conceals the breach.
 const HIDDEN_BREACH_CELSIUS = 3.2;
+
+function requireCelsius(value: number, index: number): number {
+  const celsius = Number(value);
+  if (!Number.isFinite(celsius)) {
+    throw new Error(`Reading ${index + 1} has an invalid temperature.`);
+  }
+  return celsius;
+}
 
 async function readPrivateKey(): Promise<string> {
   const path = join(keyDirectory, `${SENSOR_ID}.key`);
@@ -76,10 +86,7 @@ async function signAsSensor(
   const today = new Date().toISOString().slice(0, 10);
 
   return readings.map((reading, index) => {
-    const celsius = Number(reading.celsius);
-    if (!Number.isFinite(celsius)) {
-      throw new Error(`Reading ${index + 1} has an invalid temperature.`);
-    }
+    const celsius = requireCelsius(reading.celsius, index);
 
     const recordedAt = /^\d\d:\d\d$/.test(reading.recordedAt)
       ? `${today}T${reading.recordedAt}:00Z`
@@ -177,9 +184,23 @@ async function handleRun(body: RunRequest): Promise<unknown> {
   }
 
   const lying = body.lieAboutSummary === true;
-  const stored = await signAsSensor(batchId, body.readings);
 
-  if (!lying) {
+  // The signature covers what the sensor measured, which is not always what the oracle goes on to
+  // store. Keeping the two apart is what lets an edit made before anchoring still be caught.
+  const measured = body.signedReadings ?? body.readings;
+  if (measured.length !== body.readings.length) {
+    throw new Error("'signedReadings' must hold one reading for every reading being stored.");
+  }
+
+  const signed = await signAsSensor(batchId, measured);
+  const stored = signed.map((reading, index) => ({
+    ...reading,
+    celsius: requireCelsius(body.readings[index].celsius, index)
+  }));
+  const forged = stored.some((reading, index) => reading.celsius !== signed[index].celsius);
+
+  // An oracle storing values it knows the sensor never signed would not run this check on itself.
+  if (!lying && !forged) {
     await verifyAsOracle(batchId, stored);
   }
 

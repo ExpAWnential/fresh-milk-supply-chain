@@ -261,6 +261,9 @@ export function LiveApp() {
   const [registered, setRegistered] = useState<Record<string, boolean>>({});
   const [sensorReg, setSensorReg] = useState<Record<string, boolean>>({});
   const [rows, setRows] = useState<readonly Row[]>(DEFAULT_ROWS);
+  // What the sensor actually recorded, kept beside the table so an edit made before anchoring is
+  // still measurable against the values the signatures cover.
+  const [signedRows, setSignedRows] = useState<readonly Row[]>(DEFAULT_ROWS);
   const [lie, setLie] = useState({ min: "1.8", max: "3.6" });
   const [preset, setPreset] = useState<string | null>("compliant");
   const [liveHash, setLiveHash] = useState("");
@@ -578,6 +581,11 @@ export function LiveApp() {
     const data = rows.map((r) => ({ recordedAt: r.at, celsius: Number(r.celsius) || 0 }));
     const temps = data.map((r) => r.celsius);
     const unsafe = temps.some((t) => t < 0 || t > 5);
+    // Preserve the sensor's original measurements when the table has been edited, allowing the
+    // backend to compare signed values with those the oracle stores.
+    const edited =
+      signedRows.length === rows.length &&
+      rows.some((r, i) => Number(r.celsius) !== Number(signedRows[i].celsius));
     try {
       const res = await fetch(DEMO_URL + "/demo/run", {
         method: "POST",
@@ -585,6 +593,9 @@ export function LiveApp() {
         body: JSON.stringify({
           batchId,
           readings: data,
+          signedReadings: edited
+            ? signedRows.map((r) => ({ recordedAt: r.at, celsius: Number(r.celsius) || 0 }))
+            : undefined,
           lieAboutSummary: fake,
           fakeStatistics: fake
             ? { minCelsius: Number(lie.min) || 0, maxCelsius: Number(lie.max) || 0 }
@@ -686,12 +697,12 @@ export function LiveApp() {
           { origin: byName("oracle")?.origin }
         );
         if (r2.status === 200 && Array.isArray(r2.body)) {
-          setRows(
-            r2.body.map((x: { recordedAt?: string; celsius: number }) => ({
-              at: (x.recordedAt || "").slice(11, 16),
-              celsius: String(Number(x.celsius))
-            }))
-          );
+          const tampered = r2.body.map((x: { recordedAt?: string; celsius: number }) => ({
+            at: (x.recordedAt || "").slice(11, 16),
+            celsius: String(Number(x.celsius))
+          }));
+          setRows(tampered);
+          setSignedRows(tampered);
         }
         return;
       }
@@ -729,7 +740,10 @@ export function LiveApp() {
         at: (x.recordedAt || "").slice(11, 16),
         celsius: String(Number(x.celsius))
       }));
-      if (got.length) setRows(got);
+      if (got.length) {
+        setRows(got);
+        setSignedRows(got);
+      }
       say("chill", `Loaded the oracle's stored readings for ${ev}. They are in the table now.`);
     }
     return ev;
@@ -780,6 +794,7 @@ export function LiveApp() {
     const id = preset || "compliant";
     setPreset(id);
     setRows(id === "warm" ? UNSAFE_ROWS : DEFAULT_ROWS);
+    setSignedRows(id === "warm" ? UNSAFE_ROWS : DEFAULT_ROWS);
     say("chill", "Sensor data restored to what SENSOR-001 actually recorded.");
   };
 
@@ -790,6 +805,7 @@ export function LiveApp() {
     setHistory([]);
     setAnchors([]);
     setRows(DEFAULT_ROWS);
+    setSignedRows(DEFAULT_ROWS);
     setPreset("compliant");
     setOpenBlock(null);
     setEvidenceId(null);
@@ -1014,6 +1030,7 @@ export function LiveApp() {
                 return;
               }
               setRows(id === "compliant" ? DEFAULT_ROWS : UNSAFE_ROWS);
+              setSignedRows(id === "compliant" ? DEFAULT_ROWS : UNSAFE_ROWS);
               say(
                 "chill",
                 id === "compliant"
