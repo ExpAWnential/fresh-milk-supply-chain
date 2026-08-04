@@ -71,8 +71,3 @@ whatever just happened, and the panel below it is the batch's real history on th
 
 If the network is down, <http://localhost:3001/?mode=sim> is the same console over an in-memory
 chain, with nothing real behind it.
-
-## Documentation
-
-- `docs/transaction-flow.md` — endorsement, ordering and validation in detail.
-- `docs/setup.md` — running it as host processes instead of containers, for development.
