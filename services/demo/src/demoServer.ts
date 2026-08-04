@@ -1,15 +1,13 @@
 /**
- * Demo-only helper that lets the browser console play both the sensor and a dishonest oracle.
+ * Provides isolated endpoints for exercising sensor signing, false summaries and database tampering.
  *
- * Everything here exists so an operator can attack the system live and watch it get caught. It is
- * deliberately outside every production package: it holds the demo sensor's private key, it writes
- * to the oracle's database behind the oracle's back, and it will submit evidence it knows to be
- * false. None of that belongs in a service that ships.
+ * This process intentionally crosses trust boundaries that production services must preserve. It
+ * holds the sensor's private key, writes directly to the oracle database and can submit a summary
+ * that does not describe the stored readings. Keeping those capabilities in a separate package
+ * prevents production code from gaining the same access.
  *
  *   POST /demo/run     sign readings, store them, anchor the fingerprint
  *   POST /demo/tamper  edit a stored reading directly in PostgreSQL, around the application
- *
- * Run it beside the six backends: pnpm demo:server (port 3016).
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -33,28 +31,18 @@ const PORT = Number(process.env.DEMO_PORT ?? 3016);
 const ORACLE_BACKEND = process.env.ORACLE_BACKEND_URL ?? "http://localhost:3006";
 const SENSOR_ID = process.env.DEMO_SENSOR_ID ?? "SENSOR-001";
 
-// The sensor's own package, which is the only place its private key lives.
+// The key remains in the sensor package rather than being copied into an oracle package.
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const keyDirectory = process.env.SENSOR_KEY_DIR ?? join(packageRoot, "..", "sensor", "data");
 
 const pool = createPool({ connectionString: process.env.DATABASE_URL ?? ORACLE_DATABASE_URL });
 const repository = createTemperatureRepository(pool);
 
-/**
- * How the oracle behaves on this run.
- *
- * `honest` is the real pipeline. The other two are the two ways an oracle can lie before the
- * fingerprint is ever computed, and each is caught by a different check.
- */
-type RunMode = "honest" | "fabricate" | "fake-summary";
-
 interface RunRequest {
   readonly batchId: string;
   readonly readings: readonly { recordedAt: string; celsius: number }[];
-  readonly mode?: RunMode;
-  // fabricate: the value written to the database in place of the one the sensor signed.
-  readonly fabricate?: { sequence: number; celsius: number };
-  // fake-summary: what the oracle tells the contract, regardless of what it stored.
+  // Allows the submitted summary to differ from the readings stored under the same evidence hash.
+  readonly lieAboutSummary?: boolean;
   readonly fakeStatistics?: { minCelsius: number; maxCelsius: number };
 }
 
@@ -70,11 +58,11 @@ async function readPrivateKey(): Promise<string> {
 }
 
 /**
- * Signs each reading as the sensor would, at the moment it measured it.
+ * Signs each reading with the sensor's private key before it reaches oracle-controlled storage.
  *
  * The timestamp is completed here rather than in the browser because the page only asks for a time
- * of day. Signing happens before any tampering, which is the point: the sensor's word is fixed
- * before the oracle gets a chance to change its mind.
+ * of day. The resulting signature fixes the original measurement before the oracle can store or
+ * alter it.
  */
 async function signAsSensor(
   batchId: string,
@@ -112,10 +100,10 @@ async function signAsSensor(
 }
 
 /**
- * The check an honest oracle runs on itself before committing to anything.
+ * Applies the oracle's normal signature check before evidence is stored or submitted.
  *
- * It proves nothing to anyone else, since the oracle runs it and could remove it — which is exactly
- * what `mode` does here. Its real job is to fail fast on a feed that was altered on the way in.
+ * This catches readings altered in transit, but it is not independent evidence because the oracle
+ * controls whether the check runs. False-summary requests deliberately bypass it.
  */
 async function verifyAsOracle(
   batchId: string,
@@ -147,6 +135,7 @@ async function verifyAsOracle(
   }
 }
 
+/** Submits the evidence fingerprint and reported statistics through the oracle's fixed identity. */
 async function anchorOnFabric(
   batchId: string,
   evidenceId: string,
@@ -173,6 +162,7 @@ async function anchorOnFabric(
   }
 }
 
+/** Signs and stores one reading set before anchoring either its real or supplied summary. */
 async function handleRun(body: RunRequest): Promise<unknown> {
   const batchId = String(body.batchId ?? "").trim();
   if (!batchId) {
@@ -182,21 +172,10 @@ async function handleRun(body: RunRequest): Promise<unknown> {
     throw new Error("'readings' must contain at least one reading.");
   }
 
-  const mode: RunMode = body.mode ?? "honest";
-  const signed = await signAsSensor(batchId, body.readings);
+  const lying = body.lieAboutSummary === true;
+  const stored = await signAsSensor(batchId, body.readings);
 
-  // The fabrication happens after signing and before storing, which is the only window an oracle
-  // actually has. The signature it stores alongside still covers the value the sensor measured.
-  const fabricated = mode === "fabricate" ? body.fabricate : undefined;
-  const stored = fabricated
-    ? signed.map((reading) =>
-        reading.sequence === fabricated.sequence
-          ? { ...reading, celsius: Number(fabricated.celsius) }
-          : reading
-      )
-    : signed;
-
-  if (mode === "honest") {
+  if (!lying) {
     await verifyAsOracle(batchId, stored);
   }
 
@@ -204,10 +183,10 @@ async function handleRun(body: RunRequest): Promise<unknown> {
   const evidenceHash = sha256TemperatureReadings(batchId, stored);
   const evidenceId = `EV-${batchId}-${evidenceHash.slice(0, 8)}`;
 
-  // What the contract is told. In fake-summary mode this no longer describes the stored readings,
-  // which is invisible on chain and obvious to anyone who recomputes it.
+  // Fabric receives this summary separately from the hashed readings, so independent verification
+  // must recompute it from storage.
   const reported: TemperatureStatistics =
-    mode === "fake-summary" && body.fakeStatistics
+    lying && body.fakeStatistics
       ? {
           minCelsius: Number(body.fakeStatistics.minCelsius),
           maxCelsius: Number(body.fakeStatistics.maxCelsius),
@@ -247,26 +226,26 @@ async function handleRun(body: RunRequest): Promise<unknown> {
   return {
     evidenceId,
     batchId,
-    mode,
     evidenceHash,
     readingCount: honestStatistics.readingCount,
-    reportedStatistics: reported,
-    actualStatistics: honestStatistics,
+    statistics: reported,
+    honestStatistics,
     complianceOutcome: record.complianceOutcome ?? null,
-    fabricTransactionId: record.submittedTxId ?? null
+    fabricTransactionId: record.submittedTxId ?? null,
+    liedAboutSummary: lying
   };
 }
 
-// The oracle's own read of the range the contract will apply. The contract decides for itself.
+// This local result records the oracle's view. Fabric derives the authoritative outcome itself.
 function isSafe(statistics: TemperatureStatistics): boolean {
   return statistics.minCelsius >= 0 && statistics.maxCelsius <= 5;
 }
 
 /**
- * Changes one stored reading with straight SQL, going around the application entirely.
+ * Changes one stored reading directly in PostgreSQL without using the repository's write path.
  *
- * This is the attacker who already has the database, and it is the case the fingerprint on the
- * ledger exists for: whatever this writes, it cannot reach back and change what was committed.
+ * Direct database access can alter the off-chain row, but it cannot replace the fingerprint already
+ * committed to Fabric.
  */
 async function handleTamper(body: { evidenceId?: unknown; celsius?: unknown }): Promise<unknown> {
   const evidenceId = String(body.evidenceId ?? "").trim();
@@ -274,8 +253,7 @@ async function handleTamper(body: { evidenceId?: unknown; celsius?: unknown }): 
     throw new Error("'evidenceId' is required.");
   }
 
-  // A comfortable value inside the safe range. Replacing rather than nudging, so the edit always
-  // reads as someone hiding a breach instead of producing an arithmetic curiosity like -2.9.
+  // Replace the value with a safe temperature so the mutation consistently hides a breach.
   const celsius = Number(body.celsius ?? 3.2);
   if (!Number.isFinite(celsius)) {
     throw new Error("'celsius' must be a number.");
@@ -284,7 +262,7 @@ async function handleTamper(body: { evidenceId?: unknown; celsius?: unknown }): 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    // The warmest reading, because that is the one worth hiding.
+    // Changing the warmest reading tests whether an apparent breach removal is detected.
     const result = await client.query<{
       sequence: number;
       old_celsius: string;
@@ -313,7 +291,7 @@ async function handleTamper(body: { evidenceId?: unknown; celsius?: unknown }): 
     if (!result.rows[0]) {
       throw new Error(`Evidence '${evidenceId}' has no stored readings to change.`);
     }
-    return { evidenceId, changed: result.rows[0] };
+    return { evidenceId, changedReading: result.rows[0] };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -325,7 +303,7 @@ async function handleTamper(body: { evidenceId?: unknown; celsius?: unknown }): 
 function send(res: ServerResponse, status: number, payload: unknown): void {
   res.writeHead(status, {
     "content-type": "application/json",
-    // Open, because the page is served from whichever of the six backends you happened to open.
+    // Any consortium backend may serve the console that calls this local helper.
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "POST, OPTIONS",
     "access-control-allow-headers": "content-type"
