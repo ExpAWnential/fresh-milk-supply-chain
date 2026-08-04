@@ -51,8 +51,9 @@ x-backend: &backend
   depends_on:
     fabric-chaincode:
       condition: service_completed_successfully
+    # Wait for database initialisation to finish before a backend can issue its first query.
     postgres:
-      condition: service_started
+      condition: service_healthy
 
 services:
   # Generate the certificate tree before peers mount and use it.
@@ -106,7 +107,12 @@ services:
       HEALTHCHECK_URL: http://localhost:3001/identity
       DATABASE_URL: postgres://regulator_app:regulator@postgres:5432/freshmilk_regulator
       ORACLE_BACKEND_URL: http://backend-oracle:3006
-      EVENT_CHECKPOINT_PATH: /tmp/.fabric-events.regulator.checkpoint
+      EVENT_CHECKPOINT_PATH: /var/lib/fresh-milk/.fabric-events.regulator.checkpoint
+    # Persist the listener checkpoint so a recreated regulator resumes after its last archived event
+    # instead of replaying the ledger from genesis.
+    volumes:
+      - ./fabric/milk-network/organizations:/app/fabric/milk-network/organizations:ro
+      - regulator-checkpoint:/var/lib/fresh-milk
     ports:
       - "3001:3001"
 
@@ -181,6 +187,8 @@ services:
     depends_on:
       backend-oracle:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
 
   # Register consortium identities and sensor keys after all organisation backends are healthy.
   seed:
@@ -203,6 +211,11 @@ services:
         condition: service_healthy
       backend-oracle:
         condition: service_healthy
+
+  # Connect PostgreSQL to the shared network so application services can resolve it by service name.
+  postgres:
+    networks:
+      - test
 
   # Peers and the orderer cannot start until certificate generation has completed.
   orderer.example.com:
@@ -239,6 +252,9 @@ services:
     depends_on:
       fabric-crypto:
         condition: service_completed_successfully
+
+volumes:
+  regulator-checkpoint:
 
 networks:
   test:

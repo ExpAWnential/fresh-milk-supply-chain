@@ -1,4 +1,4 @@
-# Named so the volume below is not derived from whatever the directory happens to be called.
+# Pins the Compose project name so the PostgreSQL volume keeps one stable identity.
 name: fresh-milk-storage
 
 services:
@@ -13,10 +13,18 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      # Run in filename order, and ONLY when the data directory is empty. With an existing volume
-      # none of this runs and the databases silently stay as they were: use `pnpm db:reset`.
+      # PostgreSQL runs these scripts in filename order only when the data directory is empty.
+      # Existing volumes retain their current databases and schema.
       - ./initdb:/docker-entrypoint-initdb.d:ro
       - postgres-data:/var/lib/postgresql/data
+    # The entrypoint accepts local socket connections while initialisation scripts are still running.
+    # Probe TCP so healthy means both application databases are ready for other containers.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U freshmilk -d freshmilk_oracle"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
 
 volumes:
   postgres-data:
