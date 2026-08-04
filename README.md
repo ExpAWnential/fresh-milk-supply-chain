@@ -74,8 +74,5 @@ chain, with nothing real behind it.
 
 ## Documentation
 
-- `docs/code-overview.md` — what each part does and how a request flows through it.
 - `docs/transaction-flow.md` — endorsement, ordering and validation in detail.
-- `docs/design.md` — the design and how it meets the assignment requirements.
-- `docs/rules-and-limitations.md` — what the contracts enforce, and what this does not do.
 - `docs/setup.md` — running it as host processes instead of containers, for development.
