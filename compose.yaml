@@ -108,7 +108,12 @@ services:
       HEALTHCHECK_URL: http://localhost:3001/identity
       DATABASE_URL: postgres://regulator_app:regulator@postgres:5432/freshmilk_regulator
       ORACLE_BACKEND_URL: http://backend-oracle:3006
-      EVENT_CHECKPOINT_PATH: /tmp/.fabric-events.regulator.checkpoint
+      EVENT_CHECKPOINT_PATH: /var/lib/fresh-milk/.fabric-events.regulator.checkpoint
+    # The checkpoint outlives the container, otherwise a recreated regulator replays the chain from
+    # genesis instead of resuming, which is the whole point of keeping one.
+    volumes:
+      - ./fabric/milk-network/organizations:/app/fabric/milk-network/organizations:ro
+      - regulator-checkpoint:/var/lib/fresh-milk
     ports:
       - "3001:3001"
 
@@ -248,6 +253,9 @@ services:
     depends_on:
       fabric-crypto:
         condition: service_completed_successfully
+
+volumes:
+  regulator-checkpoint:
 
 networks:
   test:
