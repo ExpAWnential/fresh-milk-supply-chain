@@ -1,626 +1,1826 @@
 <!doctype html>
 <!--
-  Browser control panel for registration, batch traceability, cold-chain evidence and integrity
-  checks. It talks to each organisation's separate backend, so the selected organisation determines
-  which Fabric identity signs a request.
+  Browser control panel for the six-company consortium.
+
+  Selecting a company changes which backend origin every request goes to, and each backend holds
+  only its own private key, so the selection really is the identity that signs. Nothing here is
+  simulated: the chain feed is rebuilt from transaction IDs read back off the ledger, and the three
+  verification results come from the selected company checking the oracle's data against what the
+  chain committed.
 -->
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Fresh Milk Cold Chain — Demo</title>
+    <title>Fresh Milk Cold Chain</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
     <style>
       :root {
-        --ink: #14213d;
-        --muted: #5b6b8c;
-        --line: #d8dee9;
-        --ok: #1b7f4b;
+        --ink: #16233f;
+        --ink-2: #3b4a6b;
+        --muted: #5e6b85;
+        --faint: #98a2b7;
+        --line: #dde2ea;
+        --hairline: #ebeef4;
+        --paper: #f6f7f9;
+        --card: #ffffff;
+        --well: #f1f3f7;
+        --chill: #2456d0;
+        --chill-deep: #183e9f;
+        --chill-tint: #ebf0fc;
+        --ok: #177a46;
+        --ok-tint: #e8f4ee;
         --refused: #a6600a;
+        --refused-tint: #fbf2e3;
         --broken: #b3261e;
+        --broken-tint: #faebea;
+        --focus-ring: 0 0 0 3px rgba(36, 86, 208, 0.18);
+        --shadow-card: 0 1px 2px rgba(22, 35, 63, 0.04), 0 2px 8px rgba(22, 35, 63, 0.05);
+        --font-ui: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+        --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+        --s1: 4px;
+        --s2: 8px;
+        --s3: 12px;
+        --s4: 16px;
+        --s5: 20px;
+        --s6: 24px;
+        --s8: 32px;
+        --r-sm: 6px;
+        --r-md: 10px;
+        --r-pill: 999px;
       }
+
       * {
         box-sizing: border-box;
       }
+
       body {
         margin: 0;
-        padding: 1rem 1.25rem 3rem;
-        font:
-          16px/1.5 system-ui,
-          -apple-system,
-          "Segoe UI",
-          sans-serif;
+        padding: var(--s8) var(--s6) 64px;
+        background: var(--paper);
         color: var(--ink);
-        background: #fff;
+        font: 400 14px/1.5 var(--font-ui);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .shell {
+        max-width: 1180px;
+        margin: 0 auto;
+      }
+
+      .masthead {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--s6);
+        margin-bottom: var(--s5);
       }
       h1 {
-        font-size: 1.2rem;
-        margin: 0 0 0.75rem;
+        margin: 0;
+        font-size: 28px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
       }
-      h1 small {
-        font-weight: 400;
+      .masthead p {
+        margin: var(--s1) 0 0;
         color: var(--muted);
-        font-size: 0.8rem;
-        margin-left: 0.5rem;
+        font-size: 13px;
       }
-      .bar {
+      .masthead-controls {
+        display: flex;
+        align-items: center;
+        gap: var(--s2);
+      }
+
+      .companies {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.75rem;
+        gap: var(--s2);
+        margin-bottom: var(--s5);
+      }
+      .chip {
+        display: inline-flex;
         align-items: center;
-        padding: 0.75rem;
-        border: 2px solid var(--ink);
-        border-radius: 8px;
-        margin-bottom: 0.75rem;
-      }
-      .bar label {
-        font-weight: 600;
-      }
-      select,
-      input,
-      button {
-        font: inherit;
-        padding: 0.4rem 0.6rem;
+        gap: var(--s2);
+        padding: 8px 14px;
         border: 1px solid var(--line);
-        border-radius: 6px;
-        background: #fff;
-        color: inherit;
-      }
-      select,
-      input {
-        min-width: 9rem;
-      }
-      button {
+        border-radius: var(--r-pill);
+        background: var(--card);
+        color: var(--ink);
+        font: 500 13px var(--font-ui);
         cursor: pointer;
+        transition:
+          border-color 120ms,
+          background 120ms;
       }
-      button:hover {
+      .chip:hover {
+        border-color: var(--faint);
+      }
+      .chip[aria-pressed="true"] {
+        background: var(--ink);
+        color: #fff;
         border-color: var(--ink);
+      }
+      .chip .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--faint);
+        flex: none;
+      }
+      .chip .dot.up {
+        background: var(--ok);
+      }
+      .chip .dot.down {
+        background: var(--broken);
+      }
+      .chip .you {
+        font-size: 9.5px;
+        letter-spacing: 0.08em;
+        font-weight: 700;
+        padding: 2px 5px;
+        border-radius: 3px;
+        background: rgba(255, 255, 255, 0.18);
+      }
+
+      .columns {
+        display: grid;
+        grid-template-columns: 7fr 5fr;
+        gap: var(--s5);
+        align-items: start;
+      }
+      @media (max-width: 940px) {
+        .columns {
+          grid-template-columns: 1fr;
+        }
+      }
+      .stack {
+        display: grid;
+        gap: var(--s5);
+      }
+
+      .panel {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        box-shadow: var(--shadow-card);
+        overflow: hidden;
+      }
+      .panel > header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--s3);
+        padding: var(--s4) var(--s5);
+        border-bottom: 1px solid var(--hairline);
+      }
+      .panel-title {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--ink-2);
+      }
+      .panel-body {
+        padding: var(--s5);
+        display: grid;
+        gap: var(--s4);
+      }
+
+      .label {
+        display: block;
+        font-size: 10.5px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--faint);
+        margin-bottom: var(--s2);
+      }
+
+      button {
+        font: 500 13px var(--font-ui);
+        border-radius: var(--r-sm);
+        cursor: pointer;
+        padding: 8px 14px;
+        border: 1px solid var(--line);
+        background: var(--card);
+        color: var(--ink);
+        box-shadow: 0 1px 2px rgba(22, 35, 63, 0.06);
+        transition:
+          border-color 120ms,
+          background 120ms;
+      }
+      button:hover:not(:disabled) {
+        border-color: var(--faint);
+      }
+      button:active:not(:disabled) {
+        transform: translateY(1px);
+        box-shadow: none;
+      }
+      button:focus-visible {
+        outline: none;
+        border-color: var(--chill);
+        box-shadow: var(--focus-ring);
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
       }
       button.primary {
         background: var(--ink);
         color: #fff;
         border-color: var(--ink);
       }
-      /* The chip row shows the health of each organisation's separate backend. */
-      #backends {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.4rem;
-        align-items: center;
-        margin-bottom: 1rem;
+      button.primary:hover:not(:disabled) {
+        background: #1d2f55;
       }
-      .chip {
-        font-size: 0.8rem;
-        padding: 0.25rem 0.6rem;
-        border-radius: 999px;
-        border: 1px solid var(--line);
-        color: var(--muted);
+      button.quiet {
+        border-color: transparent;
+        box-shadow: none;
+        background: transparent;
+        color: var(--ink-2);
       }
-      .chip.up {
-        border-color: var(--ok);
-        color: var(--ok);
-        font-weight: 600;
+      button.quiet:hover:not(:disabled) {
+        background: var(--well);
+        border-color: transparent;
       }
-      .chip.down {
+      button.danger:hover:not(:disabled) {
+        background: var(--broken-tint);
         border-color: var(--broken);
         color: var(--broken);
       }
-      .group {
+      button.sm {
+        padding: 6px 10px;
+        font-size: 12.5px;
+      }
+
+      input {
+        font: 400 13px var(--font-ui);
+        color: var(--ink);
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: var(--r-sm);
+        padding: 7px 10px;
+      }
+      input:hover {
+        border-color: var(--faint);
+      }
+      input:focus {
+        outline: none;
+        border-color: var(--chill);
+        box-shadow: var(--focus-ring);
+      }
+      input.mono {
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+      }
+      input.num {
+        width: 68px;
+        text-align: right;
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+        padding: 4px 7px;
+      }
+
+      .actions {
         display: flex;
+        gap: var(--s2);
         flex-wrap: wrap;
-        gap: 0.4rem;
+      }
+
+      .srow {
+        display: flex;
         align-items: center;
-        margin-bottom: 0.5rem;
+        justify-content: space-between;
+        gap: var(--s4);
+        padding: 11px 0;
+        border-bottom: 1px solid var(--hairline);
       }
-      .group .name {
-        width: 8rem;
-        font-size: 0.75rem;
-        letter-spacing: 0.07em;
-        text-transform: uppercase;
-        color: var(--muted);
-        font-weight: 700;
-      }
-      .split {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        margin: 1rem 0;
-      }
-      .split section {
-        border: 1px solid var(--line);
-        padding: 0.75rem;
-        min-width: 0;
-      }
-      .split section + section {
-        border-left: 0;
-      }
-      .split h2 {
-        font-size: 0.75rem;
-        letter-spacing: 0.07em;
-        text-transform: uppercase;
-        margin: 0 0 0.5rem;
-        color: var(--muted);
-      }
-      .split pre {
-        margin: 0;
-        font-size: 0.85rem;
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-      }
-      #log {
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        max-height: 24rem;
-        overflow: auto;
-      }
-      #log:empty::after {
-        content: "Every request and the contract's reply appear here.";
-        display: block;
-        padding: 0.75rem;
-        color: var(--muted);
-      }
-      .entry {
-        border-bottom: 1px solid var(--line);
-        padding: 0.55rem 0.75rem;
-      }
-      .entry:last-child {
+      .srow:last-child {
         border-bottom: 0;
       }
-      .entry .head {
+      .srow .what {
+        display: grid;
+        gap: 2px;
+        min-width: 0;
+      }
+      .srow .what b {
         font-weight: 600;
-        font-size: 0.9rem;
+        font-size: 13.5px;
       }
-      .entry pre {
-        margin: 0.3rem 0 0;
-        font-size: 0.82rem;
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
+      .srow .what span {
+        color: var(--muted);
+        font-size: 12.5px;
       }
-      .ok .head {
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 500;
+        padding: 3px 9px;
+        border-radius: var(--r-pill);
+        background: var(--well);
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .pill i {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: currentColor;
+      }
+      .pill.ok {
+        background: var(--ok-tint);
         color: var(--ok);
       }
-      .refused .head {
+      .pill.refused {
+        background: var(--refused-tint);
         color: var(--refused);
       }
-      .broken .head {
+      .pill.broken {
+        background: var(--broken-tint);
         color: var(--broken);
       }
-      code,
-      pre {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      .pill.chill {
+        background: var(--chill-tint);
+        color: var(--chill-deep);
+      }
+      .pill.cheated {
+        background: var(--refused-tint);
+        color: var(--refused);
+      }
+
+      .cheat {
+        border-top: 1px solid var(--line);
+        padding-top: var(--s4);
+      }
+      .cheat > .label {
+        color: var(--broken);
+      }
+
+      .journey {
+        display: flex;
+        align-items: flex-start;
+      }
+      .step {
+        flex: 1;
+        display: grid;
+        justify-items: center;
+        gap: 7px;
+        position: relative;
+      }
+      .step .bead {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        border: 1px solid var(--line);
+        background: var(--card);
+        font: 600 12.5px var(--font-mono);
+        color: var(--faint);
+        z-index: 1;
+      }
+      .step.done .bead {
+        background: var(--chill);
+        border-color: var(--chill);
+        color: #fff;
+      }
+      .step.now .bead {
+        border-color: var(--chill);
+        color: var(--chill);
+        box-shadow: var(--focus-ring);
+      }
+      .step .name {
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+      .step.done .name,
+      .step.now .name {
+        color: var(--ink);
+        font-weight: 600;
+      }
+      .step::before {
+        content: "";
+        position: absolute;
+        top: 15px;
+        left: -50%;
+        width: 100%;
+        height: 1px;
+        background: var(--line);
+      }
+      .step:first-child::before {
+        display: none;
+      }
+      .step.done::before {
+        background: var(--chill);
+      }
+      .stamp {
+        margin-top: var(--s3);
+        text-align: center;
+        font-size: 12.5px;
+        font-weight: 600;
+        padding: 7px;
+        border-radius: var(--r-sm);
+      }
+      .stamp.breach {
+        background: var(--broken-tint);
+        color: var(--broken);
+      }
+      .stamp.recalled {
+        background: var(--refused-tint);
+        color: var(--refused);
+      }
+
+      .caption-text {
+        font-size: 16px;
+        line-height: 1.45;
+      }
+
+      .feed {
+        max-height: 460px;
+        overflow-y: auto;
+        padding: var(--s3) var(--s5) var(--s5);
+        display: grid;
+        gap: var(--s2);
+      }
+      .block {
+        display: grid;
+        grid-template-columns: 34px 1fr;
+        gap: var(--s3);
+        padding: var(--s3);
+        border: 1px solid var(--hairline);
+        border-radius: var(--r-md);
+        background: var(--card);
+      }
+      /* Only transactions the page has not shown before. Animating every block on every render
+         flashes the whole column each time anything is clicked. */
+      .block.fresh {
+        animation: blockIn 350ms ease;
+      }
+      .block:first-child {
+        border-color: var(--chill);
+        box-shadow: var(--focus-ring);
+      }
+      .block .n {
+        display: grid;
+        place-items: center;
+        height: 26px;
+        border-radius: var(--r-sm);
+        background: var(--chill-tint);
+        color: var(--chill-deep);
+        font: 600 12.5px var(--font-mono);
+      }
+      .block .what {
+        min-width: 0;
+      }
+      .block .what b {
+        display: block;
+        font-weight: 600;
+        font-size: 13.5px;
+      }
+      .block .what .by {
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+      .block .what .tx {
+        display: block;
+        margin-top: 3px;
+        color: var(--faint);
+        font: 400 11.5px var(--font-mono);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .block.ghost {
+        border-style: dashed;
+        border-color: var(--broken);
+        background: var(--broken-tint);
+        animation: ghost 4s ease forwards;
+      }
+      .block.ghost .n {
+        background: transparent;
+        color: var(--broken);
+      }
+      @keyframes blockIn {
+        from {
+          opacity: 0;
+          transform: translateY(-8px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes ghost {
+        0%,
+        70% {
+          opacity: 1;
+        }
+        100% {
+          opacity: 0;
+        }
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-family: var(--font-mono);
+        font-size: 12.5px;
+      }
+      th {
+        text-align: left;
+        font: 700 10.5px var(--font-ui);
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--faint);
+        padding: 0 var(--s2) var(--s2);
+      }
+      td {
+        padding: 5px var(--s2);
+        border-top: 1px solid var(--hairline);
+      }
+      td.warm {
+        color: var(--broken);
+        font-weight: 600;
+      }
+
+      .verdicts {
+        display: grid;
+        gap: var(--s2);
+      }
+      .verdict {
+        display: grid;
+        grid-template-columns: 22px 1fr;
+        gap: var(--s3);
+        align-items: start;
+        padding: var(--s3);
+        border-radius: var(--r-md);
+        background: var(--well);
+      }
+      .verdict.pass {
+        background: var(--ok-tint);
+      }
+      .verdict.fail {
+        background: var(--broken-tint);
+      }
+      .verdict .mark {
+        font-size: 15px;
+        font-weight: 700;
+        line-height: 1.25;
+      }
+      .verdict.pass .mark {
+        color: var(--ok);
+      }
+      .verdict.fail .mark {
+        color: var(--broken);
+      }
+      .verdict b {
+        display: block;
+        font-size: 13.5px;
+        font-weight: 600;
+      }
+      .verdict span {
+        color: var(--ink-2);
+        font-size: 12.5px;
+      }
+      .hashes {
+        display: grid;
+        gap: var(--s1);
+        font-family: var(--font-mono);
+        font-size: 11.5px;
+        color: var(--muted);
+      }
+      .hashes div {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .muted {
+        color: var(--muted);
+        font-size: 13px;
+        margin: 0;
+      }
+      .empty {
+        color: var(--faint);
+        font-size: 13px;
+        padding: var(--s5);
+        text-align: center;
       }
     </style>
   </head>
+
   <body>
-    <h1>
-      Fresh Milk Cold Chain
-      <small
-        >each company runs its own backend; the port that answered is shown on every line</small
-      >
-    </h1>
+    <div class="shell">
+      <div class="masthead">
+        <div>
+          <h1>Fresh Milk Cold Chain</h1>
+          <p>
+            Six companies, one ledger. Everything below is signed by the company you have selected.
+          </p>
+        </div>
+        <div class="masthead-controls">
+          <input id="batchField" class="mono" size="14" />
+          <button id="newBatch">New batch</button>
+        </div>
+      </div>
 
-    <div class="bar">
-      <label for="company">Send to</label>
-      <select id="company"></select>
+      <div class="companies" id="companies"></div>
 
-      <label for="batch">Batch</label>
-      <input id="batch" list="batches" value="BATCH-001" />
-      <datalist id="batches">
-        <option value="BATCH-001"></option>
-        <option value="BATCH-002"></option>
-      </datalist>
-      <button id="newBatch">new</button>
+      <div class="columns">
+        <div class="stack">
+          <section class="panel">
+            <header>
+              <span class="panel-title" id="deskTitle">Desk</span><span id="deskStatus"></span>
+            </header>
+            <div class="panel-body" id="desk"></div>
+          </section>
 
-      <button id="setup" class="primary">Set up demo</button>
-      <button id="ping">Ping all</button>
-      <button id="clear">Clear log</button>
+          <section class="panel">
+            <header>
+              <span class="panel-title">Journey</span><span id="journeyStatus"></span>
+            </header>
+            <div class="panel-body"><div id="journey"></div></div>
+          </section>
+
+          <section class="panel" id="verifyPanel" hidden>
+            <header>
+              <span class="panel-title">The readings, checked</span><span id="verifyWho"></span>
+            </header>
+            <div class="panel-body" id="verifyBody"></div>
+          </section>
+        </div>
+
+        <div class="stack">
+          <section class="panel">
+            <header><span class="panel-title">Latest</span><span id="captionTone"></span></header>
+            <div class="panel-body">
+              <div class="caption-text" id="captionText">
+                Start with the regulator. Nothing else can happen until it registers everyone.
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <header>
+              <span class="panel-title" id="chainTitle">Chain</span>
+              <span class="pill chill"><i></i>committed</span>
+            </header>
+            <div class="feed" id="feed"><div class="empty">Nothing on the chain yet.</div></div>
+          </section>
+        </div>
+      </div>
     </div>
 
-    <div id="backends"></div>
+    <script type="module">
+      // The demo helper. It plays the sensor, and on request a dishonest oracle. Not one of the six.
+      const DEMO_ORIGIN = "http://localhost:3016";
 
-    <div id="actions"></div>
+      // SENSOR-001's public half only, so the regulator can vouch for the device from this page.
+      // The private key never leaves services/sensor/data.
+      const SENSOR = {
+        sensorId: "SENSOR-001",
+        publicKey: "MCowBQYDK2VwAyEAuQBUNozc43qvuq0ks7mBu0k9/FERFhM3pxKJNZ1WWsA=",
+        algorithm: "ed25519"
+      };
 
-    <div class="split">
-      <section>
-        <h2>PostgreSQL — the oracle's own record</h2>
-        <pre id="offChain">Use "Show evidence" to fill this in.</pre>
-      </section>
-      <section>
-        <h2>Ledger — anchored</h2>
-        <pre id="onChain">—</pre>
-      </section>
-    </div>
-
-    <div id="log"></div>
-
-    <script>
-      const $ = (id) => document.getElementById(id);
-      const companyField = $("company");
-      const batchField = $("batch");
-
-      function log(tone, title, body) {
-        const entry = document.createElement("div");
-        entry.className = `entry ${tone}`;
-        const head = document.createElement("div");
-        head.className = "head";
-        head.textContent = title;
-        entry.append(head);
-        if (body) {
-          const detail = document.createElement("pre");
-          detail.textContent = body;
-          entry.append(detail);
-        }
-        $("log").prepend(entry);
-      }
-
-      // Contract refusals are business outcomes, so display them separately from system faults.
-      function toneFor(status) {
-        if (status >= 200 && status < 300) return "ok";
-        if (status >= 400 && status < 500) return "refused";
-        return "broken";
-      }
-
-      // Public keys for the bundled sensors. Regenerating the sensor keys requires updating
-      // these values because the backend does not serve files from the oracle package.
-      const SENSORS = [
-        {
-          sensorId: "SENSOR-001",
-          publicKey: "MCowBQYDK2VwAyEAuQBUNozc43qvuq0ks7mBu0k9/FERFhM3pxKJNZ1WWsA="
-        },
-        {
-          sensorId: "SENSOR-002",
-          publicKey: "MCowBQYDK2VwAyEAdHH5MLcXlIlEbBbdgbwKtVD4ccV1yZaJ+uW/FfE+efY="
-        }
+      const CLEAN_RUN = [
+        { recordedAt: "06:00", celsius: "2.4" },
+        { recordedAt: "09:00", celsius: "3.1" },
+        { recordedAt: "12:00", celsius: "2.8" }
+      ];
+      const WARM_RUN = [
+        { recordedAt: "06:00", celsius: "2.4" },
+        { recordedAt: "09:00", celsius: "8.6" },
+        { recordedAt: "12:00", celsius: "3.0" }
       ];
 
-      const SIGNATURE_ISSUES = {
-        FORGED: (v) => `NO — reading ${v.signatureFailures.join(", ")} was altered`,
-        SENSOR_NOT_REGISTERED: () => "no sensor key registered, so nothing to check against",
-        SENSOR_REVOKED: () => "the regulator has revoked this sensor's key",
-        MIXED_SENSORS: () => "these readings came from more than one sensor"
+      const STAGES = ["Created", "Processed", "In transit", "Delivered"];
+      const STAGE_OF = { CREATED: 0, PROCESSED: 1, IN_TRANSIT: 2, DELIVERED: 3 };
+
+      const state = {
+        companies: [],
+        selected: "regulator",
+        registered: {},
+        sensorOnChain: null,
+        batchId: "",
+        batch: null,
+        blocks: [],
+        // Transaction IDs already shown, so only genuinely new ones animate in.
+        seen: new Set(),
+        ghosts: [],
+        readings: CLEAN_RUN.map((reading) => ({ ...reading })),
+        lie: { min: "1.8", max: "3.6" },
+        evidenceId: null,
+        verification: null,
+        verifiedBy: null,
+        caption: {
+          tone: "",
+          text: "Start with the regulator. Nothing else can happen until it registers everyone."
+        },
+        busy: false
       };
 
-      function signatureLine(v) {
-        if (v.signaturesMatch === null) return "could not check the ledger";
-        if (v.signaturesMatch) return "yes";
-        return SIGNATURE_ISSUES[v.signatureIssue]?.(v) ?? "NO";
+      const $ = (id) => document.getElementById(id);
+      const byName = (name) => state.companies.find((company) => company.name === name);
+      const originOf = (name) => byName(name)?.origin;
+      const reader = () => originOf(state.selected) ?? state.companies[0]?.origin;
+      const regulator = () => ({ origin: originOf("regulator") });
+      const escapeHtml = (value) =>
+        String(value).replace(
+          /[&<>"]/g,
+          (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[character]
+        );
+
+      function say(tone, text) {
+        state.caption = { tone, text };
       }
 
-      let companies = [];
-      const originOf = (name) => companies.find((entry) => entry.name === name)?.origin;
-      // The destination backend determines which organisation signs the request.
-      const portOf = (origin) => {
+      // Postgres returns NUMERIC as a string and 3.000 arrives as 3, which reads as a different
+      // measurement from the 3.0 the sensor recorded. One decimal everywhere instead.
+      const degrees = (value) => Number(value).toFixed(1);
+
+      async function call(method, path, { origin, body } = {}) {
+        const response = await fetch((origin ?? reader()) + path, {
+          method,
+          headers: body ? { "content-type": "application/json" } : {},
+          body: body ? JSON.stringify(body) : undefined
+        });
+
+        let payload = null;
         try {
-          return `:${new URL(origin).port}`;
+          payload = await response.json();
         } catch {
-          return "(no backend)";
+          payload = null;
         }
-      };
-
-      async function call(method, path, { body, origin } = {}) {
-        const target = origin ?? companyField.value;
-        const company = companies.find((entry) => entry.origin === target);
-        const label = `${method} ${portOf(target)}${path}   as ${company?.name ?? "?"}`;
-
-        // Disable actions until the organisation directory supplies their destinations.
-        if (!target) {
-          log(
-            "broken",
-            `${label}   →   no backend selected`,
-            `The company directory has not loaded. Press "Ping all", or check that the backend ` +
-              `serving this page is running.`
-          );
-          return { status: 0, body: null };
-        }
-
-        try {
-          const response = await fetch(target + path, {
-            method,
-            headers: body ? { "content-type": "application/json" } : {},
-            body: body ? JSON.stringify(body) : undefined
-          });
-          const text = await response.text();
-          let parsed = text;
-          try {
-            parsed = JSON.parse(text);
-          } catch {
-            /* keep the raw body */
-          }
-
-          log(
-            toneFor(response.status),
-            `${label}   →   ${response.status}`,
-            typeof parsed === "string" ? parsed : JSON.stringify(parsed, null, 2)
-          );
-          return { status: response.status, body: parsed };
-        } catch (error) {
-          // Network TypeErrors do not identify the failed backend, so include its origin.
-          log("broken", `${label}   →   ${target} did not answer`, String(error));
-          return { status: 0, body: null };
-        }
+        return { ok: response.ok, status: response.status, body: payload };
       }
 
-      // Each backend reports its own certificate because no process holds another company's key.
-      async function loadConsortium() {
-        try {
-          const response = await fetch("/organisations");
-          if (!response.ok) {
-            throw new Error(`the directory answered ${response.status}`);
-          }
-          companies = await response.json();
-        } catch (error) {
-          // Surface directory failure instead of leaving an apparently usable but inert panel.
-          log(
-            "broken",
-            "Could not load the company directory",
-            `${String(error)}\n\nThe backend serving this page is not answering. Check it is ` +
-              `running, then reload.`
-          );
+      // The contract's own words, with the gateway's wrapping stripped so a refusal reads as English.
+      function refusal(result) {
+        const message = result.body?.error ?? `The request failed (${result.status}).`;
+        return String(message)
+          .replace(/^.*?message=/, "")
+          .trim();
+      }
+
+      // ------------------------------------------------------------ ledger reads
+
+      async function refreshRegistrations() {
+        const origin = reader();
+        if (!origin) return;
+
+        await Promise.all(
+          state.companies.map(async (company) => {
+            const result = await call(
+              "GET",
+              `/stakeholders/${encodeURIComponent(company.stakeholderId)}`,
+              {
+                origin
+              }
+            );
+            state.registered[company.name] = result.ok;
+          })
+        );
+
+        const sensor = await call("GET", `/sensors/${encodeURIComponent(SENSOR.sensorId)}`, {
+          origin
+        });
+        state.sensorOnChain = sensor.ok ? sensor.body : null;
+      }
+
+      async function refreshBatch() {
+        if (!state.batchId) {
+          state.batch = null;
+          state.evidenceId = null;
           return;
         }
 
-        companyField.innerHTML = companies
-          .map(
-            (entry) =>
-              `<option value="${entry.origin}">${entry.name} — ${portOf(entry.origin)}</option>`
-          )
-          .join("");
-        const remembered = localStorage.getItem("company");
-        companyField.value = companies.some((entry) => entry.origin === remembered)
-          ? remembered
-          : originOf("farm");
+        const result = await call("GET", `/batches/${encodeURIComponent(state.batchId)}`, {
+          origin: reader()
+        });
+        state.batch = result.ok ? result.body : null;
 
-        await pingAll();
+        // The batch's most recent evidence, so switching to a batch someone else anchored still
+        // offers the checks and the tamper rather than looking like nothing has happened yet.
+        const listed = await call(
+          "GET",
+          `/temperature/batches/${encodeURIComponent(state.batchId)}/evidence`,
+          { origin: originOf("oracle") }
+        );
+        state.evidenceId =
+          listed.ok && Array.isArray(listed.body) && listed.body.length
+            ? listed.body.at(-1).evidenceId
+            : null;
       }
 
-      async function pingAll() {
-        $("backends").innerHTML = companies
-          .map(
-            (entry) =>
-              `<span class="chip" id="chip-${entry.name}">${entry.name} ${portOf(entry.origin)}</span>`
-          )
-          .join("");
+      /**
+       * Rebuilds the feed from the ledger rather than from what this page happens to remember.
+       *
+       * Every entry carries a transaction ID a peer committed, so reloading the page or driving it
+       * from a different backend gives the same feed. It is the ledger's record, not the browser's.
+       */
+      async function refreshChain() {
+        const origin = reader();
+        if (!origin) return;
 
-        await Promise.all(
-          companies.map(async (entry) => {
-            const chip = $(`chip-${entry.name}`);
-            try {
-              const response = await fetch(`${entry.origin}/identity`);
-              entry.certificateId = (await response.json()).certificateId;
-              chip.className = "chip up";
-            } catch {
-              entry.certificateId = undefined;
-              chip.className = "chip down";
+        const blocks = [];
+
+        for (const company of state.companies) {
+          const result = await call(
+            "GET",
+            `/stakeholders/${encodeURIComponent(company.stakeholderId)}`,
+            {
+              origin
             }
-          })
+          );
+          if (result.ok) {
+            blocks.push({
+              at: result.body.createdAt,
+              txId: result.body.createdTxId,
+              what: `${company.name} registered as ${result.body.role}`,
+              by: "the regulator"
+            });
+          }
+        }
+
+        if (state.sensorOnChain) {
+          blocks.push({
+            at: state.sensorOnChain.registeredAt,
+            txId: state.sensorOnChain.registeredTxId,
+            what: `${SENSOR.sensorId}'s public key vouched for`,
+            by: "the regulator"
+          });
+        }
+
+        if (state.batchId) {
+          // Each history entry wraps the batch as it stood after that transaction. The submitter
+          // comes from the record rather than being guessed from the status, because a cold-chain
+          // hold is applied by the contract during the oracle's transaction, not the regulator's.
+          const history = await call(
+            "GET",
+            `/batches/${encodeURIComponent(state.batchId)}/history`,
+            { origin }
+          );
+          for (const entry of Array.isArray(history.body) ? history.body : []) {
+            blocks.push({
+              at: entry.timestamp,
+              txId: entry.txId,
+              what: `${state.batchId} — ${describeStatus(entry.batch?.status)}`,
+              by: whoSubmitted(entry.submittedByStakeholderId)
+            });
+          }
+
+          // The listing comes from the oracle's database. The ledger's own record of each anchor is
+          // read separately, because this feed is meant to show what the chain holds.
+          const listed = await call(
+            "GET",
+            `/temperature/batches/${encodeURIComponent(state.batchId)}/evidence`,
+            { origin: originOf("oracle") }
+          );
+          const anchors = await Promise.all(
+            (Array.isArray(listed.body) ? listed.body : []).map((evidence) =>
+              call("GET", `/temperature/evidence/${encodeURIComponent(evidence.evidenceId)}`, {
+                origin
+              })
+            )
+          );
+          for (const anchor of anchors) {
+            if (!anchor.ok) continue;
+            blocks.push({
+              at: anchor.body.submittedAt,
+              txId: anchor.body.submittedTxId,
+              what: `Temperature evidence anchored — ${anchor.body.complianceOutcome}`,
+              by: "the oracle"
+            });
+          }
+        }
+
+        blocks.sort((a, b) => new Date(a.at ?? 0) - new Date(b.at ?? 0));
+
+        // One transaction can leave two records. Unsafe evidence both anchors the reading set and
+        // puts the batch on hold, and showing that as two numbered entries would claim the chain
+        // holds more transactions than it does.
+        const merged = new Map();
+        for (const block of blocks) {
+          if (!block.txId) continue;
+          const existing = merged.get(block.txId);
+          if (existing) {
+            existing.what = `${existing.what} · ${block.what.replace(`${state.batchId} — `, "")}`;
+          } else {
+            merged.set(block.txId, { ...block });
+          }
+        }
+        state.blocks = [...merged.values()];
+      }
+
+      function describeStatus(status) {
+        return (
+          {
+            CREATED: "created at the farm",
+            PROCESSED: "processed",
+            IN_TRANSIT: "left for the depot",
+            DELIVERED: "delivered",
+            COLD_CHAIN_BREACH: "held: temperature out of range",
+            RECALLED: "recalled"
+          }[status] ?? String(status ?? "updated").toLowerCase()
         );
       }
 
-      // Bootstrap the first regulator before using it to register the remaining organisations.
-      async function setUpDemo() {
-        // Refuse incomplete setup rather than creating only part of the registry.
-        const missing = companies.filter((entry) => !entry.certificateId);
-        if (missing.length > 0) {
-          log(
-            "broken",
-            "Set up demo   →   not every company answered",
-            `No certificate from: ${missing.map((entry) => portOf(entry.origin)).join(", ")}.\n` +
-              `All six backends have to be running. Try "Ping all".`
-          );
-          return;
-        }
+      // Stakeholder IDs are "<company>-001", and the company names are the ones on the chips.
+      function whoSubmitted(stakeholderId) {
+        const name = String(stakeholderId ?? "").split("-")[0];
+        return byName(name) ? `the ${name}` : (stakeholderId ?? "an unknown company");
+      }
 
-        const regulator = companies.find((entry) => entry.name === "regulator");
-        await call("POST", "/stakeholders/bootstrap", {
-          origin: regulator.origin,
-          body: { stakeholderId: regulator.stakeholderId }
-        });
+      // ------------------------------------------------------------ actions
 
-        // The regulator registers each certificate reported by its owning organisation.
-        for (const entry of companies.filter((candidate) => candidate.name !== "regulator")) {
-          await call("POST", "/stakeholders", {
-            origin: regulator.origin,
-            body: {
-              stakeholderId: entry.stakeholderId,
-              role: entry.name.toUpperCase(),
-              certificateId: entry.certificateId
-            }
-          });
-        }
+      /**
+       * Runs one transaction and reports it in the operator's language.
+       *
+       * A refusal is not an error. Being turned down by the contract is half of what this page is
+       * for, so it lands as a dashed row and a sentence rather than as a failure.
+       */
+      async function act(description, run, onOk) {
+        if (state.busy) return;
+        state.busy = true;
+        render();
 
-        // Register sensor keys so every organisation can verify readings independently.
-        for (const sensor of SENSORS) {
-          await call("POST", "/sensors", {
-            origin: regulator.origin,
-            body: { ...sensor, algorithm: "ed25519" }
-          });
+        try {
+          const result = await run();
+          if (result.ok) {
+            if (onOk) onOk(result);
+          } else {
+            say("refused", refusal(result));
+            const ghost = { what: description, id: Math.random() };
+            state.ghosts.unshift(ghost);
+            setTimeout(() => {
+              state.ghosts = state.ghosts.filter((entry) => entry.id !== ghost.id);
+              render();
+            }, 4000);
+          }
+        } catch (error) {
+          say("broken", `Could not reach that company's backend. ${error.message}`);
+        } finally {
+          state.busy = false;
+          await refreshRegistrations();
+          await refreshBatch();
+          await refreshChain();
+          render();
         }
       }
 
-      const batch = () => encodeURIComponent(batchField.value);
-      const evidence = (id) => encodeURIComponent(id);
+      async function registerEveryone() {
+        const reg = byName("regulator");
+        if (!reg) return;
 
-      // The oracle lists its off-chain rows. The selected organisation independently verifies
-      // those readings against the on-chain fingerprint.
-      async function showEvidence() {
-        const oracle = originOf("oracle");
-        const listed = await call("GET", `/temperature/batches/${batch()}/evidence`, {
-          origin: oracle
-        });
-        if (listed.status !== 200 || !Array.isArray(listed.body) || listed.body.length === 0) {
-          $("offChain").textContent = "No evidence recorded for this batch yet.";
-          $("onChain").textContent = "—";
+        await act("bootstrap the regulator", () =>
+          call("POST", "/stakeholders/bootstrap", {
+            ...regulator(),
+            body: { stakeholderId: reg.stakeholderId }
+          })
+        );
+
+        for (const company of state.companies.filter((entry) => entry.name !== "regulator")) {
+          await act(`register ${company.name}`, () =>
+            call("POST", "/stakeholders", {
+              ...regulator(),
+              body: {
+                stakeholderId: company.stakeholderId,
+                role: company.name.toUpperCase(),
+                certificateId: company.certificateId
+              }
+            })
+          );
+        }
+
+        await act("vouch for the sensor", () =>
+          call("POST", "/sensors", { ...regulator(), body: SENSOR })
+        );
+        say("ok", "Everyone is on the register, and the regulator has vouched for the sensor.");
+        render();
+      }
+
+      async function runOracle(mode) {
+        if (state.busy) return;
+        state.busy = true;
+        say("", "Signing as the sensor, then anchoring the fingerprint…");
+        render();
+
+        const payload = { batchId: state.batchId, readings: state.readings, mode };
+
+        if (mode === "fake-summary") {
+          payload.fakeStatistics = {
+            minCelsius: Number(state.lie.min),
+            maxCelsius: Number(state.lie.max)
+          };
+        }
+        if (mode === "fabricate") {
+          // Rewrite the warmest reading down, after the sensor has already signed the truth.
+          const warmest = state.readings.reduce(
+            (worst, reading, index) =>
+              Number(reading.celsius) > Number(state.readings[worst].celsius) ? index : worst,
+            0
+          );
+          payload.fabricate = { sequence: warmest + 1, celsius: 3.2 };
+        }
+
+        try {
+          const response = await fetch(`${DEMO_ORIGIN}/demo/run`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          const body = await response.json();
+
+          if (!response.ok) {
+            say("refused", body.error ?? "The oracle refused these readings.");
+          } else {
+            state.evidenceId = body.evidenceId;
+            state.verification = null;
+
+            if (mode === "honest") {
+              say(
+                body.complianceOutcome === "UNSAFE" ? "refused" : "ok",
+                body.complianceOutcome === "UNSAFE"
+                  ? "Anchored. The contract read the range itself and put the batch on hold."
+                  : "Anchored. The contract read the range itself and called it compliant."
+              );
+            } else if (mode === "fabricate") {
+              say(
+                "cheated",
+                "Anchored. One reading was rewritten after the sensor signed it, and the chain took it."
+              );
+            } else {
+              say(
+                "cheated",
+                "Anchored. The readings are honest. The summary sent to the chain is not."
+              );
+            }
+          }
+        } catch {
+          say("broken", "The demo helper is not running. Start it with: pnpm demo:server");
+        }
+
+        state.busy = false;
+        await refreshBatch();
+        await refreshChain();
+        render();
+      }
+
+      async function tamper() {
+        if (!state.evidenceId || state.busy) return;
+        state.busy = true;
+        render();
+
+        try {
+          const response = await fetch(`${DEMO_ORIGIN}/demo/tamper`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ evidenceId: state.evidenceId })
+          });
+          const body = await response.json();
+
+          if (!response.ok) {
+            say("broken", body.error ?? "The change could not be made.");
+          } else {
+            state.verification = null;
+            say(
+              "cheated",
+              `Reading ${body.changed.sequence} went from ${degrees(body.changed.old_celsius)} to ${degrees(body.changed.new_celsius)} in the database, behind the application's back.`
+            );
+          }
+        } catch {
+          say("broken", "The demo helper is not running. Start it with: pnpm demo:server");
+        }
+
+        state.busy = false;
+        render();
+      }
+
+      async function checkReadings() {
+        if (state.busy) return;
+        const checker = state.selected;
+        state.busy = true;
+        render();
+
+        if (!state.evidenceId) {
+          await refreshBatch();
+        }
+        const evidenceId = state.evidenceId;
+
+        if (!evidenceId) {
+          say("refused", "Nothing has been anchored for this batch, so there is nothing to check.");
+          state.busy = false;
+          render();
           return;
         }
 
-        const evidenceId = listed.body[listed.body.length - 1].evidenceId;
-        const [readings, verified] = await Promise.all([
-          call("GET", `/temperature/evidence/${evidence(evidenceId)}/readings`, { origin: oracle }),
-          call("GET", `/temperature/evidence/${evidence(evidenceId)}/verify`)
+        const [readings, verify] = await Promise.all([
+          call("GET", `/temperature/evidence/${encodeURIComponent(evidenceId)}/readings`, {
+            origin: originOf("oracle")
+          }),
+          call("GET", `/temperature/evidence/${encodeURIComponent(evidenceId)}/verify`)
         ]);
 
-        if (readings.status === 200 && Array.isArray(readings.body)) {
-          $("offChain").textContent =
-            `${evidenceId}\n\n` +
-            readings.body
-              .map((r) => `${String(r.celsius).padStart(6)} °C   ${r.recordedAt}   ${r.sensorId}`)
-              .join("\n") +
-            `\n\n${readings.body.length} readings, held by the oracle`;
+        if (!verify.ok) {
+          say("broken", refusal(verify));
+        } else {
+          state.verification = { ...verify.body, readings: readings.ok ? readings.body : [] };
+          state.verifiedBy = checker;
+
+          const { match, statisticsMatch, signaturesMatch } = verify.body;
+          if (match && statisticsMatch !== false && signaturesMatch !== false) {
+            say(
+              "ok",
+              `The ${checker} checked the oracle's data against the chain. Everything agrees.`
+            );
+          } else if (signaturesMatch === false && match) {
+            say(
+              "broken",
+              `The ${checker} found readings the sensor never signed. The oracle made them up.`
+            );
+          } else if (statisticsMatch === false && match) {
+            say(
+              "broken",
+              `The ${checker} found the summary on the chain does not describe these readings.`
+            );
+          } else {
+            say(
+              "broken",
+              `The ${checker} found the readings are no longer the ones that were agreed.`
+            );
+          }
         }
 
-        if (verified.status === 200) {
-          const v = verified.body;
-          const statistics = v.anchoredStatistics;
-          const checker = companies.find((entry) => entry.origin === companyField.value);
-          $("onChain").textContent =
-            `hash        ${v.anchoredHash}\n` +
-            `recomputed  ${v.recomputedHash}\n\n` +
-            (statistics ? `min ${statistics.minCelsius}   max ${statistics.maxCelsius}\n\n` : "") +
-            `readings match anchor     ${v.match ? "yes" : "NO — tampered"}\n` +
-            `statistics match anchor   ${v.statisticsMatch === null ? "not recorded" : v.statisticsMatch ? "yes" : "NO"}\n` +
-            // Null means signature verification was unavailable. Only FORGED identifies rows
-            // because registration and revocation are sensor-level issues.
-            `signatures match sensor   ${signatureLine(v)}\n` +
-            // Only the oracle can compare Fabric with its own stored hash.
-            `holder's own hash         ${v.databaseHashMatchesAnchor === null ? "not disclosed" : v.databaseHashMatchesAnchor ? "matches" : "ALTERED"}\n` +
-            `transaction               ${v.fabricTransactionId ?? "—"}\n\n` +
-            `checked by ${checker?.name ?? "?"}, readings from the oracle,\n` +
-            `sensor key read from the ledger`;
-        } else {
-          $("onChain").textContent = `Could not verify (${verified.status}).`;
-        }
+        state.busy = false;
+        render();
       }
 
-      const regulator = () => ({ origin: originOf("regulator") });
+      // ------------------------------------------------------------ desks
 
-      const actions = [
-        [
-          "Stakeholders",
-          [
-            ["Look up farm", () => call("GET", "/stakeholders/farm-001")],
-            ["Suspend farm", () => call("POST", "/stakeholders/farm-001/suspend", regulator())],
-            [
-              "Reactivate farm",
-              () => call("POST", "/stakeholders/farm-001/reactivate", regulator())
-            ]
-          ]
-        ],
-        [
-          "Batch",
-          [
-            [
-              "Create",
+      function deskFor(name) {
+        if (name === "regulator") return regulatorDesk();
+        if (name === "oracle") return oracleDesk();
+
+        const stage = state.batch ? (STAGE_OF[state.batch.status] ?? -1) : -1;
+        const lifecycle = {
+          farm: { label: "Create a batch", ready: !state.batch },
+          processor: { label: "Move to processing", ready: stage === 0 },
+          logistics: { label: "Start transport", ready: stage === 1 },
+          retailer: { label: "Take delivery", ready: stage === 2 }
+        }[name];
+
+        return `
+          <div class="actions">
+            <button class="primary" data-do="lifecycle" ${lifecycle.ready ? "" : "disabled"}>
+              ${lifecycle.label}
+            </button>
+            <button data-do="check">Check the readings</button>
+          </div>
+          ${
+            name === "retailer"
+              ? `<div class="cheat">
+                   <span class="label">Try to cheat</span>
+                   <div class="srow">
+                     <div class="what">
+                       <b>Submit temperature readings, even though only the oracle may</b>
+                       <span>The contract looks at the role of whoever signed the transaction.</span>
+                     </div>
+                     <button class="danger sm" data-do="retailer-submit">Try to submit readings</button>
+                   </div>
+                 </div>`
+              : ""
+          }
+          ${
+            state.registered[name]
+              ? ""
+              : `<p class="muted">Not on the register yet, so the contract will refuse anything ${name} tries.</p>`
+          }
+        `;
+      }
+
+      function regulatorDesk() {
+        const companies = state.companies
+          .map(
+            (company) => `
+              <div class="srow">
+                <div class="what"><b>${company.name}</b><span>${company.mspId}</span></div>
+                ${
+                  state.registered[company.name]
+                    ? `<span class="pill ok"><i></i>Registered</span>`
+                    : `<button class="sm" data-register="${company.name}">Register</button>`
+                }
+              </div>`
+          )
+          .join("");
+
+        const sensorState = state.sensorOnChain
+          ? state.sensorOnChain.active
+            ? `<span class="pill ok"><i></i>Vouched for</span>`
+            : `<span class="pill broken"><i></i>Revoked</span>`
+          : `<button class="sm" data-do="register-sensor">Vouch for it</button>`;
+
+        return `
+          <div class="actions">
+            <button class="primary" data-do="register-all">Register everyone</button>
+          </div>
+
+          <div>
+            <span class="label">Companies</span>
+            <div>${companies}</div>
+          </div>
+
+          <div>
+            <span class="label">Sensor</span>
+            <div>
+              <div class="srow">
+                <div class="what">
+                  <b>${SENSOR.sensorId}</b>
+                  <span>Only the regulator can say which key is the genuine device.</span>
+                </div>
+                ${sensorState}
+              </div>
+              ${
+                state.sensorOnChain?.active
+                  ? `<div class="srow">
+                       <div class="what">
+                         <b>Withdraw the device</b>
+                         <span>Its readings stop being accepted from that moment on.</span>
+                       </div>
+                       <button class="danger sm" data-do="revoke-sensor">Revoke the key</button>
+                     </div>`
+                  : state.sensorOnChain
+                    ? `<div class="srow">
+                         <div class="what">
+                           <b>Put the device back in service</b>
+                           <span>Reinspected and trusted again. Both steps stay in the audit record.</span>
+                         </div>
+                         <button class="sm" data-do="reactivate-sensor">Restore the key</button>
+                       </div>`
+                    : ""
+              }
+            </div>
+          </div>
+
+          <div>
+            <span class="label">Powers</span>
+            <div>
+              <div class="srow">
+                <div class="what">
+                  <b>Check the oracle's readings against the chain</b>
+                  <span>The regulator holds none of this data itself.</span>
+                </div>
+                <button class="sm" data-do="check">Check the readings</button>
+              </div>
+              <div class="srow">
+                <div class="what">
+                  <b>Lift the temperature hold</b>
+                  <span>The batch resumes at the stage it was stopped in.</span>
+                </div>
+                <button class="sm" data-do="clear-flag" ${
+                  state.batch?.status === "COLD_CHAIN_BREACH" ? "" : "disabled"
+                }>Clear the flag</button>
+              </div>
+              <div class="srow">
+                <div class="what">
+                  <b>Withdraw the batch from sale</b>
+                  <span>It can never be delivered afterwards.</span>
+                </div>
+                <button class="danger sm" data-do="recall" ${state.batch ? "" : "disabled"}>
+                  Recall the batch
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      function oracleDesk() {
+        const rows = state.readings
+          .map(
+            (reading, index) => `
+              <tr>
+                <td>${index + 1}</td>
+                <td><input class="num" style="width:74px" data-reading="${index}" data-field="recordedAt" value="${escapeHtml(reading.recordedAt)}" /></td>
+                <td><input class="num" data-reading="${index}" data-field="celsius" value="${escapeHtml(reading.celsius)}" /></td>
+              </tr>`
+          )
+          .join("");
+
+        return `
+          <div>
+            <span class="label">What the sensor recorded</span>
+            <table>
+              <thead>
+                <tr><th style="width:34px">#</th><th>Time</th><th>°C</th></tr>
+              </thead>
+              <tbody>${rows}</tbody>
+            </table>
+            <div class="actions" style="margin-top:12px">
+              <button class="sm quiet" data-do="preset-clean">Load a clean run</button>
+              <button class="sm quiet" data-do="preset-warm">Load a too warm run</button>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="primary" data-do="anchor" ${state.batch ? "" : "disabled"}>
+              Anchor these readings
+            </button>
+          </div>
+
+          <div class="cheat">
+            <span class="label">Try to cheat</span>
+            <div>
+              <div class="srow">
+                <div class="what">
+                  <b>Rewrite the warmest reading before anchoring it</b>
+                  <span>The sensor already signed the real one, so the signature will not fit.</span>
+                </div>
+                <button class="danger sm" data-do="fabricate" ${state.batch ? "" : "disabled"}>
+                  Fake a reading
+                </button>
+              </div>
+              <div class="srow">
+                <div class="what">
+                  <b>
+                    Tell the chain the milk stayed between
+                    <input class="num" id="lieMin" value="${escapeHtml(state.lie.min)}" /> and
+                    <input class="num" id="lieMax" value="${escapeHtml(state.lie.max)}" /> °C
+                  </b>
+                  <span>Store the readings honestly, describe them dishonestly.</span>
+                </div>
+                <button class="danger sm" data-do="fake-summary" ${state.batch ? "" : "disabled"}>
+                  Anchor a fake summary
+                </button>
+              </div>
+              <div class="srow">
+                <div class="what">
+                  <b>Change a stored reading behind the app's back</b>
+                  <span>Straight into the database, after the fingerprint was committed.</span>
+                </div>
+                <button class="danger sm" data-do="tamper" ${state.evidenceId ? "" : "disabled"}>
+                  Secretly edit a reading
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <p class="muted">No check button here. An oracle vouching for its own database proves nothing.</p>
+        `;
+      }
+
+      // ------------------------------------------------------------ render
+
+      function render() {
+        $("companies").innerHTML = state.companies
+          .map(
+            (company) => `
+              <button class="chip" data-company="${company.name}" aria-pressed="${company.name === state.selected}">
+                <i class="dot ${company.up ? "up" : "down"}"></i>
+                ${company.name}
+                ${company.name === state.selected ? '<span class="you">YOU</span>' : ""}
+              </button>`
+          )
+          .join("");
+
+        const me = byName(state.selected);
+        $("deskTitle").textContent = state.selected;
+        $("deskStatus").innerHTML = me ? `<span class="pill">${me.mspId}</span>` : "";
+        $("desk").innerHTML = state.companies.length
+          ? deskFor(state.selected)
+          : '<div class="empty">Looking for the six backends…</div>';
+
+        renderJourney();
+        renderCaption();
+        renderFeed();
+        renderVerification();
+      }
+
+      function renderJourney() {
+        const status = state.batch?.status;
+        // A held batch keeps the stage it reached, so the stepper never jumps backwards.
+        const reached =
+          status === "COLD_CHAIN_BREACH"
+            ? (STAGE_OF[state.batch.statusBeforeBreach] ?? 2)
+            : (STAGE_OF[status] ?? -1);
+
+        $("journeyStatus").innerHTML = state.batchId
+          ? `<span class="pill">${escapeHtml(state.batchId)}</span>`
+          : "";
+
+        $("journey").innerHTML =
+          '<div class="journey">' +
+          STAGES.map((name, index) => {
+            const cls = index <= reached ? "done" : index === reached + 1 ? "now" : "";
+            return `<div class="step ${cls}"><div class="bead">${index <= reached ? "✓" : index + 1}</div><div class="name">${name}</div></div>`;
+          }).join("") +
+          "</div>" +
+          (status === "COLD_CHAIN_BREACH"
+            ? '<div class="stamp breach">Held — temperature out of range</div>'
+            : "") +
+          (status === "RECALLED"
+            ? '<div class="stamp recalled">Recalled — withdrawn from sale</div>'
+            : "") +
+          (state.batch
+            ? ""
+            : '<p class="muted" style="margin-top:12px">No batch yet. The farm creates it.</p>');
+      }
+
+      function renderCaption() {
+        // "Cheated" and "Caught" are deliberately different. A lie that lands has not been found
+        // yet, and labelling it as caught would give away the ending before anyone checks.
+        const tones = { ok: "Done", refused: "Refused", cheated: "Cheated", broken: "Caught" };
+        $("captionTone").innerHTML = state.caption.tone
+          ? `<span class="pill ${state.caption.tone}"><i></i>${tones[state.caption.tone]}</span>`
+          : "";
+        $("captionText").textContent = state.caption.text;
+      }
+
+      function renderFeed() {
+        const count = state.blocks.length;
+        $("chainTitle").textContent =
+          `Chain · ${count} ${count === 1 ? "transaction" : "transactions"}`;
+
+        const ghosts = state.ghosts
+          .map(
+            (ghost) => `
+              <div class="block ghost">
+                <div class="n">✕</div>
+                <div class="what">
+                  <b>${escapeHtml(ghost.what)}</b>
+                  <span class="by">Refused, so nothing was written.</span>
+                </div>
+              </div>`
+          )
+          .join("");
+
+        const blocks = [...state.blocks]
+          .reverse()
+          .map((block, index) => {
+            const fresh = state.seen.has(block.txId) ? "" : " fresh";
+            state.seen.add(block.txId);
+            return `
+              <div class="block${fresh}">
+                <div class="n">${count - index}</div>
+                <div class="what">
+                  <b>${escapeHtml(block.what)}</b>
+                  <span class="by">signed by ${escapeHtml(block.by)}</span>
+                  <span class="tx">tx ${escapeHtml(String(block.txId).slice(0, 26))}…</span>
+                </div>
+              </div>`;
+          })
+          .join("");
+
+        $("feed").innerHTML =
+          ghosts + blocks || '<div class="empty">Nothing on the chain yet.</div>';
+      }
+
+      function renderVerification() {
+        const result = state.verification;
+        $("verifyPanel").hidden = !result;
+        if (!result) return;
+
+        $("verifyWho").innerHTML =
+          `<span class="pill chill"><i></i>checked by the ${escapeHtml(state.verifiedBy)}</span>`;
+
+        const verdict = (pass, title, whenTrue, whenFalse, whenUnknown) =>
+          pass === null || pass === undefined
+            ? `<div class="verdict"><div class="mark">–</div><div><b>${title}</b><span>${whenUnknown}</span></div></div>`
+            : `<div class="verdict ${pass ? "pass" : "fail"}">
+                 <div class="mark">${pass ? "✓" : "✕"}</div>
+                 <div><b>${title}</b><span>${pass ? whenTrue : whenFalse}</span></div>
+               </div>`;
+
+        const failures = result.signatureFailures?.length
+          ? ` Reading ${result.signatureFailures.join(", ")} did not match.`
+          : "";
+
+        const readings = (result.readings ?? [])
+          .map(
+            (reading) => `
+              <tr>
+                <td>${reading.sequence}</td>
+                <td>${escapeHtml(String(reading.recordedAt).slice(11, 16))}</td>
+                <td class="${Number(reading.celsius) > 5 || Number(reading.celsius) < 0 ? "warm" : ""}">
+                  ${degrees(reading.celsius)}
+                </td>
+              </tr>`
+          )
+          .join("");
+
+        $("verifyBody").innerHTML = `
+          <div class="verdicts">
+            ${verdict(
+              result.match,
+              "The readings are the ones that were agreed",
+              "Re-hashing them gives the same fingerprint the chain holds.",
+              "Someone changed them after the fingerprint was committed.",
+              "The readings could not be read, so this is unknown."
+            )}
+            ${verdict(
+              result.statisticsMatch,
+              "The summary describes these readings",
+              "The range on the chain is the range these readings show.",
+              "The chain was told a range these readings do not show.",
+              "No summary was recorded to compare against."
+            )}
+            ${verdict(
+              result.signaturesMatch,
+              "The sensor stands behind every reading",
+              "Each one carries a signature only that device could have produced.",
+              `At least one reading was never signed by the sensor.${failures}`,
+              "The sensor's key could not be read, so this is unknown."
+            )}
+          </div>
+
+          <div class="hashes">
+            <div>on the chain &nbsp;${escapeHtml(result.anchoredHash ?? "")}</div>
+            <div>recomputed &nbsp;&nbsp;${escapeHtml(result.recomputedHash ?? "")}</div>
+          </div>
+
+          ${
+            readings
+              ? `<table><thead><tr><th style="width:34px">#</th><th>Time</th><th>°C</th></tr></thead><tbody>${readings}</tbody></table>`
+              : ""
+          }
+        `;
+      }
+
+      // ------------------------------------------------------------ events
+
+      document.addEventListener("click", async (event) => {
+        const chip = event.target.closest("[data-company]");
+        if (chip) {
+          state.selected = chip.dataset.company;
+          state.verification = null;
+          render();
+          await refreshRegistrations();
+          await refreshBatch();
+          await refreshChain();
+          render();
+          return;
+        }
+
+        const register = event.target.closest("[data-register]");
+        if (register) {
+          const company = byName(register.dataset.register);
+          if (company.name === "regulator") {
+            await act("bootstrap the regulator", () =>
+              call("POST", "/stakeholders/bootstrap", {
+                ...regulator(),
+                body: { stakeholderId: company.stakeholderId }
+              })
+            );
+          } else {
+            await act(`register ${company.name}`, () =>
+              call("POST", "/stakeholders", {
+                ...regulator(),
+                body: {
+                  stakeholderId: company.stakeholderId,
+                  role: company.name.toUpperCase(),
+                  certificateId: company.certificateId
+                }
+              })
+            );
+          }
+          if (state.registered[company.name]) {
+            say("ok", `${company.name} is on the register, signed for by the regulator.`);
+            render();
+          }
+          return;
+        }
+
+        const action = event.target.closest("[data-do]")?.dataset.do;
+        if (!action) return;
+
+        if (action === "register-all") return registerEveryone();
+
+        if (action === "register-sensor") {
+          return act(
+            "vouch for the sensor",
+            () => call("POST", "/sensors", { ...regulator(), body: SENSOR }),
+            () =>
+              say(
+                "ok",
+                `${SENSOR.sensorId}'s public key is on the chain. Anyone can now check its readings.`
+              )
+          );
+        }
+
+        if (action === "revoke-sensor") {
+          return act(
+            "revoke the sensor's key",
+            () => call("POST", `/sensors/${SENSOR.sensorId}/revoke`, regulator()),
+            () => say("ok", "The device is withdrawn. Its readings are refused from now on.")
+          );
+        }
+
+        if (action === "reactivate-sensor") {
+          return act(
+            "restore the sensor's key",
+            () => call("POST", `/sensors/${SENSOR.sensorId}/reactivate`, regulator()),
+            () =>
+              say(
+                "ok",
+                "The device is back in service. Both the revocation and this are on the chain."
+              )
+          );
+        }
+
+        if (action === "lifecycle") {
+          if (state.selected === "farm") {
+            return act(
+              "create the batch",
               () =>
                 call("POST", "/batches", {
+                  origin: originOf("farm"),
                   body: {
-                    batchId: batchField.value,
+                    batchId: state.batchId,
                     origin: "Green Pastures Dairy",
                     location: "Bega NSW"
                   }
-                })
-            ],
-            [
-              "Process",
+                }),
               () =>
-                call("POST", `/batches/${batch()}/events`, {
-                  body: { eventType: "PROCESSING", location: "Bega Processing Plant" }
-                })
+                say("ok", `${state.batchId} created. Its origin is written once and never again.`)
+            );
+          }
+
+          const move = {
+            processor: [
+              "PROCESSING",
+              "Bega Processing Plant",
+              "Processed and back in the cold store."
             ],
-            [
-              "Ship",
-              () =>
-                call("POST", `/batches/${batch()}/events`, {
-                  body: { eventType: "TRANSPORT", location: "Hume Highway" }
-                })
+            logistics: [
+              "TRANSPORT",
+              "Hume Highway",
+              "On the road. This is where the cold chain gets tested."
             ],
-            [
-              "Deliver",
-              () =>
-                call("POST", `/batches/${batch()}/events`, {
-                  body: { eventType: "DELIVERY", location: "Sydney Depot" }
-                })
-            ],
-            [
-              "Recall",
-              () =>
-                call("POST", `/batches/${batch()}/recall`, {
-                  ...regulator(),
-                  body: { reason: "Investigation opened" }
-                })
-            ],
-            ["Get", () => call("GET", `/batches/${batch()}`)],
-            ["History", () => call("GET", `/batches/${batch()}/history`)],
-            ["All in transit", () => call("GET", "/batches?status=IN_TRANSIT")]
-          ]
-        ],
-        [
-          "Temperature",
-          [
-            ["Show evidence", showEvidence],
-            [
-              "Clear breach",
-              () =>
-                call("POST", `/temperature/batches/${batch()}/resolve-breach`, {
+            retailer: [
+              "DELIVERY",
+              "Sydney Depot",
+              "Delivered. The retailer has accepted the batch."
+            ]
+          }[state.selected];
+
+          return act(
+            `${state.selected} moves the batch on`,
+            () =>
+              call("POST", `/batches/${encodeURIComponent(state.batchId)}/events`, {
+                origin: originOf(state.selected),
+                body: { eventType: move[0], location: move[1] }
+              }),
+            () => say("ok", move[2])
+          );
+        }
+
+        if (action === "recall") {
+          return act(
+            "recall the batch",
+            () =>
+              call("POST", `/batches/${encodeURIComponent(state.batchId)}/recall`, {
+                ...regulator(),
+                body: { reason: "Investigation opened" }
+              }),
+            () => say("ok", "Recalled. This batch can never be delivered.")
+          );
+        }
+
+        if (action === "clear-flag") {
+          return act(
+            "lift the temperature hold",
+            () =>
+              call(
+                "POST",
+                `/temperature/batches/${encodeURIComponent(state.batchId)}/resolve-breach`,
+                {
                   ...regulator(),
                   body: { reason: "Cold store repaired and stock rechecked" }
-                })
-            ],
-            // Verdicts come from the regulator's independent archive.
-            ["Regulator's archive", () => call("GET", `/verdicts/batches/${batch()}`, regulator())]
-          ]
-        ],
-        [
-          "Consumer",
-          [
-            [
-              "Public lookup",
-              () => call("GET", `/public/batches/${batch()}`, { origin: originOf("retailer") })
-            ]
-          ]
-        ]
-      ];
+                }
+              ),
+            () => say("ok", "Hold lifted. The batch resumes exactly where it stopped.")
+          );
+        }
 
-      $("actions").innerHTML = actions
-        .map(
-          ([name, items], group) =>
-            `<div class="group"><span class="name">${name}</span>` +
-            items
-              .map(
-                (item, index) =>
-                  `<button data-group="${group}" data-index="${index}">${item[0]}</button>`
-              )
-              .join("") +
-            `</div>`
-        )
-        .join("");
+        if (action === "retailer-submit") {
+          const temperatures = state.readings.map((reading) => Number(reading.celsius) || 0);
+          return act("the retailer tried to submit readings", () =>
+            call("POST", `/temperature/batches/${encodeURIComponent(state.batchId)}/evidence`, {
+              origin: originOf("retailer"),
+              body: {
+                evidenceId: `EV-${state.batchId}-retailer`,
+                evidenceHash: "0".repeat(64),
+                offChainReference: `postgres://temperature_evidence/EV-${state.batchId}-retailer`,
+                statistics: {
+                  minCelsius: Math.min(...temperatures),
+                  maxCelsius: Math.max(...temperatures),
+                  readingCount: temperatures.length
+                }
+              }
+            })
+          );
+        }
 
-      $("actions").addEventListener("click", (event) => {
-        const button = event.target.closest("button");
-        if (button) {
-          actions[Number(button.dataset.group)][1][Number(button.dataset.index)][1]();
+        if (action === "check") return checkReadings();
+        if (action === "anchor") return runOracle("honest");
+        if (action === "fabricate") return runOracle("fabricate");
+        if (action === "tamper") return tamper();
+
+        if (action === "fake-summary") {
+          state.lie = { min: $("lieMin").value, max: $("lieMax").value };
+          return runOracle("fake-summary");
+        }
+
+        if (action === "preset-clean" || action === "preset-warm") {
+          state.readings = (action === "preset-clean" ? CLEAN_RUN : WARM_RUN).map((reading) => ({
+            ...reading
+          }));
+          say(
+            "",
+            action === "preset-clean"
+              ? "A run that never left the safe range."
+              : "A run with one warm hour in the middle of it."
+          );
+          render();
         }
       });
 
-      // Preserve the selected organisation across a page refresh.
-      companyField.addEventListener("change", () =>
-        localStorage.setItem("company", companyField.value)
-      );
-      batchField.addEventListener("change", () => localStorage.setItem("batch", batchField.value));
-      batchField.value = localStorage.getItem("batch") ?? "BATCH-001";
-
-      // Use random batch IDs so refused requests do not consume sample evidence IDs.
-      $("newBatch").addEventListener("click", () => {
-        batchField.value = `BATCH-${Math.floor(1000 + Math.random() * 9000)}`;
-        localStorage.setItem("batch", batchField.value);
+      document.addEventListener("input", (event) => {
+        const cell = event.target.closest("[data-reading]");
+        if (cell) {
+          state.readings[Number(cell.dataset.reading)][cell.dataset.field] = cell.value;
+        }
       });
 
-      $("setup").addEventListener("click", setUpDemo);
-      $("ping").addEventListener("click", pingAll);
-      $("clear").addEventListener("click", () => {
-        $("log").innerHTML = "";
+      $("newBatch").addEventListener("click", async () => {
+        state.batchId = `BATCH-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+        $("batchField").value = state.batchId;
+        state.batch = null;
+        state.evidenceId = null;
+        state.verification = null;
+        state.readings = CLEAN_RUN.map((reading) => ({ ...reading }));
+        say("", "New batch id. The farm puts it on the ledger.");
+        await refreshChain();
+        render();
       });
 
-      loadConsortium().catch((error) =>
-        log("broken", "The page could not start up", String(error))
-      );
+      $("batchField").addEventListener("input", (event) => {
+        state.batchId = event.target.value.trim();
+      });
+
+      // On commit rather than per keystroke, so typing an existing batch id picks up its real state
+      // without a ledger read for every character.
+      $("batchField").addEventListener("change", async () => {
+        state.verification = null;
+        await refreshBatch();
+        await refreshChain();
+        render();
+      });
+
+      // ------------------------------------------------------------ start
+
+      async function start() {
+        const directory = await fetch("/organisations").then((response) => response.json());
+
+        state.companies = await Promise.all(
+          directory.map(async (company) => {
+            try {
+              const identity = await fetch(`${company.origin}/identity`).then((response) =>
+                response.json()
+              );
+              return { ...company, up: true, certificateId: identity.certificateId };
+            } catch {
+              return { ...company, up: false, certificateId: "" };
+            }
+          })
+        );
+
+        state.batchId = `BATCH-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+        $("batchField").value = state.batchId;
+
+        const down = state.companies.filter((company) => !company.up);
+        if (down.length) {
+          say(
+            "broken",
+            `Not answering: ${down.map((company) => company.name).join(", ")}. Start all six backends.`
+          );
+        }
+
+        await refreshRegistrations();
+        await refreshChain();
+        render();
+      }
+
+      start();
     </script>
   </body>
 </html>
