@@ -7,6 +7,9 @@ build/
 coverage/
 *.tsbuildinfo
 
+# The demo console is compiled into the backends' static directory by `pnpm console:build`.
+services/backend/public/
+
 # Environment and secrets
 .env
 .env.*

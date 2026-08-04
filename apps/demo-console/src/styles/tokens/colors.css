@@ -1,0 +1,38 @@
+:root {
+  --ink: #16233f;
+  --ink-2: #3b4a6b;
+  --muted: #5e6b85;
+  --faint: #98a2b7;
+  --line: #dde2ea;
+  --hairline: #ebeef4;
+  --paper: #f6f7f9;
+  --card: #ffffff;
+  --well: #f1f3f7;
+  --well-2: #e7eaf1;
+  --chill: #2456d0;
+  --chill-deep: #183e9f;
+  --chill-tint: #ebf0fc;
+  --ok: #177a46;
+  --ok-tint: #e8f4ee;
+  --refused: #a6600a;
+  --refused-tint: #fbf2e3;
+  --broken: #b3261e;
+  --broken-tint: #faebea;
+  --on-accent: #ffffff;
+  --text-body: var(--ink);
+  --text-muted: var(--muted);
+  --surface-page: var(--paper);
+  --surface-card: var(--card);
+  --surface-well: var(--well);
+  --border-default: var(--line);
+  --border-strong: var(--ink);
+  --accent: var(--chill);
+  --accent-tint: var(--chill-tint);
+  --button-primary-bg: var(--ink);
+  --button-primary-fg: var(--on-accent);
+  --focus-ring: 0 0 0 3px rgba(36, 86, 208, 0.18);
+  --shadow-card: 0 1px 2px rgba(22, 35, 63, 0.04), 0 2px 8px rgba(22, 35, 63, 0.05);
+  --shadow-pop: 0 12px 32px rgba(22, 35, 63, 0.14);
+  --glow-chill: 0 0 0 3px rgba(36, 86, 208, 0.12);
+  --glow-broken: 0 0 0 3px rgba(179, 38, 30, 0.1);
+}

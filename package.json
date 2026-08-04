@@ -18,6 +18,8 @@
     "db:start": "pnpm --filter @fresh-milk/storage db:start",
     "db:stop": "pnpm --filter @fresh-milk/storage db:stop",
     "db:reset": "pnpm --filter @fresh-milk/storage db:reset",
+    "console:build": "pnpm --filter @fresh-milk/demo-console build",
+    "console:dev": "pnpm --filter @fresh-milk/demo-console dev",
     "backend:dev": "pnpm --filter @fresh-milk/backend dev",
     "oracle:dev": "pnpm --filter @fresh-milk/oracle dev",
     "demo:server": "pnpm --filter @fresh-milk/demo dev",

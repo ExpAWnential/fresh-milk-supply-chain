@@ -9,6 +9,7 @@ export default defineConfig([
   {
     ignores: [
       "**/dist/",
+      "services/backend/public/",
       "fabric/**/organizations/",
       "fabric/**/crypto-config/",
       "fabric/**/channel-artifacts/"
@@ -24,6 +25,16 @@ export default defineConfig([
     files: ["**/*.ts"],
     extends: [js.configs.recommended, tseslint.configs.recommended],
     languageOptions: { globals: globals.node }
+  },
+  {
+    // The demo console runs in the browser, and its JSX resolves component names at use sites.
+    files: ["apps/demo-console/**/*.{ts,tsx}"],
+    extends: [js.configs.recommended, tseslint.configs.recommended],
+    languageOptions: {
+      globals: globals.browser,
+      parserOptions: { ecmaFeatures: { jsx: true } }
+    },
+    rules: { "no-undef": "off" }
   },
   // Keep this last so formatting rules cannot override Prettier.
   prettier
