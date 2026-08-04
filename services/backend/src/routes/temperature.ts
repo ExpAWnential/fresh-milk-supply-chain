@@ -119,7 +119,7 @@ export function createTemperatureRouter({
   });
 
   // Publishes the raw readings used by other organisations. The preceding ledger read authorises
-  // this backend's identity rather than the HTTP caller, which is a proof-of-concept limit.
+  // this backend's identity, but this route does not independently authenticate the HTTP caller.
   router.get("/evidence/:evidenceId/readings", async (req, res) => {
     if (!temperatureRepository) {
       res.status(503).json({ error: "temperature storage is not configured" });
