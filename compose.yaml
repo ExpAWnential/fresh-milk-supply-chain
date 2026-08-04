@@ -204,6 +204,11 @@ services:
       backend-oracle:
         condition: service_healthy
 
+  # Connect PostgreSQL to the shared network so application services can resolve it by service name.
+  postgres:
+    networks:
+      - test
+
   # Peers and the orderer cannot start until certificate generation has completed.
   orderer.example.com:
     depends_on:
