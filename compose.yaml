@@ -1,0 +1,245 @@
+# Orchestrates the Fabric network, PostgreSQL, application services and ledger bootstrap sequence.
+# Existing network and storage definitions are included rather than duplicated here. Compose owns
+# container creation, while short-lived bootstrap services configure the running network. This
+# avoids nested Compose calls resolving bind mounts against a container filesystem.
+name: fresh-milk
+
+include:
+  # Group the Fabric overlays so their relative paths resolve from the base Compose file's directory.
+  - path:
+      - fabric/milk-network/compose/compose-milk-net.yaml
+      - fabric/milk-network/compose/docker/docker-compose-milk-net.yaml
+      - fabric/milk-network/compose/compose-couch.yaml
+  - path: services/storage/docker-compose.yml
+
+# Application and bootstrap services share one image and the same Fabric network.
+x-app: &app
+  image: fresh-milk:local
+  build:
+    context: .
+  environment: &app-environment
+    # Inside this network the nodes answer on their container names, because the published ports
+    # only exist on the host.
+    FABRIC_ADDRESS_MODE: container
+  networks:
+    - test
+
+x-bootstrap: &bootstrap
+  <<: *app
+  restart: "no"
+  volumes: &bootstrap-volumes
+    # cryptogen writes the certificates here and the peers mount the same directory, so this has to
+    # be the host's copy rather than the one baked into the image.
+    - ./fabric/milk-network:/app/fabric/milk-network
+    # Mount bootstrap scripts read-only so script changes do not require rebuilding the image.
+    - ./docker/bootstrap:/app/docker/bootstrap:ro
+
+x-backend: &backend
+  <<: *app
+  restart: unless-stopped
+  command: ["node", "services/backend/dist/index.js"]
+  volumes:
+    - ./fabric/milk-network/organizations:/app/fabric/milk-network/organizations:ro
+  # Backend ports come from the organisation directory. Each container receives the matching URL
+  # only so Compose can probe that fixed endpoint.
+  healthcheck:
+    test: ["CMD-SHELL", 'curl -fsS "$$HEALTHCHECK_URL" > /dev/null']
+    interval: 5s
+    timeout: 5s
+    retries: 40
+    start_period: 10s
+  depends_on:
+    fabric-chaincode:
+      condition: service_completed_successfully
+    postgres:
+      condition: service_started
+
+services:
+  # Generate the certificate tree before peers mount and use it.
+  fabric-crypto:
+    <<: *bootstrap
+    container_name: fabric-crypto
+    command: ["bash", "/app/docker/bootstrap/crypto.sh"]
+
+  # Create the channel only after every peer container has started.
+  fabric-channel:
+    <<: *bootstrap
+    container_name: fabric-channel
+    command: ["bash", "/app/docker/bootstrap/channel.sh"]
+    depends_on:
+      peer0.regulator.example.com:
+        condition: service_started
+      peer0.farm.example.com:
+        condition: service_started
+      peer0.processor.example.com:
+        condition: service_started
+      peer0.logistics.example.com:
+        condition: service_started
+      peer0.retailer.example.com:
+        condition: service_started
+      peer0.oracle.example.com:
+        condition: service_started
+
+  # Deploy chaincode after channel creation. Fabric builds one container per chaincode and peer.
+  fabric-chaincode:
+    <<: *bootstrap
+    container_name: fabric-chaincode
+    command: ["bash", "/app/docker/bootstrap/chaincode.sh"]
+    volumes:
+      - ./fabric/milk-network:/app/fabric/milk-network
+      - ./docker/bootstrap:/app/docker/bootstrap:ro
+      # Peers require the daemon socket to build and launch chaincode containers.
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
+    depends_on:
+      fabric-channel:
+        condition: service_completed_successfully
+
+  # One process per company, each holding only its own certificate and talking only to its own peer.
+  # They are separate containers for the same reason they are separate processes: nothing a caller
+  # sends can change which certificate signs, because no container holds another company's.
+  backend-regulator:
+    <<: *backend
+    container_name: backend-regulator
+    environment:
+      <<: *app-environment
+      ORGANISATION: regulator
+      HEALTHCHECK_URL: http://localhost:3001/identity
+      DATABASE_URL: postgres://regulator_app:regulator@postgres:5432/freshmilk_regulator
+      ORACLE_BACKEND_URL: http://backend-oracle:3006
+      EVENT_CHECKPOINT_PATH: /tmp/.fabric-events.regulator.checkpoint
+    ports:
+      - "3001:3001"
+
+  backend-farm:
+    <<: *backend
+    container_name: backend-farm
+    environment:
+      <<: *app-environment
+      ORGANISATION: farm
+      HEALTHCHECK_URL: http://localhost:3002/identity
+      ORACLE_BACKEND_URL: http://backend-oracle:3006
+    ports:
+      - "3002:3002"
+
+  backend-processor:
+    <<: *backend
+    container_name: backend-processor
+    environment:
+      <<: *app-environment
+      ORGANISATION: processor
+      HEALTHCHECK_URL: http://localhost:3003/identity
+      ORACLE_BACKEND_URL: http://backend-oracle:3006
+    ports:
+      - "3003:3003"
+
+  backend-logistics:
+    <<: *backend
+    container_name: backend-logistics
+    environment:
+      <<: *app-environment
+      ORGANISATION: logistics
+      HEALTHCHECK_URL: http://localhost:3004/identity
+      ORACLE_BACKEND_URL: http://backend-oracle:3006
+    ports:
+      - "3004:3004"
+
+  backend-retailer:
+    <<: *backend
+    container_name: backend-retailer
+    environment:
+      <<: *app-environment
+      ORGANISATION: retailer
+      HEALTHCHECK_URL: http://localhost:3005/identity
+      ORACLE_BACKEND_URL: http://backend-oracle:3006
+    ports:
+      - "3005:3005"
+
+  backend-oracle:
+    <<: *backend
+    container_name: backend-oracle
+    environment:
+      <<: *app-environment
+      ORGANISATION: oracle
+      HEALTHCHECK_URL: http://localhost:3006/identity
+      DATABASE_URL: postgres://oracle_app:oracle@postgres:5432/freshmilk_oracle
+      ORACLE_BACKEND_URL: http://backend-oracle:3006
+    ports:
+      - "3006:3006"
+
+  # Isolate deliberate false submissions and direct database mutations from production backends.
+  demo:
+    <<: *app
+    container_name: demo
+    restart: unless-stopped
+    command: ["node", "services/demo/dist/demoServer.js"]
+    environment:
+      <<: *app-environment
+      DATABASE_URL: postgres://oracle_app:oracle@postgres:5432/freshmilk_oracle
+      ORACLE_BACKEND_URL: http://backend-oracle:3006
+    ports:
+      - "3016:3016"
+    depends_on:
+      backend-oracle:
+        condition: service_healthy
+
+  # Register consortium identities and sensor keys after all organisation backends are healthy.
+  seed:
+    <<: *app
+    container_name: seed
+    restart: "no"
+    command: ["bash", "/app/docker/bootstrap/seed.sh"]
+    volumes:
+      - ./docker/bootstrap:/app/docker/bootstrap:ro
+    depends_on:
+      backend-regulator:
+        condition: service_healthy
+      backend-farm:
+        condition: service_healthy
+      backend-processor:
+        condition: service_healthy
+      backend-logistics:
+        condition: service_healthy
+      backend-retailer:
+        condition: service_healthy
+      backend-oracle:
+        condition: service_healthy
+
+  # Peers and the orderer cannot start until certificate generation has completed.
+  orderer.example.com:
+    depends_on:
+      fabric-crypto:
+        condition: service_completed_successfully
+
+  peer0.regulator.example.com:
+    depends_on:
+      fabric-crypto:
+        condition: service_completed_successfully
+
+  peer0.farm.example.com:
+    depends_on:
+      fabric-crypto:
+        condition: service_completed_successfully
+
+  peer0.processor.example.com:
+    depends_on:
+      fabric-crypto:
+        condition: service_completed_successfully
+
+  peer0.logistics.example.com:
+    depends_on:
+      fabric-crypto:
+        condition: service_completed_successfully
+
+  peer0.retailer.example.com:
+    depends_on:
+      fabric-crypto:
+        condition: service_completed_successfully
+
+  peer0.oracle.example.com:
+    depends_on:
+      fabric-crypto:
+        condition: service_completed_successfully
+
+networks:
+  test:
+    name: fabric_milk
