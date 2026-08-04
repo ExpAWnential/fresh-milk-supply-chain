@@ -275,6 +275,18 @@ export function LiveApp() {
       })
     );
     setRegistered(Object.fromEntries(results.filter(([, ok]) => ok)));
+
+    // Without this the sensor rows offer to register a key the ledger is already holding, and the
+    // regulator's first click of the demo comes back refused.
+    const keys = await Promise.all(
+      SENSORS.map(async (s) => {
+        const r = await call("GET", `/sensors/${encodeURIComponent(s.sensorId)}`, {
+          origin: any.origin
+        });
+        return [s.sensorId, r.status === 200] as const;
+      })
+    );
+    setSensorReg(Object.fromEntries(keys.filter(([, ok]) => ok)));
   }
 
   // Load shared identities and ledger state once when the console opens.
@@ -1057,7 +1069,9 @@ export function LiveApp() {
                   No events on the ledger for this batch yet.
                 </div>
               ) : (
-                [...history].reverse().map((e, i) => {
+                // The ledger hands its history back newest first, which is the order the feed wants,
+                // so the newest event keeps the highest number.
+                history.map((e, i) => {
                   const b = e.batch || {};
                   const st = (b.status || "").replaceAll("_", " ").toLowerCase();
                   return (
