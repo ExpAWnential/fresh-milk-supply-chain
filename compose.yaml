@@ -51,8 +51,7 @@ x-backend: &backend
   depends_on:
     fabric-chaincode:
       condition: service_completed_successfully
-    # Healthy rather than started: on a first run the entrypoint creates both databases, and a
-    # backend that connects before then fails its first query.
+    # Wait for database initialisation to finish before a backend can issue its first query.
     postgres:
       condition: service_healthy
 
@@ -109,8 +108,8 @@ services:
       DATABASE_URL: postgres://regulator_app:regulator@postgres:5432/freshmilk_regulator
       ORACLE_BACKEND_URL: http://backend-oracle:3006
       EVENT_CHECKPOINT_PATH: /var/lib/fresh-milk/.fabric-events.regulator.checkpoint
-    # The checkpoint outlives the container, otherwise a recreated regulator replays the chain from
-    # genesis instead of resuming, which is the whole point of keeping one.
+    # Persist the listener checkpoint so a recreated regulator resumes after its last archived event
+    # instead of replaying the ledger from genesis.
     volumes:
       - ./fabric/milk-network/organizations:/app/fabric/milk-network/organizations:ro
       - regulator-checkpoint:/var/lib/fresh-milk
