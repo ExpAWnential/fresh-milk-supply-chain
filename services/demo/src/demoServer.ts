@@ -9,6 +9,7 @@
  *   POST /demo/run     sign readings, store them, anchor the fingerprint
  *   POST /demo/tamper  edit the stored readings directly in PostgreSQL, around the application
  *   POST /demo/reset   empty the oracle's off-chain store before another run
+ *   POST /demo/hash    the fingerprint these readings would anchor, without storing anything
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -72,41 +73,36 @@ async function readPrivateKey(): Promise<string> {
 }
 
 /**
- * Signs each reading with the sensor's private key before it reaches oracle-controlled storage.
+ * Completes each reading into the form the storage package hashes and the sensor signs.
  *
- * The timestamp is completed here rather than in the browser because the page only asks for a time
- * of day. The resulting signature fixes the original measurement before the oracle can store or
- * alter it.
+ * The timestamp is finished here rather than in the browser, because the page only asks for a time
+ * of day. Signing and hashing share this so the two can never disagree about what a reading is.
  */
+function measurements(
+  readings: readonly { recordedAt: string; celsius: number }[]
+): { sensorId: string; sequence: number; recordedAt: string; celsius: number }[] {
+  const today = new Date().toISOString().slice(0, 10);
+
+  return readings.map((reading, index) => ({
+    sensorId: SENSOR_ID,
+    sequence: index + 1,
+    recordedAt: /^\d\d:\d\d$/.test(reading.recordedAt)
+      ? `${today}T${reading.recordedAt}:00Z`
+      : String(reading.recordedAt),
+    celsius: requireCelsius(reading.celsius, index)
+  }));
+}
+
+/** Signs each reading with the sensor's private key before it reaches oracle-controlled storage. */
 async function signAsSensor(
   batchId: string,
   readings: readonly { recordedAt: string; celsius: number }[]
 ): Promise<readonly StoredTemperatureReading[]> {
   const privateKey = await readPrivateKey();
-  const today = new Date().toISOString().slice(0, 10);
 
-  return readings.map((reading, index) => {
-    const celsius = requireCelsius(reading.celsius, index);
-
-    const recordedAt = /^\d\d:\d\d$/.test(reading.recordedAt)
-      ? `${today}T${reading.recordedAt}:00Z`
-      : String(reading.recordedAt);
-
-    const signable: SignableReading = {
-      batchId,
-      sensorId: SENSOR_ID,
-      sequence: index + 1,
-      recordedAt,
-      celsius
-    };
-
-    return {
-      sensorId: SENSOR_ID,
-      sequence: index + 1,
-      recordedAt,
-      celsius,
-      signature: signReading(signable, privateKey)
-    };
+  return measurements(readings).map((reading) => {
+    const signable: SignableReading = { batchId, ...reading };
+    return { ...reading, signature: signReading(signable, privateKey) };
   });
 }
 
@@ -273,10 +269,18 @@ function isSafe(statistics: TemperatureStatistics): boolean {
  * the breach. Direct database access can alter the off-chain rows, but it cannot replace the
  * fingerprint already committed to Fabric.
  */
-async function handleTamper(body: { evidenceId?: unknown; celsius?: unknown }): Promise<unknown> {
+async function handleTamper(body: {
+  evidenceId?: unknown;
+  celsius?: unknown;
+  set?: unknown;
+}): Promise<unknown> {
   const evidenceId = String(body.evidenceId ?? "").trim();
   if (!evidenceId) {
     throw new Error("'evidenceId' is required.");
+  }
+
+  if (Array.isArray(body.set)) {
+    return applyReadings(evidenceId, body.set as { recordedAt: string; celsius: number }[]);
   }
 
   // Replace the value with a safe temperature so the mutation consistently hides a breach.
@@ -328,6 +332,73 @@ async function handleTamper(body: { evidenceId?: unknown; celsius?: unknown }): 
   } finally {
     client.release();
   }
+}
+
+/**
+ * Sets stored readings to the values given, matching them by time of day.
+ *
+ * Once evidence is anchored, table edits must update the corresponding stored rows instead of
+ * waiting for another submission. Signatures remain unchanged, so an edited reading no longer
+ * matches the measurement the sensor signed.
+ */
+async function applyReadings(
+  evidenceId: string,
+  set: readonly { recordedAt: string; celsius: number }[]
+): Promise<unknown> {
+  const times = set.map((reading) => String(reading.recordedAt).slice(0, 5));
+  const values = set.map((reading, index) => requireCelsius(reading.celsius, index));
+
+  const result = await pool.query<{
+    sequence: number;
+    recorded_at: string;
+    old_celsius: string;
+    new_celsius: string;
+  }>(
+    `WITH wanted AS (
+       SELECT * FROM unnest($2::text[], $3::numeric[]) AS t(at, celsius)
+     ),
+     target AS (
+       SELECT reading.reading_id, reading.celsius AS old_celsius, wanted.celsius AS new_celsius
+       FROM temperature_readings AS reading
+       JOIN wanted ON to_char(reading.recorded_at AT TIME ZONE 'UTC', 'HH24:MI') = wanted.at
+       WHERE reading.evidence_id = $1 AND reading.celsius IS DISTINCT FROM wanted.celsius
+     )
+     UPDATE temperature_readings AS reading
+     SET celsius = target.new_celsius
+     FROM target
+     WHERE reading.reading_id = target.reading_id
+     RETURNING
+       reading.sequence,
+       reading.recorded_at,
+       target.old_celsius::text AS old_celsius,
+       reading.celsius::text AS new_celsius`,
+    [evidenceId, times, values]
+  );
+
+  // An unchanged table is the ordinary case here, so it is reported rather than refused.
+  return {
+    evidenceId,
+    changedReadings: [...result.rows].sort((left, right) => left.sequence - right.sequence)
+  };
+}
+
+/**
+ * Returns the fingerprint the oracle would anchor for these readings, without storing anything.
+ *
+ * The page cannot derive this itself: the canonical form is defined by the storage package, so a
+ * hash built in the browser would never equal the one on the ledger.
+ */
+async function handleHash(body: { batchId?: unknown; readings?: unknown }): Promise<unknown> {
+  const batchId = String(body.batchId ?? "").trim();
+  if (!batchId) {
+    throw new Error("'batchId' is required.");
+  }
+  if (!Array.isArray(body.readings) || body.readings.length === 0) {
+    throw new Error("'readings' must contain at least one reading.");
+  }
+
+  const readings = measurements(body.readings as { recordedAt: string; celsius: number }[]);
+  return { hash: sha256TemperatureReadings(batchId, readings) };
 }
 
 /**
@@ -383,8 +454,12 @@ const server = createServer(async (request, response) => {
       send(response, 200, await handleReset());
       return;
     }
+    if (request.method === "POST" && request.url === "/demo/hash") {
+      send(response, 200, await handleHash(body));
+      return;
+    }
     send(response, 404, {
-      error: "Unknown route. POST /demo/run, POST /demo/tamper or POST /demo/reset."
+      error: "Unknown route. POST /demo/run, /demo/tamper, /demo/reset or /demo/hash."
     });
   } catch (error) {
     send(response, 400, { error: error instanceof Error ? error.message : String(error) });

@@ -1,5 +1,5 @@
 /**
- * The live console: the same screen as the simulation, driving the six real backends.
+ * Connects the interactive supply chain console to the six organisation backends.
  *
  * Selecting a company chip changes which origin the next request goes to, and each backend signs
  * with only its own certificate. That is what makes a refusal here mean something: the request was
@@ -279,19 +279,33 @@ export function LiveApp() {
   const byName = (name: string) => companies.find((c) => c.name === name);
   const regOrigin = () => byName("regulator")?.origin;
 
-  // The fingerprint the oracle would anchor for what is currently in the table.
+  // The fingerprint the oracle would anchor for what is currently in the table. The canonical form
+  // belongs to the storage package, so the helper computes it and a hash made here would not match
+  // the ledger. Falling back to a local digest keeps the bar populated when the helper is down.
   useEffect(() => {
     let on = true;
-    sha256Hex(
-      JSON.stringify({
-        batchId,
-        readings: rows.map((r) => ({ recordedAt: r.at, celsius: Number(r.celsius) || 0 }))
-      })
-    ).then((hash) => {
-      if (on) setLiveHash(hash);
-    });
+    const data = rows.map((r) => ({ recordedAt: r.at, celsius: Number(r.celsius) || 0 }));
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(DEMO_URL + "/demo/hash", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ batchId, readings: data })
+        });
+        const j = await res.json().catch(() => null);
+        if (on && j && j.hash) {
+          setLiveHash(j.hash);
+          return;
+        }
+      } catch {
+        // Fall through to the local digest below.
+      }
+      const local = await sha256Hex(JSON.stringify({ batchId, readings: data }));
+      if (on) setLiveHash(local);
+    }, 250);
     return () => {
       on = false;
+      clearTimeout(timer);
     };
   }, [rows, batchId]);
 
@@ -669,6 +683,28 @@ export function LiveApp() {
     }
   }
 
+  /**
+   * Sends the table to the oracle's database once evidence exists.
+   *
+   * After anchoring, the table is the database rather than a staging pad, so editing a cell has to
+   * change the stored row. Before anchoring there is nothing to write to, and the edit travels with
+   * the next run instead.
+   */
+  async function writeThrough(values: readonly Row[]) {
+    if (!evidenceId) return;
+    const set = values.map((r) => ({ recordedAt: r.at, celsius: Number(r.celsius) || 0 }));
+    try {
+      const res = await fetch(DEMO_URL + "/demo/tamper", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ evidenceId, set })
+      });
+      if (!res.ok) ghost("the edit did not reach the oracle's database");
+    } catch {
+      ghost("the edit did not reach the oracle's database");
+    }
+  }
+
   async function tamperDb() {
     if (!evidenceId) {
       say("neutral", "Anchor readings first.");
@@ -751,7 +787,11 @@ export function LiveApp() {
 
   async function doVerify(who: string) {
     const ev = evidenceId ?? (await loadEvidence());
-    if (!ev) return;
+    if (!ev) {
+      ghost("nothing has been anchored yet");
+      say("refused", "Nothing anchored yet. The oracle goes first.");
+      return;
+    }
     const r = await call("GET", `/temperature/evidence/${encodeURIComponent(ev)}/verify`, {
       origin: byName(who)?.origin
     });
@@ -793,8 +833,11 @@ export function LiveApp() {
     }
     const id = preset || "compliant";
     setPreset(id);
-    setRows(id === "warm" ? UNSAFE_ROWS : DEFAULT_ROWS);
-    setSignedRows(id === "warm" ? UNSAFE_ROWS : DEFAULT_ROWS);
+    const original = id === "warm" ? UNSAFE_ROWS : DEFAULT_ROWS;
+    setRows(original);
+    setSignedRows(original);
+    // Repairs the database too, so a tampered run verifies clean again without re-anchoring.
+    writeThrough(original);
     say("chill", "Sensor data restored to what SENSOR-001 actually recorded.");
   };
 
@@ -1055,6 +1098,7 @@ export function LiveApp() {
                   const v = e.target.value;
                   setRows((current) => current.map((x, j) => (j === i ? { ...x, celsius: v } : x)));
                 }}
+                onBlur={() => writeThrough(rows)}
                 style={{ ...readingInput, border: "1px solid var(--line)" }}
               />
             </div>
