@@ -51,8 +51,10 @@ x-backend: &backend
   depends_on:
     fabric-chaincode:
       condition: service_completed_successfully
+    # Healthy rather than started: on a first run the entrypoint creates both databases, and a
+    # backend that connects before then fails its first query.
     postgres:
-      condition: service_started
+      condition: service_healthy
 
 services:
   # Generate the certificate tree before peers mount and use it.
@@ -180,6 +182,8 @@ services:
       - "3016:3016"
     depends_on:
       backend-oracle:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
 
   # Register consortium identities and sensor keys after all organisation backends are healthy.

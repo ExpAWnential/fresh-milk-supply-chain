@@ -17,6 +17,14 @@ services:
       # none of this runs and the databases silently stay as they were: use `pnpm db:reset`.
       - ./initdb:/docker-entrypoint-initdb.d:ro
       - postgres-data:/var/lib/postgresql/data
+    # Checked over TCP rather than the socket. While the scripts above run, the entrypoint keeps the
+    # server on its socket alone, so a socket check would report ready before the databases exist.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U freshmilk -d freshmilk_oracle"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
 
 volumes:
   postgres-data:
