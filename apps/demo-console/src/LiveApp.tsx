@@ -5,16 +5,16 @@
  * with only its own certificate. That is what makes a refusal here mean something: the request was
  * genuinely made by that company and genuinely turned down by the contract.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   BatchStepper,
   Button,
   CompanyChip,
-  HashCompare,
   PageHeader,
   Panel,
   TempChart,
-  TextInput
+  TextInput,
+  ToneBadge
 } from "./components";
 import {
   CaptionPanelBody,
@@ -157,6 +157,99 @@ interface HistoryEntry {
   readonly batch?: { readonly status?: string; readonly lastKnownLocation?: string };
 }
 
+interface AnchorEntry {
+  readonly evidenceId?: string;
+  readonly evidenceHash?: string;
+  readonly statistics?: {
+    readonly minCelsius?: number;
+    readonly maxCelsius?: number;
+    readonly readingCount?: number;
+  } | null;
+  readonly complianceOutcome?: string;
+  readonly submittedByStakeholderId?: string;
+  readonly submittedTxId?: string;
+  readonly submittedAt?: string;
+}
+
+// Batch events and temperature anchors are separate ledger records, shown in one feed.
+type FeedRow =
+  | { readonly kind: "batch"; readonly ts: string; readonly event: HistoryEntry }
+  | { readonly kind: "anchor"; readonly ts: string; readonly anchor: AnchorEntry };
+
+/** Renders the metadata and expansion behaviour shared by both kinds of ledger record. */
+function FeedBlock({
+  n,
+  newest,
+  connected,
+  open,
+  onToggle,
+  title,
+  byline,
+  tx,
+  children
+}: {
+  readonly n: number;
+  readonly newest: boolean;
+  readonly connected: boolean;
+  readonly open: boolean;
+  readonly onToggle: () => void;
+  readonly title: string;
+  readonly byline: string;
+  readonly tx?: string | null;
+  readonly children: ReactNode;
+}) {
+  return (
+    <div style={{ position: "relative", paddingBottom: connected ? 14 : 0 }}>
+      {connected ? (
+        <div
+          style={{
+            position: "absolute",
+            left: 17,
+            top: "calc(100% - 14px)",
+            height: 14,
+            width: 2,
+            background: "var(--line)"
+          }}
+        ></div>
+      ) : null}
+      <div
+        style={{
+          ...blockRow,
+          border: "1px solid " + (newest ? "var(--chill)" : "var(--line)"),
+          background: newest ? "var(--chill-tint)" : "var(--well)"
+        }}
+      >
+        <span
+          onClick={onToggle}
+          title={open ? "Hide the block's contents" : "Show the block's contents"}
+          style={{ ...blockNumber, background: "var(--chill-tint)", color: "var(--chill-deep)" }}
+        >
+          {n}
+        </span>
+        <span style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ display: "block", fontSize: 12.5, fontWeight: 600, color: "var(--ink)" }}>
+            {title}
+          </span>
+          <span style={{ display: "block", fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
+            {byline}
+          </span>
+          <span
+            style={{ display: "block", ...mono, fontSize: 10, color: "var(--faint)", marginTop: 3 }}
+          >
+            tx {short(tx)}
+          </span>
+        </span>
+        <button type="button" onClick={onToggle} style={chevron}>
+          {open ? "▲" : "▼"}
+        </button>
+        {open ? (
+          <div style={{ ...blockDetail, borderTop: "1px solid var(--hairline)" }}>{children}</div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /** Connects the console controls to the organisation backends and their authenticated identities. */
 export function LiveApp() {
   const [companies, setCompanies] = useState<readonly Company[]>(FALLBACK);
@@ -164,6 +257,7 @@ export function LiveApp() {
   const [batchId, setBatchId] = useState("BATCH-001");
   const [batch, setBatch] = useState<Batch | null>(null);
   const [history, setHistory] = useState<readonly HistoryEntry[]>([]);
+  const [anchors, setAnchors] = useState<readonly AnchorEntry[]>([]);
   const [registered, setRegistered] = useState<Record<string, boolean>>({});
   const [sensorReg, setSensorReg] = useState<Record<string, boolean>>({});
   const [rows, setRows] = useState<readonly Row[]>(DEFAULT_ROWS);
@@ -275,6 +369,26 @@ export function LiveApp() {
       setBatch(null);
       setHistory([]);
     }
+
+    // An anchor never touches the batch record, so it would be invisible in a feed built from batch
+    // history alone. Only the oracle holds the list, but each anchor is read back from the ledger.
+    const oracle = cs.find((c) => c.name === "oracle") ?? byName("oracle");
+    const listed = await call("GET", `/temperature/batches/${encodeURIComponent(id)}/evidence`, {
+      origin: oracle?.origin
+    });
+    const ids =
+      listed.status === 200 && Array.isArray(listed.body)
+        ? (listed.body as { evidenceId?: string }[]).map((e) => e.evidenceId).filter(Boolean)
+        : [];
+    const records = await Promise.all(
+      ids.map((evidenceId) =>
+        call("GET", `/temperature/evidence/${encodeURIComponent(evidenceId as string)}`, {
+          origin: any.origin
+        })
+      )
+    );
+    // A record the ledger does not hold was never anchored, so it does not belong in the chain feed.
+    setAnchors(records.filter((r) => r.status === 200).map((r) => r.body as AnchorEntry));
   }
 
   async function probeRegistrations(cs: readonly Company[]) {
@@ -674,6 +788,7 @@ export function LiveApp() {
     setBatchId(id);
     setBatch(null);
     setHistory([]);
+    setAnchors([]);
     setRows(DEFAULT_ROWS);
     setPreset("compliant");
     setOpenBlock(null);
@@ -699,6 +814,21 @@ export function LiveApp() {
   const recalled = status === "RECALLED";
   const stageName = breach ? batch?.statusBeforeBreach || "CREATED" : status;
   const stage = batch ? (STAGE_OF[stageName ?? ""] ?? 0) : -1;
+
+  // Batch events and anchors are separate ledger records. Merged newest first, so the newest block
+  // keeps the highest number.
+  const feed: readonly FeedRow[] = [
+    ...history.map((event) => ({
+      kind: "batch" as const,
+      ts: String(event.timestamp ?? ""),
+      event
+    })),
+    ...anchors.map((anchor) => ({
+      kind: "anchor" as const,
+      ts: String(anchor.submittedAt ?? ""),
+      anchor
+    }))
+  ].sort((a, b) => b.ts.localeCompare(a.ts));
 
   const surface: Record<string, JSX.Element> = {
     regulator: (
@@ -932,11 +1062,16 @@ export function LiveApp() {
           <span style={{ ...mono, fontSize: 12, color: "var(--ink-2)", flex: 1 }}>
             {short(liveHash)}
           </span>
+          {/* An anchor proves commitment, but its integrity cannot be judged without the readings. */}
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--muted)" }}>
+            {anchors.length
+              ? "last anchor " + short(anchors[anchors.length - 1].evidenceHash)
+              : "not anchored yet"}
+          </span>
           <Button variant="primary" onClick={() => anchorFromTable(false)}>
             Anchor on the chain
           </Button>
         </div>
-        {/* These mutations apply only to an unsafe reading set, where there is a breach to hide. */}
         {preset === "warm" ? (
           <div style={{ borderTop: "1px solid var(--line)", marginTop: -6 }}>
             <div style={cheatLabel}>try to cheat</div>
@@ -1048,26 +1183,25 @@ export function LiveApp() {
                       : "Clean"
               )}
             >
-              <HashCompare
-                rows={[
-                  { label: "on the ledger", value: short(verify.anchoredHash) },
-                  {
-                    label: "recomputed",
-                    value: short(verify.recomputedHash),
-                    bad: verify.match === false
-                  },
-                  {
-                    label: "summary",
-                    value: verify.anchoredStatistics
-                      ? `chain says ${verify.anchoredStatistics.minCelsius} to ${verify.anchoredStatistics.maxCelsius} °C${
-                          verify.statisticsMatch === false ? ", the readings disagree" : ""
-                        }`
-                      : "not recorded",
-                    bad: verify.statisticsMatch === false
-                  },
-                  {
-                    label: "signatures",
-                    value:
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {(
+                  [
+                    [
+                      "fingerprint",
+                      `${short(verify.anchoredHash)} on the chain · ${short(verify.recomputedHash)} recomputed`,
+                      !!verify.match
+                    ],
+                    [
+                      "summary",
+                      verify.anchoredStatistics
+                        ? `chain says ${verify.anchoredStatistics.minCelsius} to ${verify.anchoredStatistics.maxCelsius} °C${
+                            verify.statisticsMatch === false ? " · the readings disagree" : ""
+                          }`
+                        : "not recorded",
+                      verify.statisticsMatch === null ? null : verify.statisticsMatch !== false
+                    ],
+                    [
+                      "signatures",
                       verify.signaturesMatch === null
                         ? "could not check"
                         : verify.signaturesMatch
@@ -1076,18 +1210,40 @@ export function LiveApp() {
                             (verify.signatureFailures && verify.signatureFailures.length
                               ? ": reading " + verify.signatureFailures.join(", ")
                               : ""),
-                    bad: verify.signaturesMatch === false
-                  },
-                  { label: "transaction", value: short(verify.fabricTransactionId) }
-                ]}
-                match={
-                  !!verify.match &&
-                  verify.statisticsMatch !== false &&
-                  verify.signaturesMatch !== false
-                }
-                matchText={`checked by the ${verify.by}`}
-                mismatchText={`checked by the ${verify.by}`}
-              />
+                      verify.signaturesMatch ?? null
+                    ],
+                    // The transaction is reported rather than judged, so it carries no verdict.
+                    ["transaction", short(verify.fabricTransactionId), null]
+                  ] as const
+                ).map(([key, value, ok]) => (
+                  <div key={key} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ ...label, width: "6.5rem", flex: "none" }}>{key}</span>
+                    <span
+                      style={{
+                        ...mono,
+                        fontSize: 11.5,
+                        color: ok === false ? "var(--broken)" : "var(--ink-2)",
+                        flex: 1,
+                        overflowWrap: "anywhere"
+                      }}
+                    >
+                      {value}
+                    </span>
+                    <ToneBadge tone={ok === true ? "ok" : ok === false ? "broken" : "neutral"}>
+                      {ok === true
+                        ? "pass"
+                        : ok === false
+                          ? "fail"
+                          : key === "transaction"
+                            ? "tx"
+                            : "unchecked"}
+                    </ToneBadge>
+                  </div>
+                ))}
+                <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                  checked by the {verify.by}
+                </div>
+              </div>
             </Panel>
           ) : null}
         </div>
@@ -1096,7 +1252,7 @@ export function LiveApp() {
             <CaptionPanelBody text={caption.text} />
           </Panel>
           <Panel
-            title={`Ledger · ${batchId}`}
+            title={`Chain · ${feed.length} blocks`}
             right={
               <Button size="sm" variant="quiet" onClick={() => refreshBatch()}>
                 Refresh
@@ -1106,129 +1262,111 @@ export function LiveApp() {
           >
             <div style={feedScroll}>
               <GhostRows ghosts={ghosts} />
-              {history.length === 0 ? (
+              {feed.length === 0 ? (
                 <div style={{ fontSize: 13, color: "var(--muted)", padding: "4px 2px" }}>
                   No events on the ledger for this batch yet.
                 </div>
               ) : (
-                // The ledger hands its history back newest first, which is the order the feed wants,
-                // so the newest event keeps the highest number.
-                history.map((e, i) => {
+                feed.map((f, i) => {
+                  const n = feed.length - 1 - i;
+                  const open = openBlock === n;
+                  const shell = {
+                    n,
+                    open,
+                    newest: i === 0,
+                    connected: i < feed.length - 1,
+                    onToggle: () => setOpenBlock(open ? null : n)
+                  };
+                  const time = f.ts ? f.ts.slice(0, 19).replace("T", " ") : "";
+
+                  if (f.kind === "anchor") {
+                    const a = f.anchor;
+                    const stats = a.statistics;
+                    const summary =
+                      stats && stats.minCelsius != null && stats.maxCelsius != null
+                        ? ` · summary ${stats.minCelsius} to ${stats.maxCelsius} °C`
+                        : "";
+                    const flagged = a.complianceOutcome === "UNSAFE";
+                    return (
+                      <FeedBlock
+                        key={"a" + (a.evidenceId || i)}
+                        {...shell}
+                        title={
+                          `fingerprint ${short(a.evidenceHash)} anchored` +
+                          summary +
+                          (flagged ? " · batch flagged" : "")
+                        }
+                        byline={
+                          (a.submittedByStakeholderId || "the oracle") + (time ? " · " + time : "")
+                        }
+                        tx={a.submittedTxId}
+                      >
+                        <span style={blockDetailLabel}>evidence</span>
+                        <span style={{ ...mono, ...blockDetailValue }}>{a.evidenceId || "—"}</span>
+                        <span style={blockDetailLabel}>fingerprint</span>
+                        <span style={{ ...mono, ...blockDetailValue }}>
+                          {a.evidenceHash || "—"}
+                        </span>
+                        {summary ? (
+                          <>
+                            <span style={blockDetailLabel}>summary</span>
+                            <span style={{ ...mono, color: "var(--ink-2)" }}>
+                              {stats?.minCelsius} to {stats?.maxCelsius} °C ·{" "}
+                              {stats?.readingCount ?? "?"} readings
+                            </span>
+                          </>
+                        ) : null}
+                        <span style={blockDetailLabel}>outcome</span>
+                        <span style={{ color: flagged ? "var(--broken)" : "var(--ink-2)" }}>
+                          {(a.complianceOutcome || "—").toLowerCase()}
+                        </span>
+                        <span style={blockDetailLabel}>tx id</span>
+                        <span style={{ ...mono, ...blockDetailValue }}>
+                          {a.submittedTxId || "—"}
+                        </span>
+                      </FeedBlock>
+                    );
+                  }
+
+                  const e = f.event;
                   const b = e.batch || {};
                   const st = (b.status || "").replaceAll("_", " ").toLowerCase();
-                  const n = history.length - 1 - i;
-                  const open = openBlock === n;
                   return (
-                    <div
+                    <FeedBlock
                       key={e.txId || i}
-                      style={{
-                        position: "relative",
-                        paddingBottom: i < history.length - 1 ? 14 : 0
-                      }}
+                      {...shell}
+                      title={
+                        e.isDelete
+                          ? "record deleted"
+                          : st + (b.lastKnownLocation ? " · " + b.lastKnownLocation : "")
+                      }
+                      byline={
+                        (e.submittedByStakeholderId || "unknown submitter") +
+                        (time ? " · " + time : "")
+                      }
+                      tx={e.txId}
                     >
-                      {i < history.length - 1 ? (
-                        <div
-                          style={{
-                            position: "absolute",
-                            left: 17,
-                            top: "calc(100% - 14px)",
-                            height: 14,
-                            width: 2,
-                            background: "var(--line)"
-                          }}
-                        ></div>
+                      <span style={blockDetailLabel}>block</span>
+                      <span style={{ ...mono, color: "var(--ink-2)" }}>{n}</span>
+                      <span style={blockDetailLabel}>tx id</span>
+                      <span style={{ ...mono, ...blockDetailValue }}>{e.txId || "—"}</span>
+                      <span style={blockDetailLabel}>submitted by</span>
+                      <span style={{ color: "var(--ink-2)" }}>
+                        {e.submittedByStakeholderId || "unknown"}
+                      </span>
+                      {time ? (
+                        <>
+                          <span style={blockDetailLabel}>time</span>
+                          <span style={{ ...mono, color: "var(--ink-2)" }}>{time}</span>
+                        </>
                       ) : null}
-                      <div
-                        style={{
-                          ...blockRow,
-                          border: "1px solid " + (i === 0 ? "var(--chill)" : "var(--line)"),
-                          background: i === 0 ? "var(--chill-tint)" : "var(--well)"
-                        }}
-                      >
-                        <span
-                          onClick={() => setOpenBlock(open ? null : n)}
-                          title={open ? "Hide the block's contents" : "Show the block's contents"}
-                          style={{
-                            ...blockNumber,
-                            background: "var(--chill-tint)",
-                            color: "var(--chill-deep)"
-                          }}
-                        >
-                          {n}
-                        </span>
-                        <span style={{ flex: 1, minWidth: 0 }}>
-                          <span
-                            style={{
-                              display: "block",
-                              fontSize: 12.5,
-                              fontWeight: 600,
-                              color: "var(--ink)"
-                            }}
-                          >
-                            {e.isDelete
-                              ? "record deleted"
-                              : st + (b.lastKnownLocation ? " · " + b.lastKnownLocation : "")}
-                          </span>
-                          <span
-                            style={{
-                              display: "block",
-                              fontSize: 11,
-                              color: "var(--muted)",
-                              marginTop: 2
-                            }}
-                          >
-                            {e.submittedByStakeholderId || "unknown submitter"}
-                            {e.timestamp
-                              ? " · " + String(e.timestamp).slice(0, 19).replace("T", " ")
-                              : ""}
-                          </span>
-                          <span
-                            style={{
-                              display: "block",
-                              ...mono,
-                              fontSize: 10,
-                              color: "var(--faint)",
-                              marginTop: 3
-                            }}
-                          >
-                            tx {short(e.txId)}
-                          </span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setOpenBlock(open ? null : n)}
-                          style={chevron}
-                        >
-                          {open ? "▲" : "▼"}
-                        </button>
-                        {open ? (
-                          <div style={{ ...blockDetail, borderTop: "1px solid var(--hairline)" }}>
-                            <span style={blockDetailLabel}>block</span>
-                            <span style={{ ...mono, color: "var(--ink-2)" }}>{n}</span>
-                            <span style={blockDetailLabel}>tx id</span>
-                            <span style={{ ...mono, ...blockDetailValue }}>{e.txId || "—"}</span>
-                            <span style={blockDetailLabel}>submitted by</span>
-                            <span style={{ color: "var(--ink-2)" }}>
-                              {e.submittedByStakeholderId || "unknown"}
-                            </span>
-                            {e.timestamp ? (
-                              <>
-                                <span style={blockDetailLabel}>time</span>
-                                <span style={{ ...mono, color: "var(--ink-2)" }}>
-                                  {String(e.timestamp).slice(0, 19).replace("T", " ")}
-                                </span>
-                              </>
-                            ) : null}
-                            <span style={blockDetailLabel}>record</span>
-                            <span style={{ ...mono, ...blockDetailValue, whiteSpace: "pre-wrap" }}>
-                              {e.isDelete
-                                ? "deleted"
-                                : JSON.stringify(b, null, 1).replace(/[{}"]/g, "").trim()}
-                            </span>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
+                      <span style={blockDetailLabel}>record</span>
+                      <span style={{ ...mono, ...blockDetailValue, whiteSpace: "pre-wrap" }}>
+                        {e.isDelete
+                          ? "deleted"
+                          : JSON.stringify(b, null, 1).replace(/[{}"]/g, "").trim()}
+                      </span>
+                    </FeedBlock>
                   );
                 })
               )}

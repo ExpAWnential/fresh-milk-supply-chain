@@ -1,6 +1,5 @@
 export { Button } from "./controls/Button";
 export { TextInput } from "./controls/TextInput";
-export { HashCompare } from "./evidence/HashCompare";
 export { TempChart } from "./evidence/TempChart";
 export { BatchStepper } from "./journey/BatchStepper";
 export { PageHeader } from "./layout/PageHeader";
