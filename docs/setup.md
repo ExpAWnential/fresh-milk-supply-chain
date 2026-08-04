@@ -3,8 +3,9 @@
 Steps to get a working blockchain and database running locally.
 
 If you only want it running rather than to work on it, `docker compose up -d` from the repository
-root does everything on this page and needs nothing but Docker. The rest of this document is the
-host path, which is what you want while changing the code.
+root does everything on this page and needs nothing but Docker. Add `--build` after changing or
+pulling code, because the image carries the built services rather than reading them from disk. The
+rest of this document is the host path, which is what you want while changing the code.
 
 ```bash
 pnpm test         # the whole test suite

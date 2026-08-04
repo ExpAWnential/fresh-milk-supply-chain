@@ -11,12 +11,13 @@ altered unnoticed, and a shopper can look up a carton without holding any blockc
 From the repository root:
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 Docker with 8 GB of memory is the only prerequisite. The console is on <http://localhost:3001>,
 already registered and ready to use. The first run takes ten to twenty minutes, most of it building
-a chaincode container per organisation. `docker compose down -v` removes everything.
+a chaincode container per organisation. The image carries the built services, so `--build` is what
+picks up changed or newly pulled code. `docker compose down -v` removes everything.
 
 ## What is in here
 
