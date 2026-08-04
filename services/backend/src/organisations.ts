@@ -115,16 +115,37 @@ export function findOrganisation(name: string): Organisation {
 // Ordinary backend traffic must not carry a channel administrator identity.
 const NETWORK_USER = "User1";
 
+/**
+ * Selects a host-published or container-network peer address without changing the public origin.
+ * Browser origins remain on localhost because CORS and the organisation directory are consumed
+ * from the host, even when backend-to-peer traffic stays inside Compose.
+ */
+function peerEndpointFor(
+  organisation: Organisation,
+  peerHostAlias: string,
+  env: NodeJS.ProcessEnv
+): string {
+  if (env.FABRIC_ADDRESS_MODE !== "container") {
+    return organisation.peerEndpoint;
+  }
+
+  const port = organisation.peerEndpoint.split(":").at(-1);
+  return `${peerHostAlias}:${port}`;
+}
+
 export function walletFor(
   organisation: Organisation,
-  organizationsPath: string
+  organizationsPath: string,
+  env: NodeJS.ProcessEnv = process.env
 ): OrganisationIdentity {
   const organisationPath = join(organizationsPath, organisation.domain);
+  const peerHostAlias = `peer0.${organisation.domain}`;
 
   return {
     ...organisation,
+    peerEndpoint: peerEndpointFor(organisation, peerHostAlias, env),
     userPath: join(organisationPath, "users", `${NETWORK_USER}@${organisation.domain}`, "msp"),
-    peerHostAlias: `peer0.${organisation.domain}`,
+    peerHostAlias,
     peerTlsCaPath: join(organisationPath, "tlsca", `tlsca.${organisation.domain}-cert.pem`)
   };
 }
@@ -142,5 +163,5 @@ export function resolveLocalOrganisation(
     );
   }
 
-  return walletFor(findOrganisation(name), organizationsPath);
+  return walletFor(findOrganisation(name), organizationsPath, env);
 }
