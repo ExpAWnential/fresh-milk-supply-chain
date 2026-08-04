@@ -26,7 +26,7 @@ BATCH=${1:-BATCH-001}
 signAsRetailer() {
   export CORE_PEER_LOCALMSPID=$(orgMsp retailer)
   export CORE_PEER_TLS_ROOTCERT_FILE=$(orgTlsCa retailer)
-  export CORE_PEER_ADDRESS=localhost:$(orgPeerPort retailer)
+  export CORE_PEER_ADDRESS=$(orgPeerAddress retailer)
   export CORE_PEER_MSPCONFIGPATH=${MILK_NETWORK_HOME}/organizations/peerOrganizations/retailer.example.com/users/User1@retailer.example.com/msp
 }
 
@@ -39,12 +39,12 @@ attempt() {
   local peers=()
   for org in $orgs; do
     requireOrg "$org"
-    peers+=(--peerAddresses "localhost:$(orgPeerPort $org)" --tlsRootCertFiles "$(orgTlsCa $org)")
+    peers+=(--peerAddresses "$(orgPeerAddress $org)" --tlsRootCertFiles "$(orgTlsCa $org)")
   done
 
   # Wait for commit because an ordered transaction may still be invalidated by endorsement policy.
   local out status
-  out=$(peer chaincode invoke -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com \
+  out=$(peer chaincode invoke -o $(ordererAddress) --ordererTLSHostnameOverride orderer.example.com \
         --tls --cafile "$ORDERER_CA" -C "${CHANNEL_NAME:-milkchannel}" -n supplychain --waitForEvent \
         -c "{\"function\":\"BatchLifecycleContract:recordDelivery\",\"Args\":[\"${BATCH}\",\"Sydney Depot\"]}" \
         "${peers[@]}" 2>&1)

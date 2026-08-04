@@ -7,7 +7,8 @@
  * prevents production code from gaining the same access.
  *
  *   POST /demo/run     sign readings, store them, anchor the fingerprint
- *   POST /demo/tamper  edit a stored reading directly in PostgreSQL, around the application
+ *   POST /demo/tamper  edit the stored readings directly in PostgreSQL, around the application
+ *   POST /demo/reset   empty the oracle's off-chain store before another run
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -45,6 +46,9 @@ interface RunRequest {
   readonly lieAboutSummary?: boolean;
   readonly fakeStatistics?: { minCelsius: number; maxCelsius: number };
 }
+
+// This value sits comfortably inside the safe range, so substituting it conceals the breach.
+const HIDDEN_BREACH_CELSIUS = 3.2;
 
 async function readPrivateKey(): Promise<string> {
   const path = join(keyDirectory, `${SENSOR_ID}.key`);
@@ -242,10 +246,11 @@ function isSafe(statistics: TemperatureStatistics): boolean {
 }
 
 /**
- * Changes one stored reading directly in PostgreSQL without using the repository's write path.
+ * Rewrites the stored breach directly in PostgreSQL without using the repository's write path.
  *
- * Direct database access can alter the off-chain row, but it cannot replace the fingerprint already
- * committed to Fabric.
+ * Every reading outside the safe range is corrected, because one warm value left behind still shows
+ * the breach. Direct database access can alter the off-chain rows, but it cannot replace the
+ * fingerprint already committed to Fabric.
  */
 async function handleTamper(body: { evidenceId?: unknown; celsius?: unknown }): Promise<unknown> {
   const evidenceId = String(body.evidenceId ?? "").trim();
@@ -254,7 +259,7 @@ async function handleTamper(body: { evidenceId?: unknown; celsius?: unknown }): 
   }
 
   // Replace the value with a safe temperature so the mutation consistently hides a breach.
-  const celsius = Number(body.celsius ?? 3.2);
+  const celsius = Number(body.celsius ?? HIDDEN_BREACH_CELSIUS);
   if (!Number.isFinite(celsius)) {
     throw new Error("'celsius' must be a number.");
   }
@@ -262,18 +267,16 @@ async function handleTamper(body: { evidenceId?: unknown; celsius?: unknown }): 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    // Changing the warmest reading tests whether an apparent breach removal is detected.
     const result = await client.query<{
       sequence: number;
+      recorded_at: string;
       old_celsius: string;
       new_celsius: string;
     }>(
       `WITH target AS (
          SELECT reading_id, celsius
          FROM temperature_readings
-         WHERE evidence_id = $1
-         ORDER BY celsius DESC, sequence ASC
-         LIMIT 1
+         WHERE evidence_id = $1 AND (celsius < 0 OR celsius > 5)
          FOR UPDATE
        )
        UPDATE temperature_readings AS reading
@@ -282,22 +285,41 @@ async function handleTamper(body: { evidenceId?: unknown; celsius?: unknown }): 
        WHERE reading.reading_id = target.reading_id
        RETURNING
          reading.sequence,
+         reading.recorded_at,
          target.celsius::text AS old_celsius,
          reading.celsius::text AS new_celsius`,
       [evidenceId, celsius]
     );
     await client.query("COMMIT");
 
-    if (!result.rows[0]) {
-      throw new Error(`Evidence '${evidenceId}' has no stored readings to change.`);
+    if (result.rows.length === 0) {
+      throw new Error(
+        `Evidence '${evidenceId}' has no reading outside 0 to 5 °C, so there is nothing to hide.`
+      );
     }
-    return { evidenceId, changedReading: result.rows[0] };
+    return {
+      evidenceId,
+      changedReadings: [...result.rows].sort((left, right) => left.sequence - right.sequence)
+    };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
   } finally {
     client.release();
   }
+}
+
+/**
+ * Empties the oracle's off-chain store so the next isolated run starts without previous evidence.
+ *
+ * Only this process's own tables are cleared. Fabric is never touched, because a ledger that could
+ * be reset would not be a ledger.
+ */
+async function handleReset(): Promise<unknown> {
+  // A delete rather than a truncate: this process connects as the oracle's ordinary application
+  // role, which may write rows but not truncate the tables. The readings follow their evidence.
+  const result = await pool.query("DELETE FROM temperature_evidence");
+  return { clearedEvidence: result.rowCount ?? 0 };
 }
 
 function send(res: ServerResponse, status: number, payload: unknown): void {
@@ -336,7 +358,13 @@ const server = createServer(async (request, response) => {
       send(response, 200, await handleTamper(body));
       return;
     }
-    send(response, 404, { error: "Unknown route. POST /demo/run or POST /demo/tamper." });
+    if (request.method === "POST" && request.url === "/demo/reset") {
+      send(response, 200, await handleReset());
+      return;
+    }
+    send(response, 404, {
+      error: "Unknown route. POST /demo/run, POST /demo/tamper or POST /demo/reset."
+    });
   } catch (error) {
     send(response, 400, { error: error instanceof Error ? error.message : String(error) });
   }

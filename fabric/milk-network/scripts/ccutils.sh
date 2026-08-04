@@ -37,7 +37,7 @@ function approveForMyOrg() {
   ORG=$1
   setGlobals $ORG
   set -x
-  peer lifecycle chaincode approveformyorg -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile "$ORDERER_CA" --channelID $CHANNEL_NAME --name ${CC_NAME} --version ${CC_VERSION} --package-id ${PACKAGE_ID} --sequence ${CC_SEQUENCE} ${INIT_REQUIRED} ${CC_END_POLICY} ${CC_COLL_CONFIG} >&log.txt
+  peer lifecycle chaincode approveformyorg -o $(ordererAddress) --ordererTLSHostnameOverride orderer.example.com --tls --cafile "$ORDERER_CA" --channelID $CHANNEL_NAME --name ${CC_NAME} --version ${CC_VERSION} --package-id ${PACKAGE_ID} --sequence ${CC_SEQUENCE} ${INIT_REQUIRED} ${CC_END_POLICY} ${CC_COLL_CONFIG} >&log.txt
   res=$?
   { set +x; } 2>/dev/null
   cat log.txt
@@ -81,7 +81,7 @@ function commitChaincodeDefinition() {
   verifyResult $res "Invoke transaction failed on channel '$CHANNEL_NAME' due to uneven number of peer and org parameters "
 
   set -x
-  peer lifecycle chaincode commit -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile "$ORDERER_CA" --channelID $CHANNEL_NAME --name ${CC_NAME} "${PEER_CONN_PARMS[@]}" --version ${CC_VERSION} --sequence ${CC_SEQUENCE} ${INIT_REQUIRED} ${CC_END_POLICY} ${CC_COLL_CONFIG} >&log.txt
+  peer lifecycle chaincode commit -o $(ordererAddress) --ordererTLSHostnameOverride orderer.example.com --tls --cafile "$ORDERER_CA" --channelID $CHANNEL_NAME --name ${CC_NAME} "${PEER_CONN_PARMS[@]}" --version ${CC_VERSION} --sequence ${CC_SEQUENCE} ${INIT_REQUIRED} ${CC_END_POLICY} ${CC_COLL_CONFIG} >&log.txt
   res=$?
   { set +x; } 2>/dev/null
   cat log.txt
@@ -128,7 +128,7 @@ function chaincodeInvokeInit() {
     sleep $DELAY
     set -x
     infoln "invoke fcn call:${fcn_call}"
-    peer chaincode invoke -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com --tls --cafile "$ORDERER_CA" -C $CHANNEL_NAME -n ${CC_NAME} "${PEER_CONN_PARMS[@]}" --isInit -c ${fcn_call} >&log.txt
+    peer chaincode invoke -o $(ordererAddress) --ordererTLSHostnameOverride orderer.example.com --tls --cafile "$ORDERER_CA" -C $CHANNEL_NAME -n ${CC_NAME} "${PEER_CONN_PARMS[@]}" --isInit -c ${fcn_call} >&log.txt
     res=$?
     { set +x; } 2>/dev/null
     let rc=$res
@@ -259,7 +259,7 @@ chaincodeInvoke() {
     # --waitForEvent matters. A transaction that fails the endorsement policy is still ordered and
     # written into a block as invalid, and without waiting for the commit event the CLI reports the
     # broadcast's status 200 for a transaction that was thrown away.
-    peer chaincode invoke -o localhost:7050 --ordererTLSHostnameOverride orderer.example.com \
+    peer chaincode invoke -o $(ordererAddress) --ordererTLSHostnameOverride orderer.example.com \
       -C $CHANNEL_NAME -n ${CC_NAME} -c "${CC_INVOKE_CONSTRUCTOR}" --waitForEvent \
       --tls --cafile "$ORDERER_CA" "${PEER_CONN_PARMS[@]}" >&log.txt
     res=$?

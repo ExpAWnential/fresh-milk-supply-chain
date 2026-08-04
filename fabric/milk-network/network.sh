@@ -113,6 +113,22 @@ function createOrgs() {
   fi
 }
 
+# Generates certificates without starting containers. Existing material is preserved because
+# replacing certificates underneath running peers creates TLS identity mismatches.
+function cryptoOnly() {
+  if [ -d "organizations/peerOrganizations" ]; then
+    infoln "Certificates are already present, leaving them as they are"
+    return 0
+  fi
+
+  createOrgs
+}
+
+# Creates the channel against nodes that Compose has already started.
+function channelOnly() {
+  scripts/createChannel.sh $CHANNEL_NAME $CLI_DELAY $MAX_RETRY $VERBOSE
+}
+
 function networkUp() {
 
   checkPrereqs
@@ -392,6 +408,12 @@ done
 if [ "$MODE" == "prereq" ]; then
   infoln "Installing binaries and fabric images. Fabric Version: ${IMAGETAG}  Fabric CA Version: ${CA_IMAGETAG}"
   installPrereqs
+elif [ "$MODE" == "crypto" ]; then
+  infoln "Generating certificates only"
+  cryptoOnly
+elif [ "$MODE" == "channel" ]; then
+  infoln "Creating channel '${CHANNEL_NAME}' on nodes that are already running"
+  channelOnly
 elif [ "$MODE" == "up" ]; then
   infoln "Starting nodes with CLI timeout of '${MAX_RETRY}' tries and CLI delay of '${CLI_DELAY}' seconds and using database '${DATABASE}'"
   networkUp

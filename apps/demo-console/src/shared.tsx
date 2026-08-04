@@ -147,8 +147,48 @@ export const blockNumber: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  borderRadius: 7
+  borderRadius: 7,
+  cursor: "pointer"
 };
+
+export const blockRow: CSSProperties = {
+  borderRadius: 10,
+  padding: "8px 12px",
+  display: "flex",
+  gap: 10,
+  alignItems: "flex-start",
+  flexWrap: "wrap"
+};
+
+export const chevron: CSSProperties = {
+  flex: "none",
+  border: "none",
+  background: "transparent",
+  cursor: "pointer",
+  color: "var(--faint)",
+  fontSize: 10,
+  padding: "6px 2px",
+  fontFamily: "var(--font-ui)"
+};
+
+export const blockDetail: CSSProperties = {
+  flexBasis: "100%",
+  marginTop: 2,
+  paddingTop: 8,
+  display: "grid",
+  gridTemplateColumns: "84px 1fr",
+  gap: "5px 10px",
+  fontSize: 11
+};
+
+export const blockDetailLabel: CSSProperties = {
+  ...label,
+  fontSize: 9.5,
+  fontWeight: 600,
+  paddingTop: 1
+};
+
+export const blockDetailValue: CSSProperties = { color: "var(--ink-2)", overflowWrap: "anywhere" };
 
 export const short = (hash?: string | null) =>
   hash && typeof hash === "string" ? hash.slice(0, 10) + "…" : "—";
@@ -212,7 +252,9 @@ export function useGhosts() {
     setTimeout(() => setGhosts((current) => current.filter((g) => g.id !== id)), 3200);
   }, []);
 
-  return { ghosts, ghost };
+  const clearGhosts = useCallback(() => setGhosts([]), []);
+
+  return { ghosts, ghost, clearGhosts };
 }
 
 export function GhostRows({ ghosts }: { readonly ghosts: readonly Ghost[] }) {

@@ -66,6 +66,37 @@ orgPeerHost() {
   echo "peer0.$(orgDomain "$1")"
 }
 
+# Host commands reach published localhost ports, while bootstrap containers use service names on
+# the Compose network. FABRIC_ADDRESS_MODE selects the appropriate address family.
+inContainerNetwork() {
+  [ "${FABRIC_ADDRESS_MODE:-host}" = "container" ]
+}
+
+orgPeerAddress() {
+  if inContainerNetwork; then
+    echo "$(orgPeerHost "$1"):$(orgPeerPort "$1")"
+  else
+    echo "localhost:$(orgPeerPort "$1")"
+  fi
+}
+
+ordererAddress() {
+  if inContainerNetwork; then
+    echo "orderer.example.com:7050"
+  else
+    echo "localhost:7050"
+  fi
+}
+
+# The orderer's channel participation API, which osnadmin uses to join the channel.
+ordererAdminAddress() {
+  if inContainerNetwork; then
+    echo "orderer.example.com:7053"
+  else
+    echo "localhost:7053"
+  fi
+}
+
 orgTlsCa() {
   local domain
   domain=$(orgDomain "$1")
