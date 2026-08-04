@@ -142,7 +142,11 @@ describe("reading a batch's verdicts back", () => {
   it("returns every row, in the order the database gave them", async () => {
     const pool = new FakePool();
     pool.rows = [
-      row({ evidence_id: "EV-1", event_name: "TemperatureEvidenceSubmitted", compliance_outcome: "COMPLIANT" }),
+      row({
+        evidence_id: "EV-1",
+        event_name: "TemperatureEvidenceSubmitted",
+        compliance_outcome: "COMPLIANT"
+      }),
       row({ evidence_id: "EV-2" })
     ];
 

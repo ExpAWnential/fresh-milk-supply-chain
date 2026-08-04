@@ -19,7 +19,11 @@ test("every company has an organisation, a certificate, a peer and a port of its
   const distinct = (field) => new Set(identities.map((identity) => identity[field])).size;
 
   assert.equal(distinct("mspId"), ORGANISATION_NAMES.length, "two companies share an organisation");
-  assert.equal(distinct("userPath"), ORGANISATION_NAMES.length, "two companies share a certificate");
+  assert.equal(
+    distinct("userPath"),
+    ORGANISATION_NAMES.length,
+    "two companies share a certificate"
+  );
   assert.equal(distinct("peerEndpoint"), ORGANISATION_NAMES.length, "two companies share a peer");
   assert.equal(distinct("backendPort"), ORGANISATION_NAMES.length, "two backends share a port");
   assert.equal(
@@ -69,33 +73,46 @@ test("company names are matched regardless of spacing and case", () => {
 });
 
 test("an unknown company is refused and the message lists the valid ones", () => {
-  assert.throws(() => findOrganisation("smuggler"), (error) => {
-    assert.match(error.message, /Unknown organisation 'smuggler'/);
-    assert.match(error.message, /regulator/);
-    return true;
-  });
+  assert.throws(
+    () => findOrganisation("smuggler"),
+    (error) => {
+      assert.match(error.message, /Unknown organisation 'smuggler'/);
+      assert.match(error.message, /regulator/);
+      return true;
+    }
+  );
 });
 
 test("an inherited property name is refused like any other unknown company", () => {
   for (const name of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
-    assert.throws(() => findOrganisation(name), (error) => {
-      assert.match(error.message, /Unknown organisation/);
-      return true;
-    }, `${name} should be refused`);
+    assert.throws(
+      () => findOrganisation(name),
+      (error) => {
+        assert.match(error.message, /Unknown organisation/);
+        return true;
+      },
+      `${name} should be refused`
+    );
   }
 });
 
 // ORGANISATION selects the identity used to sign every transaction from that process.
 test("a process with no ORGANISATION set is refused, and told the six valid names", () => {
-  assert.throws(() => resolveLocalOrganisation({}, WALLET_ROOT), (error) => {
-    assert.match(error.message, /Set ORGANISATION/);
-    for (const name of ORGANISATION_NAMES) {
-      assert.match(error.message, new RegExp(name));
+  assert.throws(
+    () => resolveLocalOrganisation({}, WALLET_ROOT),
+    (error) => {
+      assert.match(error.message, /Set ORGANISATION/);
+      for (const name of ORGANISATION_NAMES) {
+        assert.match(error.message, new RegExp(name));
+      }
+      return true;
     }
-    return true;
-  });
+  );
 
-  assert.throws(() => resolveLocalOrganisation({ ORGANISATION: "   " }, WALLET_ROOT), /Set ORGANISATION/);
+  assert.throws(
+    () => resolveLocalOrganisation({ ORGANISATION: "   " }, WALLET_ROOT),
+    /Set ORGANISATION/
+  );
 });
 
 test("a process with an unknown ORGANISATION is refused", () => {

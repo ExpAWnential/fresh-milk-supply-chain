@@ -106,12 +106,12 @@ export function createTemperatureRouter({
 
   router.get("/evidence/:evidenceId", async (req, res) => {
     try {
-      res.json(
-        await temperature.evaluateJson("getTemperatureEvidence", req.params.evidenceId)
-      );
+      res.json(await temperature.evaluateJson("getTemperatureEvidence", req.params.evidenceId));
     } catch (error) {
       if (describesMissingEvidence(error)) {
-        res.status(404).json({ error: `Evidence '${req.params.evidenceId}' is not on the ledger.` });
+        res
+          .status(404)
+          .json({ error: `Evidence '${req.params.evidenceId}' is not on the ledger.` });
         return;
       }
       sendGatewayError(res, error);
@@ -131,7 +131,9 @@ export function createTemperatureRouter({
       res.json(await temperatureRepository.getReadings(req.params.evidenceId));
     } catch (error) {
       if (describesMissingEvidence(error)) {
-        res.status(404).json({ error: `Evidence '${req.params.evidenceId}' is not on the ledger.` });
+        res
+          .status(404)
+          .json({ error: `Evidence '${req.params.evidenceId}' is not on the ledger.` });
         return;
       }
       sendGatewayError(res, error);

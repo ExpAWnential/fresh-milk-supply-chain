@@ -131,7 +131,10 @@ describe("where the network lives", () => {
   });
 
   it("defaults the channel to the one the backends read", () => {
-    assert.equal(inProcessWith({ FABRIC_CHANNEL_NAME: undefined }, "config.channelName"), "milkchannel");
+    assert.equal(
+      inProcessWith({ FABRIC_CHANNEL_NAME: undefined }, "config.channelName"),
+      "milkchannel"
+    );
   });
 
   it("follows FABRIC_CHANNEL_NAME where it is set", () => {

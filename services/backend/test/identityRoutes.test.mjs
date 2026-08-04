@@ -44,7 +44,10 @@ test("the directory lists all six companies and where to reach them", async () =
     const result = await call("GET", "/organisations");
 
     assert.equal(result.status, 200);
-    assert.deepEqual(result.body.map((entry) => entry.name), ORGANISATION_NAMES);
+    assert.deepEqual(
+      result.body.map((entry) => entry.name),
+      ORGANISATION_NAMES
+    );
     assert.deepEqual(
       result.body.map((entry) => entry.origin),
       [3001, 3002, 3003, 3004, 3005, 3006].map((port) => `http://localhost:${port}`)

@@ -16,15 +16,12 @@ const VERDICT = {
 const archiveHolding = (verdicts) => ({ listVerdictsForBatch: async () => verdicts });
 
 test("the regulator's archive reports what the ledger decided about a batch", async () => {
-  await withServer(
-    { verdictRepository: archiveHolding([VERDICT]) },
-    async ({ call }) => {
-      const result = await call("GET", "/verdicts/batches/BATCH-001");
+  await withServer({ verdictRepository: archiveHolding([VERDICT]) }, async ({ call }) => {
+    const result = await call("GET", "/verdicts/batches/BATCH-001");
 
-      assert.equal(result.status, 200);
-      assert.deepEqual(result.body, [VERDICT]);
-    }
-  );
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body, [VERDICT]);
+  });
 });
 
 // Five of the six companies run no event listener and keep no archive. That is the design, not a

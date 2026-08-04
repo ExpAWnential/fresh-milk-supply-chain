@@ -45,9 +45,7 @@ test("ORACLE can anchor boundary-safe evidence and the contract derives COMPLIAN
     statistics(0, 5)
   );
 
-  const evidence = JSON.parse(
-    await contract.getTemperatureEvidence(ctx, "EVIDENCE-001")
-  );
+  const evidence = JSON.parse(await contract.getTemperatureEvidence(ctx, "EVIDENCE-001"));
   assert.equal(evidence.complianceOutcome, "COMPLIANT");
   assert.equal(evidence.evidenceHash, VALID_HASH_A);
   assert.equal(evidence.submittedByStakeholderId, "oracle-001");
@@ -75,9 +73,7 @@ test("unsafe evidence flags the batch and emits ColdChainBreach", async () => {
     statistics(-0.2, 5.4)
   );
 
-  const evidence = JSON.parse(
-    await contract.getTemperatureEvidence(ctx, "EVIDENCE-002")
-  );
+  const evidence = JSON.parse(await contract.getTemperatureEvidence(ctx, "EVIDENCE-002"));
   assert.equal(evidence.complianceOutcome, "UNSAFE");
 
   const batch = JSON.parse(
@@ -201,10 +197,20 @@ test("a second unsafe reading during an open hold keeps the original stage", asy
 
   const unsafe = statistics(1, 9);
   await contract.submitTemperatureEvidence(
-    oracleContext, "EVIDENCE-007A", "BATCH-007", VALID_HASH_A, "ref-007a", unsafe
+    oracleContext,
+    "EVIDENCE-007A",
+    "BATCH-007",
+    VALID_HASH_A,
+    "ref-007a",
+    unsafe
   );
   await contract.submitTemperatureEvidence(
-    oracleContext, "EVIDENCE-007B", "BATCH-007", VALID_HASH_B, "ref-007b", unsafe
+    oracleContext,
+    "EVIDENCE-007B",
+    "BATCH-007",
+    VALID_HASH_B,
+    "ref-007b",
+    unsafe
   );
 
   const batch = JSON.parse(

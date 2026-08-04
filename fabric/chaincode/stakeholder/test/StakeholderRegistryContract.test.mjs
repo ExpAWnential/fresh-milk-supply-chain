@@ -23,9 +23,7 @@ test("only the regulator MSP can bootstrap the registry, and only once", async (
   const regulatorContext = context(stub, "cert-regulator", REGULATOR_MSP_ID);
   await contract.bootstrapRegulator(regulatorContext, "regulator-001");
 
-  const regulator = JSON.parse(
-    await contract.getStakeholder(regulatorContext, "regulator-001")
-  );
+  const regulator = JSON.parse(await contract.getStakeholder(regulatorContext, "regulator-001"));
   assert.equal(regulator.role, "REGULATOR");
   assert.equal(regulator.certificateId, "cert-regulator");
   assert.equal(regulator.active, true);
@@ -44,44 +42,24 @@ test("an active regulator can register stakeholders and duplicates are rejected"
   const regulatorContext = context(stub, "cert-regulator", REGULATOR_MSP_ID);
 
   await contract.bootstrapRegulator(regulatorContext, "regulator-001");
-  await contract.registerStakeholder(
-    regulatorContext,
-    "farm-001",
-    "farm",
-    "cert-farm"
-  );
+  await contract.registerStakeholder(regulatorContext, "farm-001", "farm", "cert-farm");
 
   const farm = JSON.parse(await contract.getStakeholder(regulatorContext, "farm-001"));
   assert.equal(farm.role, "FARM");
   assert.equal(farm.active, true);
 
   await expectReject(
-    contract.registerStakeholder(
-      regulatorContext,
-      "farm-001",
-      "FARM",
-      "cert-other"
-    ),
+    contract.registerStakeholder(regulatorContext, "farm-001", "FARM", "cert-other"),
     /already exists/
   );
 
   await expectReject(
-    contract.registerStakeholder(
-      regulatorContext,
-      "farm-002",
-      "FARM",
-      "cert-farm"
-    ),
+    contract.registerStakeholder(regulatorContext, "farm-002", "FARM", "cert-farm"),
     /certificate ID is already registered/
   );
 
   await expectReject(
-    contract.registerStakeholder(
-      regulatorContext,
-      "farm-002",
-      "UNKNOWN",
-      "cert-other"
-    ),
+    contract.registerStakeholder(regulatorContext, "farm-002", "UNKNOWN", "cert-other"),
     /Invalid stakeholder role/
   );
 });
@@ -93,12 +71,7 @@ test("non-regulators cannot administer stakeholders", async () => {
   const regulatorContext = context(stub, "cert-regulator", REGULATOR_MSP_ID);
 
   await contract.bootstrapRegulator(regulatorContext, "regulator-001");
-  await contract.registerStakeholder(
-    regulatorContext,
-    "farm-001",
-    "FARM",
-    "cert-farm"
-  );
+  await contract.registerStakeholder(regulatorContext, "farm-001", "FARM", "cert-farm");
 
   const farmContext = context(stub, "cert-farm");
   await expectReject(
@@ -115,12 +88,7 @@ test("role assertion accepts only the authenticated, active caller with an allow
   const farmContext = context(stub, "cert-farm");
 
   await contract.bootstrapRegulator(regulatorContext, "regulator-001");
-  await contract.registerStakeholder(
-    regulatorContext,
-    "farm-001",
-    "FARM",
-    "cert-farm"
-  );
+  await contract.registerStakeholder(regulatorContext, "farm-001", "FARM", "cert-farm");
 
   assert.deepEqual(
     JSON.parse(
@@ -161,12 +129,7 @@ test("suspension blocks access, and reactivation restores it", async () => {
   const farmContext = context(stub, "cert-farm");
 
   await contract.bootstrapRegulator(regulatorContext, "regulator-001");
-  await contract.registerStakeholder(
-    regulatorContext,
-    "farm-001",
-    "FARM",
-    "cert-farm"
-  );
+  await contract.registerStakeholder(regulatorContext, "farm-001", "FARM", "cert-farm");
   await contract.suspendStakeholder(regulatorContext, "farm-001");
 
   await expectReject(
@@ -175,9 +138,7 @@ test("suspension blocks access, and reactivation restores it", async () => {
   );
 
   await contract.reactivateStakeholder(regulatorContext, "farm-001");
-  const summary = JSON.parse(
-    await contract.assertActiveRole(farmContext, "cert-farm", '["FARM"]')
-  );
+  const summary = JSON.parse(await contract.assertActiveRole(farmContext, "cert-farm", '["FARM"]'));
   assert.equal(summary.active, true);
 });
 
@@ -211,12 +172,7 @@ test("only an active regulator can vouch for a sensor's key", async () => {
   await contract.bootstrapRegulator(regulatorContext, "regulator-001");
   await contract.registerStakeholder(regulatorContext, "farm-001", "FARM", "cert-farm");
 
-  await contract.registerSensorKey(
-    regulatorContext,
-    "SENSOR-001",
-    SENSOR_PUBLIC_KEY,
-    "ed25519"
-  );
+  await contract.registerSensorKey(regulatorContext, "SENSOR-001", SENSOR_PUBLIC_KEY, "ed25519");
 
   const stored = JSON.parse(await contract.getSensorKey(regulatorContext, "SENSOR-001"));
   assert.equal(stored.publicKey, SENSOR_PUBLIC_KEY);
@@ -299,5 +255,46 @@ test("a regulator can revoke a sensor key, and the record survives revocation", 
   await expectReject(
     contract.getSensorKey(regulatorContext, "SENSOR-404"),
     /Sensor 'SENSOR-404' has no registered key/
+  );
+});
+
+// A device that has been reinspected has to be usable again, or one revocation ends its life.
+test("a regulator can put a revoked sensor back in service", async () => {
+  const contract = new StakeholderRegistryContract();
+  const stub = new MemoryStub();
+  const regulatorContext = context(stub, "cert-regulator", REGULATOR_MSP_ID);
+
+  await contract.bootstrapRegulator(regulatorContext, "regulator-001");
+  await contract.registerSensorKey(regulatorContext, "SENSOR-001", SENSOR_PUBLIC_KEY, "ed25519");
+  await contract.revokeSensorKey(regulatorContext, "SENSOR-001");
+
+  stub.txNumber = 3;
+  await contract.reactivateSensorKey(regulatorContext, "SENSOR-001");
+
+  const restored = JSON.parse(await contract.getSensorKey(regulatorContext, "SENSOR-001"));
+  assert.equal(restored.active, true);
+  assert.equal(restored.publicKey, SENSOR_PUBLIC_KEY, "the same key, not a replacement");
+  assert.equal(restored.updatedTxId, "tx-3", "the restoration is stamped in its own transaction");
+  assert.equal(stub.events.at(-1).name, "SensorKeyReactivated");
+
+  await expectReject(
+    contract.reactivateSensorKey(regulatorContext, "SENSOR-001"),
+    /already active/
+  );
+});
+
+test("only an active regulator can put a sensor back in service", async () => {
+  const contract = new StakeholderRegistryContract();
+  const stub = new MemoryStub();
+  const regulatorContext = context(stub, "cert-regulator", REGULATOR_MSP_ID);
+
+  await contract.bootstrapRegulator(regulatorContext, "regulator-001");
+  await contract.registerSensorKey(regulatorContext, "SENSOR-001", SENSOR_PUBLIC_KEY, "ed25519");
+  await contract.revokeSensorKey(regulatorContext, "SENSOR-001");
+  await contract.registerStakeholder(regulatorContext, "oracle-001", "ORACLE", "cert-oracle");
+
+  await expectReject(
+    contract.reactivateSensorKey(context(stub, "cert-oracle", "OracleMSP"), "SENSOR-001"),
+    /regulator/i
   );
 });

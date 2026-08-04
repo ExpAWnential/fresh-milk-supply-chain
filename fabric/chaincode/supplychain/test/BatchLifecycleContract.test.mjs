@@ -7,12 +7,18 @@ test("a batch follows the complete CREATED to DELIVERED lifecycle with full hist
   const contract = new BatchLifecycleContract();
   const stub = new MemoryStub();
 
-  await transact(stub, "cert-farm", (ctx) => contract.createBatch(ctx, " BATCH-001 ", " Green Pastures Dairy ", "Bega NSW"));
+  await transact(stub, "cert-farm", (ctx) =>
+    contract.createBatch(ctx, " BATCH-001 ", " Green Pastures Dairy ", "Bega NSW")
+  );
   await transact(stub, "cert-processor", (ctx) =>
     contract.recordProcessingEvent(ctx, "BATCH-001", "Bega Processing Plant")
   );
-  await transact(stub, "cert-logistics", (ctx) => contract.startTransport(ctx, "BATCH-001", "Hume Highway"));
-  await transact(stub, "cert-retailer", (ctx) => contract.recordDelivery(ctx, "BATCH-001", "Sydney Retail Depot"));
+  await transact(stub, "cert-logistics", (ctx) =>
+    contract.startTransport(ctx, "BATCH-001", "Hume Highway")
+  );
+  await transact(stub, "cert-retailer", (ctx) =>
+    contract.recordDelivery(ctx, "BATCH-001", "Sydney Retail Depot")
+  );
 
   const batch = JSON.parse(await contract.getBatch(context(stub, "cert-farm"), "BATCH-001"));
   assert.equal(batch.status, "DELIVERED");
@@ -48,7 +54,10 @@ test("a batch follows the complete CREATED to DELIVERED lifecycle with full hist
   const delivered = JSON.parse(
     await contract.queryBatchesByStatus(context(stub, "cert-farm"), "delivered")
   );
-  assert.deepEqual(delivered.map((item) => item.batchId), ["BATCH-001"]);
+  assert.deepEqual(
+    delivered.map((item) => item.batchId),
+    ["BATCH-001"]
+  );
 });
 
 test("duplicate IDs, incorrect roles and invalid lifecycle steps are rejected", async () => {
@@ -56,17 +65,32 @@ test("duplicate IDs, incorrect roles and invalid lifecycle steps are rejected", 
   const stub = new MemoryStub();
 
   await assert.rejects(
-    contract.createBatch(context(stub, "cert-retailer"), "BATCH-002", "Green Pastures Dairy", "Bega NSW"),
+    contract.createBatch(
+      context(stub, "cert-retailer"),
+      "BATCH-002",
+      "Green Pastures Dairy",
+      "Bega NSW"
+    ),
     /requires one of: FARM/
   );
   // A processor has its own lifecycle step and must not be able to open a batch, which would let
   // it state an origin no farm ever vouched for.
   await assert.rejects(
-    contract.createBatch(context(stub, "cert-processor"), "BATCH-002", "Green Pastures Dairy", "Bega NSW"),
+    contract.createBatch(
+      context(stub, "cert-processor"),
+      "BATCH-002",
+      "Green Pastures Dairy",
+      "Bega NSW"
+    ),
     /requires one of: FARM/
   );
   await assert.rejects(
-    contract.createBatch(context(stub, "cert-suspended"), "BATCH-002", "Green Pastures Dairy", "Bega NSW"),
+    contract.createBatch(
+      context(stub, "cert-suspended"),
+      "BATCH-002",
+      "Green Pastures Dairy",
+      "Bega NSW"
+    ),
     /is suspended/
   );
   await assert.rejects(
@@ -74,9 +98,16 @@ test("duplicate IDs, incorrect roles and invalid lifecycle steps are rejected", 
     /Origin must not be empty/
   );
 
-  await transact(stub, "cert-farm", (ctx) => contract.createBatch(ctx, "BATCH-002", "Green Pastures Dairy", "Bega NSW"));
+  await transact(stub, "cert-farm", (ctx) =>
+    contract.createBatch(ctx, "BATCH-002", "Green Pastures Dairy", "Bega NSW")
+  );
   await assert.rejects(
-    contract.createBatch(context(stub, "cert-farm"), "BATCH-002", "Green Pastures Dairy", "Bega NSW"),
+    contract.createBatch(
+      context(stub, "cert-farm"),
+      "BATCH-002",
+      "Green Pastures Dairy",
+      "Bega NSW"
+    ),
     /already exists/
   );
   await assert.rejects(
@@ -84,13 +115,14 @@ test("duplicate IDs, incorrect roles and invalid lifecycle steps are rejected", 
     /cannot move from 'CREATED' to 'IN_TRANSIT'/
   );
   await assert.rejects(
-    contract.recordProcessingEvent(context(stub, "cert-farm"), "BATCH-002", "Bega Processing Plant"),
+    contract.recordProcessingEvent(
+      context(stub, "cert-farm"),
+      "BATCH-002",
+      "Bega Processing Plant"
+    ),
     /requires one of: PROCESSOR/
   );
-  await assert.rejects(
-    contract.getBatch(context(stub, "cert-farm"), "UNKNOWN"),
-    /does not exist/
-  );
+  await assert.rejects(contract.getBatch(context(stub, "cert-farm"), "UNKNOWN"), /does not exist/);
 });
 
 // Reading is a permission too, not just writing. A network member who is not a registered
@@ -122,7 +154,9 @@ test("a regulator can recall a batch and recalled batches cannot continue", asyn
   const contract = new BatchLifecycleContract();
   const stub = new MemoryStub();
 
-  await transact(stub, "cert-farm", (ctx) => contract.createBatch(ctx, "BATCH-003", "Green Pastures Dairy", "Bega NSW"));
+  await transact(stub, "cert-farm", (ctx) =>
+    contract.createBatch(ctx, "BATCH-003", "Green Pastures Dairy", "Bega NSW")
+  );
   await transact(stub, "cert-processor", (ctx) =>
     contract.recordProcessingEvent(ctx, "BATCH-003", "Bega Processing Plant")
   );

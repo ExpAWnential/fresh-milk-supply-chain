@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAnchoredEvidenceReader, describesMissingEvidence } from "../dist/fabric/anchoredEvidence.js";
+import {
+  createAnchoredEvidenceReader,
+  describesMissingEvidence
+} from "../dist/fabric/anchoredEvidence.js";
 import { chaincodeRejection } from "./harness.mjs";
 
 // Only the paths matter here: the gateway is stubbed, so nothing is read off disk.
@@ -30,7 +33,9 @@ test("the anchored hash and transaction come off the ledger as the calling ident
     encode({ batchId: "MILK-001", evidenceHash: "a".repeat(64), submittedTxId: "tx-9", statistics })
   );
 
-  const anchored = await createAnchoredEvidenceReader(asRegulator, connect).getAnchoredEvidence("EV-1");
+  const anchored = await createAnchoredEvidenceReader(asRegulator, connect).getAnchoredEvidence(
+    "EV-1"
+  );
 
   assert.deepEqual(anchored, {
     batchId: "MILK-001",
@@ -96,11 +101,17 @@ test("only the contract's own wording for absent evidence counts as missing", ()
 // Reading the evidence resolves the caller through the registry first, so registry failures arrive
 // here wearing the same "does not exist" phrasing.
 test("a broken registry entry is not reported as evidence that was never anchored", () => {
-  assert.equal(describesMissingEvidence(new Error("Stakeholder 'farm-001' does not exist.")), false);
+  assert.equal(
+    describesMissingEvidence(new Error("Stakeholder 'farm-001' does not exist.")),
+    false
+  );
   assert.equal(describesMissingEvidence(new Error("Batch 'MILK-1' does not exist.")), false);
 });
 
 test("an unreachable peer is not reported as missing evidence", () => {
-  assert.equal(describesMissingEvidence(new Error("14 UNAVAILABLE: No connection established")), false);
+  assert.equal(
+    describesMissingEvidence(new Error("14 UNAVAILABLE: No connection established")),
+    false
+  );
   assert.equal(describesMissingEvidence(undefined), false);
 });

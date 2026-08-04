@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  canonicaliseTemperatureReadings,
-  sha256TemperatureReadings
-} from "../src/evidenceHash.js";
+import { canonicaliseTemperatureReadings, sha256TemperatureReadings } from "../src/evidenceHash.js";
 
 const readings = [
   {
@@ -41,26 +38,17 @@ describe("temperature evidence hash", () => {
 
   it("is independent of input order but changes after tampering", () => {
     const originalHash = sha256TemperatureReadings("BATCH-001", readings);
-    assert.equal(
-      originalHash,
-      sha256TemperatureReadings("BATCH-001", [...readings].reverse())
-    );
+    assert.equal(originalHash, sha256TemperatureReadings("BATCH-001", [...readings].reverse()));
     assert.match(originalHash, /^[a-f0-9]{64}$/);
 
     const changed = readings.map((reading, index) =>
       index === 0 ? { ...reading, celsius: reading.celsius + 1 } : reading
     );
-    assert.notEqual(
-      sha256TemperatureReadings("BATCH-001", changed),
-      originalHash
-    );
+    assert.notEqual(sha256TemperatureReadings("BATCH-001", changed), originalHash);
   });
 
   it("rejects empty or malformed input", () => {
-    assert.throws(
-      () => canonicaliseTemperatureReadings("BATCH-001", []),
-      /At least one/
-    );
+    assert.throws(() => canonicaliseTemperatureReadings("BATCH-001", []), /At least one/);
     assert.throws(
       () =>
         canonicaliseTemperatureReadings("BATCH-001", [
@@ -85,7 +73,8 @@ describe("temperature evidence hash validation", () => {
       /sensor ID must not be empty/
     );
     assert.throws(
-      () => canonicaliseTemperatureReadings("BATCH-001", [{ ...reading, recordedAt: "not a date" }]),
+      () =>
+        canonicaliseTemperatureReadings("BATCH-001", [{ ...reading, recordedAt: "not a date" }]),
       /Invalid temperature reading timestamp/
     );
     assert.throws(

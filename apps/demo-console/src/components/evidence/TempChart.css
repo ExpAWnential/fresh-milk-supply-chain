@@ -1,0 +1,13 @@
+.fm-chart {
+  font-family: var(--font-ui);
+  width: 100%;
+}
+.fm-chart text {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  fill: var(--muted);
+}
+.fm-chart .fm-chart__bandlabel {
+  fill: var(--ok);
+  font-weight: 600;
+}

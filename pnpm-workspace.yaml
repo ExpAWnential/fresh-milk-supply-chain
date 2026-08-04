@@ -1,7 +1,10 @@
 packages:
+  - "apps/demo-console"
   - "fabric/network"
   - "fabric/chaincode/stakeholder"
   - "fabric/chaincode/supplychain"
   - "services/backend"
+  - "services/demo"
   - "services/oracle"
+  - "services/sensor"
   - "services/storage"

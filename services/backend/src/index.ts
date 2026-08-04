@@ -4,7 +4,11 @@
  * The regulator additionally runs the compliance event listener. Other organisations fetch the
  * oracle's raw readings when they need to verify evidence against Fabric independently.
  */
-import { createPool, createTemperatureRepository, createVerdictRepository } from "@fresh-milk/storage";
+import {
+  createPool,
+  createTemperatureRepository,
+  createVerdictRepository
+} from "@fresh-milk/storage";
 import { createApp } from "./app.js";
 import { config } from "./config.js";
 import { createAnchoredEvidenceReader } from "./fabric/anchoredEvidence.js";

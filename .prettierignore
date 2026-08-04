@@ -1,0 +1,15 @@
+node_modules/
+**/dist/
+pnpm-lock.yaml
+
+# Generated Fabric material is excluded because formatting it would make regeneration unstable.
+fabric/**/organizations/
+fabric/**/crypto-config/
+fabric/**/channel-artifacts/
+
+# Preserve the Fabric network scaffold's upstream formatting so its configuration stays easy to
+# compare with fabric-samples.
+fabric/milk-network/
+
+# The docs are table-heavy and reflowing them adds noise without improving them.
+*.md

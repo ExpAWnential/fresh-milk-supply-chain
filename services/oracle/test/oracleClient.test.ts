@@ -3,7 +3,11 @@ import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, it } from "node:test";
-import { AnchorError, readAnchoredEvidence, submitTemperatureEvidence } from "../src/oracleClient.js";
+import {
+  AnchorError,
+  readAnchoredEvidence,
+  submitTemperatureEvidence
+} from "../src/oracleClient.js";
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -47,7 +51,10 @@ describe("anchoring evidence through the backend", () => {
 
     const [submit] = requests;
     // Submission goes through the backend that holds the oracle identity.
-    assert.match(submit.url, /^http:\/\/localhost:3006\/temperature\/batches\/BATCH-001\/evidence$/);
+    assert.match(
+      submit.url,
+      /^http:\/\/localhost:3006\/temperature\/batches\/BATCH-001\/evidence$/
+    );
     assert.deepEqual(Object.keys(submit.init?.headers ?? {}), ["content-type"]);
     const body = JSON.parse(String(submit.init?.body));
     assert.deepEqual(Object.keys(body).sort(), [
@@ -164,5 +171,4 @@ describe("anchoring evidence through the backend", () => {
 
     assert.match(child.stdout, /^http:\/\/localhost:4006\/temperature\/evidence\/EV-1/m);
   });
-
 });

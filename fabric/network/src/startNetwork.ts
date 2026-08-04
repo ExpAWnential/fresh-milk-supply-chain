@@ -2,12 +2,7 @@
  * `pnpm fabric:start`. Brings the peers and orderer up and creates the channel.
  */
 import { reportFailure, runCommand } from "./commands.js";
-import {
-  assertNetworkAvailable,
-  channelName,
-  stateDatabase,
-  networkPath
-} from "./config.js";
+import { assertNetworkAvailable, channelName, stateDatabase, networkPath } from "./config.js";
 
 try {
   assertNetworkAvailable();

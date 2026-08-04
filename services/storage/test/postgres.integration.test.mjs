@@ -14,7 +14,12 @@ import {
 
 const enabled = process.env.RUN_POSTGRES_INTEGRATION === "1";
 
-const tamperCommand = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "tamperEvidence.js");
+const tamperCommand = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "dist",
+  "tamperEvidence.js"
+);
 
 // Run the tamper command through its real entry point.
 function runTamper(evidenceId, ...options) {
@@ -30,9 +35,7 @@ test(
   { skip: !enabled },
   async () => {
     const pool = createPool({
-      connectionString:
-        process.env.DATABASE_URL ??
-        ORACLE_DATABASE_URL
+      connectionString: process.env.DATABASE_URL ?? ORACLE_DATABASE_URL
     });
     const temperatureRepository = createTemperatureRepository(pool);
 
@@ -52,9 +55,7 @@ test(
     ];
 
     try {
-      await pool.query("DELETE FROM temperature_evidence WHERE evidence_id = $1", [
-        evidenceId
-      ]);
+      await pool.query("DELETE FROM temperature_evidence WHERE evidence_id = $1", [evidenceId]);
 
       const evidenceHash = sha256TemperatureReadings(batchId, readings);
       await temperatureRepository.saveEvidence(
@@ -78,34 +79,25 @@ test(
         "PENDING"
       );
       assert.equal(
-        sha256TemperatureReadings(
-          batchId,
-          await temperatureRepository.getReadings(evidenceId)
-        ),
+        sha256TemperatureReadings(batchId, await temperatureRepository.getReadings(evidenceId)),
         evidenceHash
       );
 
       await temperatureRepository.markAnchored(evidenceId, "fabric-tx-integration");
-      assert.deepEqual(
-        await temperatureRepository.getEvidence(evidenceId),
-        {
-          evidenceId,
-          batchId,
-          sensorId: "SENSOR-INTEGRATION",
-          evidenceHash,
-          minCelsius: 2.1,
-          maxCelsius: 4.7,
-          readingCount: readings.length,
-          complianceOutcome: "COMPLIANT",
-          submissionStatus: "ANCHORED",
-          fabricTransactionId: "fabric-tx-integration"
-        }
-      );
-
+      assert.deepEqual(await temperatureRepository.getEvidence(evidenceId), {
+        evidenceId,
+        batchId,
+        sensorId: "SENSOR-INTEGRATION",
+        evidenceHash,
+        minCelsius: 2.1,
+        maxCelsius: 4.7,
+        readingCount: readings.length,
+        complianceOutcome: "COMPLIANT",
+        submissionStatus: "ANCHORED",
+        fabricTransactionId: "fabric-tx-integration"
+      });
     } finally {
-      await pool.query("DELETE FROM temperature_evidence WHERE evidence_id = $1", [
-        evidenceId
-      ]);
+      await pool.query("DELETE FROM temperature_evidence WHERE evidence_id = $1", [evidenceId]);
       await pool.end();
     }
   }
@@ -117,7 +109,10 @@ test(
   { skip: !enabled },
   async () => {
     const crossed = [
-      ["the oracle's login", ORACLE_DATABASE_URL.replace("freshmilk_oracle", "freshmilk_regulator")],
+      [
+        "the oracle's login",
+        ORACLE_DATABASE_URL.replace("freshmilk_oracle", "freshmilk_regulator")
+      ],
       [
         "the regulator's login",
         REGULATOR_DATABASE_URL.replace("freshmilk_regulator", "freshmilk_oracle")

@@ -35,10 +35,7 @@ export interface RegisteredSensorKey {
 
 export type SignatureIssue =
   // At least one reading does not match its sensor signature.
-  | "FORGED"
-  | "SENSOR_NOT_REGISTERED"
-  | "SENSOR_REVOKED"
-  | "MIXED_SENSORS";
+  "FORGED" | "SENSOR_NOT_REGISTERED" | "SENSOR_REVOKED" | "MIXED_SENSORS";
 
 // The sensor key must come from Fabric, not from the party supplying the readings.
 export interface SensorKeyReader {
@@ -185,10 +182,7 @@ async function checkSignatures(
   readings: readonly StoredTemperatureReading[],
   dependencies: EvidenceVerificationDependencies
 ): Promise<
-  Pick<
-    EvidenceVerificationResult,
-    "signaturesMatch" | "signatureFailures" | "signatureIssue"
-  >
+  Pick<EvidenceVerificationResult, "signaturesMatch" | "signatureFailures" | "signatureIssue">
 > {
   const sensorIds = [...new Set(readings.map((reading) => reading.sensorId))];
   if (sensorIds.length !== 1) {
@@ -204,7 +198,11 @@ async function checkSignatures(
 
   // Registration failures concern the sensor, not individual reading signatures.
   if (!sensorKey) {
-    return { signaturesMatch: false, signatureFailures: [], signatureIssue: "SENSOR_NOT_REGISTERED" };
+    return {
+      signaturesMatch: false,
+      signatureFailures: [],
+      signatureIssue: "SENSOR_NOT_REGISTERED"
+    };
   }
   if (!sensorKey.active) {
     return { signaturesMatch: false, signatureFailures: [], signatureIssue: "SENSOR_REVOKED" };
@@ -213,7 +211,9 @@ async function checkSignatures(
   // Parse the shared key once for the complete reading set.
   const publicKey = sensorPublicKey(sensorKey.publicKey);
   const failures = readings
-    .filter((reading) => !verifyReadingSignature({ ...reading, batchId }, reading.signature, publicKey))
+    .filter(
+      (reading) => !verifyReadingSignature({ ...reading, batchId }, reading.signature, publicKey)
+    )
     .map((reading) => reading.sequence);
 
   return {

@@ -77,10 +77,7 @@ type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 // A holder that stops responding must not leave verification pending indefinitely.
 const READINGS_TIMEOUT_MS = 30_000;
 
-export function remoteReadingsSource(
-  origin: string,
-  fetchImpl: FetchLike = fetch
-): ReadingsSource {
+export function remoteReadingsSource(origin: string, fetchImpl: FetchLike = fetch): ReadingsSource {
   return {
     async getReadings(evidenceId: string): Promise<SourcedReadings | undefined> {
       const url = `${origin}/temperature/evidence/${encodeURIComponent(evidenceId)}/readings`;

@@ -35,7 +35,10 @@ test("the channel defaults to the one the network creates", () => {
 });
 
 test("the channel follows FABRIC_CHANNEL_NAME where it is set", () => {
-  assert.equal(configWith({ FABRIC_CHANNEL_NAME: "othernetwork" }).fabricChannelName, "othernetwork");
+  assert.equal(
+    configWith({ FABRIC_CHANNEL_NAME: "othernetwork" }).fabricChannelName,
+    "othernetwork"
+  );
 });
 
 // Most organisations intentionally have no off-chain database.
@@ -61,7 +64,8 @@ test("the event checkpoint path defaults, and follows its variable where set", (
     ".fabric-events.checkpoint"
   );
   assert.equal(
-    configWith({ EVENT_CHECKPOINT_PATH: ".fabric-events.regulator.checkpoint" }).eventCheckpointPath,
+    configWith({ EVENT_CHECKPOINT_PATH: ".fabric-events.regulator.checkpoint" })
+      .eventCheckpointPath,
     ".fabric-events.regulator.checkpoint"
   );
 });

@@ -7,7 +7,12 @@
 
 // Fabric's decorators inspect Context at runtime, so it must remain a value import.
 import { Context, Contract, Info, Returns, Transaction } from "fabric-contract-api";
-import { BATCH_STATUSES, type Batch, type BatchHistoryEntry, type BatchStatus } from "../models/Batch.js";
+import {
+  BATCH_STATUSES,
+  type Batch,
+  type BatchHistoryEntry,
+  type BatchStatus
+} from "../models/Batch.js";
 import { batchKey } from "../utils/ledgerKeys.js";
 import {
   getBatchRecord,

@@ -8,16 +8,10 @@ import type { Context } from "fabric-contract-api";
 import { getInvokingIdentity } from "./identity.js";
 
 export type StakeholderRole =
-  | "REGULATOR"
-  | "FARM"
-  | "PROCESSOR"
-  | "LOGISTICS"
-  | "RETAILER"
-  | "ORACLE";
+  "REGULATOR" | "FARM" | "PROCESSOR" | "LOGISTICS" | "RETAILER" | "ORACLE";
 
 const STAKEHOLDER_CHAINCODE_NAME = "stakeholder";
-const STAKEHOLDER_ROLE_ASSERTION_TRANSACTION =
-  "StakeholderRegistryContract:assertActiveRole";
+const STAKEHOLDER_ROLE_ASSERTION_TRANSACTION = "StakeholderRegistryContract:assertActiveRole";
 
 const ALL_ROLES: readonly StakeholderRole[] = [
   "REGULATOR",

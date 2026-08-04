@@ -112,10 +112,7 @@ test("the regulator count follows promotions, demotions and suspensions", async 
   const demoted = JSON.parse(await contract.getStakeholder(promoted, "regulator-001"));
   assert.equal(demoted.role, "FARM");
 
-  await assert.rejects(
-    contract.suspendStakeholder(promoted, "farm-001"),
-    /final active regulator/
-  );
+  await assert.rejects(contract.suspendStakeholder(promoted, "farm-001"), /final active regulator/);
 });
 
 test("a suspended regulator does not count towards the minimum", async () => {

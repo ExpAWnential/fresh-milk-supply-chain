@@ -16,6 +16,17 @@ export interface SignableReading {
   readonly celsius: number;
 }
 
+// The signed reading's file format. The sensor writes these columns and the oracle requires them,
+// so both take the list from here rather than keeping copies that could drift apart.
+export const SIGNED_READING_COLUMNS = [
+  "batchId",
+  "sensorId",
+  "sequence",
+  "recordedAt",
+  "celsius",
+  "signature"
+] as const;
+
 export function requireSequence(value: number, label = "Reading sequence"): number {
   if (!Number.isSafeInteger(value) || value < 1) {
     throw new Error(`${label} must be a positive integer.`);

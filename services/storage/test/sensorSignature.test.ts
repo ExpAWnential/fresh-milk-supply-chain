@@ -28,17 +28,17 @@ describe("signing a reading", () => {
   it("verifies against the key that signed it", () => {
     const { privateKey, publicKey } = keypair();
 
-    assert.equal(verifyReadingSignature(READING, signReading(READING, privateKey), publicKey), true);
+    assert.equal(
+      verifyReadingSignature(READING, signReading(READING, privateKey), publicKey),
+      true
+    );
   });
 
   it("refuses a reading whose temperature was changed", () => {
     const { privateKey, publicKey } = keypair();
     const signature = signReading(READING, privateKey);
 
-    assert.equal(
-      verifyReadingSignature({ ...READING, celsius: 3.4 }, signature, publicKey),
-      false
-    );
+    assert.equal(verifyReadingSignature({ ...READING, celsius: 3.4 }, signature, publicKey), false);
   });
 
   // Signing the sequence prevents the oracle hiding a gap by renumbering later readings.

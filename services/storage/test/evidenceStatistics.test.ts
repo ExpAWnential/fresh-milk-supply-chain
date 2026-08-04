@@ -35,10 +35,7 @@ describe("summarising a set of readings", () => {
   });
 
   it("rounds the range to three decimals", () => {
-    const statistics = calculateTemperatureStatistics([
-      { celsius: 1.00049 },
-      { celsius: 4.99951 }
-    ]);
+    const statistics = calculateTemperatureStatistics([{ celsius: 1.00049 }, { celsius: 4.99951 }]);
 
     assert.equal(statistics.minCelsius, 1);
     assert.equal(statistics.maxCelsius, 5);

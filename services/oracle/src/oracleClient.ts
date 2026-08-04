@@ -105,9 +105,7 @@ export async function readAnchoredEvidence(
 }
 
 /** Reads a regulator-attested sensor key from Fabric. Only a confirmed 404 returns undefined. */
-export async function readSensorPublicKey(
-  sensorId: string
-): Promise<SensorPublicKey | undefined> {
+export async function readSensorPublicKey(sensorId: string): Promise<SensorPublicKey | undefined> {
   const response = await fetch(`${backendUrl}/sensors/${encodeURIComponent(sensorId)}`);
 
   if (response.status === 404) {

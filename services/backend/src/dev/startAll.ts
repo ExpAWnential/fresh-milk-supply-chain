@@ -4,7 +4,12 @@ import { createInterface } from "node:readline";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ORACLE_DATABASE_URL, REGULATOR_DATABASE_URL } from "@fresh-milk/storage";
-import { ORGANISATIONS, originOf, type OffChainStore, type Organisation } from "../organisations.js";
+import {
+  ORGANISATIONS,
+  originOf,
+  type OffChainStore,
+  type Organisation
+} from "../organisations.js";
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const entryPoint = join(packageRoot, "src", "index.ts");

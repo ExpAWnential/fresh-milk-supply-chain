@@ -8,7 +8,12 @@ export {
 } from "./evidenceHash.js";
 export { calculateTemperatureStatistics } from "./evidenceStatistics.js";
 export type { TemperatureStatistics } from "./evidenceStatistics.js";
-export { sensorPublicKey, signReading, verifyReadingSignature } from "./sensorSignature.js";
+export {
+  SIGNED_READING_COLUMNS,
+  sensorPublicKey,
+  signReading,
+  verifyReadingSignature
+} from "./sensorSignature.js";
 export type { SignableReading } from "./sensorSignature.js";
 export { createTemperatureRepository } from "./repositories/temperatureRepository.js";
 export type {

@@ -1,0 +1,18 @@
+:root {
+  --font-display: "Archivo", system-ui, sans-serif;
+  --font-ui: "Archivo", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --text-display: 22px;
+  --text-title: 16px;
+  --text-body: 14px;
+  --text-sm: 13px;
+  --text-mono: 12.5px;
+  --text-label: 11px;
+  --leading-body: 1.5;
+  --leading-tight: 1.25;
+  --label-tracking: 0.08em;
+  --weight-body: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+}

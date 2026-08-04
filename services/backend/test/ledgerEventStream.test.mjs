@@ -138,14 +138,9 @@ test("a gateway that fails to open does not leak the channel underneath it", asy
   const failure = new Error("invalid identity");
 
   await assert.rejects(
-    createLedgerEventStream(
-      FIXTURE_IDENTITY,
-      "supplychain",
-      await checkpointPath(),
-      () => {
-        throw failure;
-      }
-    ),
+    createLedgerEventStream(FIXTURE_IDENTITY, "supplychain", await checkpointPath(), () => {
+      throw failure;
+    }),
     failure
   );
 });
@@ -154,12 +149,7 @@ test("a refused subscription closes the gateway rather than leaving it open", as
   const stub = stubGateway({ failSubscription: new Error("peer refused the subscription") });
 
   await assert.rejects(
-    createLedgerEventStream(
-      FIXTURE_IDENTITY,
-      "supplychain",
-      await checkpointPath(),
-      stub.open
-    ),
+    createLedgerEventStream(FIXTURE_IDENTITY, "supplychain", await checkpointPath(), stub.open),
     /peer refused the subscription/
   );
 

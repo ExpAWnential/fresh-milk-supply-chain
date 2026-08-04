@@ -93,9 +93,7 @@ export function originOf(organisation: Organisation): string {
 
 // Locate the company that publishes raw readings for independent verification.
 export function readingsHolder(): Organisation {
-  const holder = ORGANISATIONS.find(
-    (organisation) => organisation.offChainStore === "readings"
-  );
+  const holder = ORGANISATIONS.find((organisation) => organisation.offChainStore === "readings");
   if (!holder) {
     throw new Error("No organisation is declared as holding the temperature readings.");
   }

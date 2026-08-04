@@ -1,0 +1,39 @@
+.fm-field {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 5px;
+  font-family: var(--font-ui);
+}
+.fm-field > label {
+  font-size: var(--text-label);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.fm-input {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  background: var(--card);
+  border: var(--border-w) solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  min-width: 9rem;
+  transition: border-color 0.12s;
+}
+.fm-input:hover {
+  border-color: var(--faint);
+}
+.fm-input:focus {
+  outline: none;
+  border-color: var(--chill);
+  box-shadow: var(--focus-ring);
+}
+.fm-input--mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+}
+.fm-input::placeholder {
+  color: var(--faint);
+}

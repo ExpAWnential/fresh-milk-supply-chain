@@ -53,14 +53,20 @@ test("a submitted transaction reaches the named chaincode and contract", async (
   const stub = stubGateway();
   const client = await createFabricGatewayClient(FIXTURE_IDENTITY, stub.open);
 
-  const result = await client.submitTransaction("supplychain", "BatchLifecycleContract", "createBatch", "B-1", "Bega");
+  const result = await client.submitTransaction(
+    "supplychain",
+    "BatchLifecycleContract",
+    "createBatch",
+    "B-1",
+    "Bega"
+  );
 
   assert.equal(Buffer.from(result).toString(), "call:createBatch");
   const contractCall = stub.calls.find((entry) => entry.kind === "contract");
-  assert.deepEqual([contractCall.name, contractCall.args[0]], [
-    "supplychain",
-    "BatchLifecycleContract"
-  ]);
+  assert.deepEqual(
+    [contractCall.name, contractCall.args[0]],
+    ["supplychain", "BatchLifecycleContract"]
+  );
   const transaction = stub.calls.find((entry) => entry.kind === "call");
   assert.deepEqual(transaction.args, ["B-1", "Bega"]);
   client.close();
@@ -70,7 +76,12 @@ test("an evaluated transaction passes its arguments through unchanged", async ()
   const stub = stubGateway();
   const client = await createFabricGatewayClient(FIXTURE_IDENTITY, stub.open);
 
-  const result = await client.evaluateTransaction("stakeholder", "StakeholderRegistryContract", "getStakeholder", "farm-001");
+  const result = await client.evaluateTransaction(
+    "stakeholder",
+    "StakeholderRegistryContract",
+    "getStakeholder",
+    "farm-001"
+  );
 
   assert.equal(Buffer.from(result).toString(), "call:getStakeholder");
   assert.deepEqual(stub.calls.at(-1).args, ["farm-001"]);

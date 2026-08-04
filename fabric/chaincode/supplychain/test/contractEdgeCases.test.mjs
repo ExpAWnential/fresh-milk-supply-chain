@@ -21,7 +21,9 @@ test("a recalled batch cannot be recalled twice or continue its journey", async 
   const stub = new MemoryStub();
   await batchInTransit(stub);
 
-  await transact(stub, "cert-regulator", (ctx) => contract.recallBatch(ctx, "B-1", "contamination"));
+  await transact(stub, "cert-regulator", (ctx) =>
+    contract.recallBatch(ctx, "B-1", "contamination")
+  );
 
   await assert.rejects(
     contract.recallBatch(as(stub, "cert-regulator"), "B-1", "again"),
@@ -81,7 +83,10 @@ test("history and reads reject a batch that does not exist", async () => {
   await batchInTransit(stub);
 
   await assert.rejects(contract.getBatch(as(stub, "cert-farm"), "MISSING"), /does not exist/);
-  await assert.rejects(contract.getBatchHistory(as(stub, "cert-farm"), "MISSING"), /does not exist/);
+  await assert.rejects(
+    contract.getBatchHistory(as(stub, "cert-farm"), "MISSING"),
+    /does not exist/
+  );
   await assert.rejects(contract.getBatch(as(stub, "cert-farm"), "   "), /must not be empty/);
 });
 
@@ -199,13 +204,34 @@ test("evidence fields are validated before anything is written", async () => {
     ["EV-1", "B-1", "a".repeat(64), "  ", stats, /Off-chain reference must not be empty/],
     ["EV-1", "B-1", "a".repeat(64), "ref", "not json", /must be valid JSON/],
     ["EV-1", "B-1", "a".repeat(64), "ref", "[1,2]", /must be a JSON object/],
-    ["EV-1", "B-1", "a".repeat(64), "ref", JSON.stringify({ minCelsius: 1, maxCelsius: 4, readingCount: 0 }), /positive integer/],
-    ["EV-1", "B-1", "a".repeat(64), "ref", JSON.stringify({ minCelsius: "cold", maxCelsius: 4, readingCount: 3 }), /finite number/]
+    [
+      "EV-1",
+      "B-1",
+      "a".repeat(64),
+      "ref",
+      JSON.stringify({ minCelsius: 1, maxCelsius: 4, readingCount: 0 }),
+      /positive integer/
+    ],
+    [
+      "EV-1",
+      "B-1",
+      "a".repeat(64),
+      "ref",
+      JSON.stringify({ minCelsius: "cold", maxCelsius: 4, readingCount: 3 }),
+      /finite number/
+    ]
   ];
 
   for (const [evidenceId, batchId, hash, reference, statistics, expected] of cases) {
     await assert.rejects(
-      temperature.submitTemperatureEvidence(oracle(), evidenceId, batchId, hash, reference, statistics),
+      temperature.submitTemperatureEvidence(
+        oracle(),
+        evidenceId,
+        batchId,
+        hash,
+        reference,
+        statistics
+      ),
       expected
     );
   }

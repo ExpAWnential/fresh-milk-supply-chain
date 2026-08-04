@@ -73,7 +73,11 @@ function stripTransportPrefix(message: string): string | undefined {
 export function sendGatewayError(response: Response, error: unknown): void {
   // A TypeError and friends can only come from a defect in this service. Reporting one as a
   // rejected transaction would send the caller off fixing a request that was never the problem.
-  if (error instanceof TypeError || error instanceof RangeError || error instanceof ReferenceError) {
+  if (
+    error instanceof TypeError ||
+    error instanceof RangeError ||
+    error instanceof ReferenceError
+  ) {
     console.error("Backend fault while handling a Fabric request.", error);
     response.status(500).json({ error: "the request could not be completed" });
     return;
