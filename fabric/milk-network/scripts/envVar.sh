@@ -31,7 +31,7 @@ setGlobals() {
   export CORE_PEER_LOCALMSPID=$(orgMsp "$USING_ORG")
   export CORE_PEER_TLS_ROOTCERT_FILE=$(orgTlsCa "$USING_ORG")
   export CORE_PEER_MSPCONFIGPATH=$(orgAdminMsp "$USING_ORG")
-  export CORE_PEER_ADDRESS=localhost:$(orgPeerPort "$USING_ORG")
+  export CORE_PEER_ADDRESS=$(orgPeerAddress "$USING_ORG")
 
   if [ "$VERBOSE" = "true" ]; then
     env | grep CORE
