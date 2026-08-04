@@ -97,11 +97,39 @@
         gap: var(--s2);
       }
 
+      .sim-banner {
+        display: none;
+        margin-bottom: var(--s4);
+        padding: 10px var(--s4);
+        border: 1px solid var(--refused);
+        border-radius: var(--r-sm);
+        background: var(--refused-tint);
+        color: var(--refused);
+        font-size: 12.5px;
+        font-weight: 500;
+      }
+      body.sim .sim-banner {
+        display: block;
+      }
+
       .companies {
         display: flex;
         flex-wrap: wrap;
         gap: var(--s2);
         margin-bottom: var(--s5);
+      }
+
+      /* Each row on its own tinted panel, so a list of companies reads as a list of things rather
+         than a table. */
+      .wells {
+        display: grid;
+        gap: var(--s2);
+      }
+      .wells .srow {
+        padding: 10px var(--s3);
+        border-bottom: 0;
+        background: var(--well);
+        border-radius: var(--r-sm);
       }
       .chip {
         display: inline-flex;
@@ -355,6 +383,101 @@
       .pill.cheated {
         background: var(--refused-tint);
         color: var(--refused);
+      }
+
+      /* Preset switcher: one control with two positions, so it reads as a choice rather than two
+         unrelated buttons. */
+      .segmented {
+        display: inline-flex;
+        gap: 2px;
+        padding: 2px;
+        margin-bottom: var(--s3);
+        background: var(--well);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+      .segmented button {
+        border: none;
+        box-shadow: none;
+        background: transparent;
+        color: var(--muted);
+        font-weight: 600;
+        font-size: 12.5px;
+        padding: 6px 12px;
+        border-radius: var(--r-sm);
+      }
+      .segmented button.on {
+        background: var(--card);
+        color: var(--ink);
+        box-shadow: var(--shadow-card);
+      }
+
+      .readings {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: var(--s2);
+        margin-bottom: var(--s3);
+      }
+      .reading {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .reading .at {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        color: var(--muted);
+      }
+      .reading .num {
+        width: 100%;
+        text-align: left;
+      }
+      .reading .num.broken {
+        border-color: var(--broken);
+      }
+      .reading .sig {
+        font-family: var(--font-mono);
+        font-size: 9px;
+        color: var(--faint);
+      }
+      .reading .sig.broken {
+        color: var(--broken);
+      }
+
+      .chart {
+        width: 100%;
+      }
+      .chart text {
+        font-family: var(--font-mono);
+        font-size: 10px;
+        fill: var(--muted);
+      }
+      .chart .band {
+        fill: var(--ok);
+        font-weight: 600;
+      }
+
+      .fingerprint {
+        display: flex;
+        align-items: center;
+        gap: var(--s3);
+        flex-wrap: wrap;
+        background: var(--well);
+        border-radius: var(--r-sm);
+        padding: 6px 6px 6px var(--s3);
+      }
+      .fingerprint .label {
+        margin: 0;
+      }
+      .fingerprint .value {
+        flex: 1;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--ink-2);
+      }
+      .fingerprint .state {
+        font-size: 12px;
+        font-weight: 600;
       }
 
       .cheat {
@@ -630,7 +753,15 @@
         <div class="masthead-controls">
           <input id="batchField" class="mono" size="14" />
           <button id="newBatch">New batch</button>
+          <button id="modeToggle" class="quiet">Use the simulation</button>
         </div>
+      </div>
+
+      <!-- Permanent, and deliberately not dismissible. A simulation mistaken for the real system
+           would be worse than having no demo at all. -->
+      <div class="sim-banner" id="simBanner">
+        Simulation — nothing here is signed, endorsed or committed. The chain is a linked list in
+        this browser tab.
       </div>
 
       <div class="companies" id="companies"></div>
@@ -672,7 +803,7 @@
           <section class="panel">
             <header>
               <span class="panel-title" id="chainTitle">Chain</span>
-              <span class="pill chill"><i></i>committed</span>
+              <span class="pill chill" id="chainNote"><i></i>committed</span>
             </header>
             <div class="feed" id="feed"><div class="empty">Nothing on the chain yet.</div></div>
           </section>
@@ -683,6 +814,39 @@
     <script type="module">
       // The demo helper. It plays the sensor, and on request a dishonest oracle. Not one of the six.
       const DEMO_ORIGIN = "http://localhost:3016";
+
+      // Simulation mode, for when nothing is running. Kept in the URL so a reload stays in it.
+      const SIM = new URLSearchParams(location.search).get("mode") === "sim";
+
+      // The same six, so the simulation shows the topology the real thing has.
+      const SIM_COMPANIES = [
+        {
+          name: "regulator",
+          mspId: "RegulatorMSP",
+          stakeholderId: "regulator-001",
+          origin: "sim://regulator"
+        },
+        { name: "farm", mspId: "FarmMSP", stakeholderId: "farm-001", origin: "sim://farm" },
+        {
+          name: "processor",
+          mspId: "ProcessorMSP",
+          stakeholderId: "processor-001",
+          origin: "sim://processor"
+        },
+        {
+          name: "logistics",
+          mspId: "LogisticsMSP",
+          stakeholderId: "logistics-001",
+          origin: "sim://logistics"
+        },
+        {
+          name: "retailer",
+          mspId: "RetailerMSP",
+          stakeholderId: "retailer-001",
+          origin: "sim://retailer"
+        },
+        { name: "oracle", mspId: "OracleMSP", stakeholderId: "oracle-001", origin: "sim://oracle" }
+      ];
 
       // SENSOR-001's public half only, so the regulator can vouch for the device from this page.
       // The private key never leaves services/sensor/data.
@@ -717,7 +881,8 @@
         // Transaction IDs already shown, so only genuinely new ones animate in.
         seen: new Set(),
         ghosts: [],
-        readings: CLEAN_RUN.map((reading) => ({ ...reading })),
+        readings: CLEAN_RUN.map((reading) => ({ ...reading, signed: reading.celsius })),
+        preset: "clean",
         lie: { min: "1.8", max: "3.6" },
         evidenceId: null,
         verification: null,
@@ -748,7 +913,491 @@
       // measurement from the 3.0 the sensor recorded. One decimal everywhere instead.
       const degrees = (value) => Number(value).toFixed(1);
 
+      // Short, stable and derived from the value, so the desk can show a reading carrying a
+      // signature without claiming this is the Ed25519 one the sensor actually produced.
+      function shortDigest(text) {
+        let hash = 0x811c9dc5;
+        for (let index = 0; index < text.length; index += 1) {
+          hash = ((hash ^ text.charCodeAt(index)) * 16777619) >>> 0;
+        }
+        return hash.toString(16).padStart(8, "0");
+      }
+
+      const signatureStub = (reading) =>
+        shortDigest(`${reading.recordedAt}:${reading.signed ?? reading.celsius}`);
+      const fingerprint = (readings) =>
+        shortDigest(
+          readings.map((reading) => `${reading.recordedAt}:${reading.celsius}`).join("|")
+        );
+
+      /**
+       * The stand-in for the whole system, used when nothing is running.
+       *
+       * It answers the same requests the six backends answer, so every screen, caption and refusal
+       * above is the real one. Only what sits behind the request is invented, and it is invented to
+       * behave the same way: the same role checks, the same lifecycle order, the same three
+       * comparisons, the same reasons for saying no.
+       *
+       * It is a rehearsal, not evidence. Nothing here is signed, endorsed or committed, and the
+       * chain is a linked list in a browser tab. The banner says so, permanently, because a
+       * simulation mistaken for the real thing would be worse than no demo at all.
+       */
+      const sim = {
+        registered: {},
+        sensor: null,
+        batches: {},
+        evidence: {},
+        chain: [],
+        nextTx: 0,
+
+        reset() {
+          this.registered = {};
+          this.sensor = null;
+          this.batches = {};
+          this.evidence = {};
+          this.chain = [];
+          this.nextTx = 1;
+          // A first entry nobody signed alone, so the feed starts with something rather than an
+          // empty box the operator has to explain.
+          this.commit("the chain begins", "all six companies together");
+        },
+
+        // Deterministic and hex, so it reads like a transaction ID without pretending to be one.
+        digest(text) {
+          let a = 0x811c9dc5;
+          let b = 0x01000193;
+          for (let index = 0; index < text.length; index += 1) {
+            a = (a ^ text.charCodeAt(index)) * 16777619;
+            b = (b + text.charCodeAt(index) * (index + 7)) >>> 0;
+          }
+          const part = (value) => (value >>> 0).toString(16).padStart(8, "0");
+          return (part(a) + part(b) + part(a * 31) + part(b * 17) + part(a ^ b)).slice(0, 40);
+        },
+
+        commit(what, by, extra = {}) {
+          const previous = this.chain.at(-1);
+          const number = this.nextTx;
+          this.nextTx += 1;
+          const hash = this.digest(`${number}:${what}:${previous?.hash ?? ""}`);
+          const entry = {
+            at: new Date(Date.now() + number).toISOString(),
+            txId: hash,
+            n: number,
+            hash,
+            prev: previous?.hash ?? null,
+            what,
+            by,
+            ...extra
+          };
+          this.chain.push(entry);
+          return entry;
+        },
+
+        ok: (body) => ({ ok: true, status: 200, body }),
+        no: (message, status = 409) => ({ ok: false, status, body: { error: message } }),
+
+        // The caller's identity comes from the origin, exactly as it does live.
+        companyAt(origin) {
+          return state.companies.find((company) => company.origin === origin)?.name;
+        },
+
+        requireRegulator(origin) {
+          const who = this.companyAt(origin) ?? state.selected;
+          if (who !== "regulator") {
+            return `Stakeholder '${who}-001' has role '${who.toUpperCase()}', but this operation requires one of: REGULATOR.`;
+          }
+          if (!this.registered.regulator) {
+            return "The regulator is not on the register yet.";
+          }
+          return null;
+        },
+
+        handle(method, path, body, origin) {
+          const parts = path.split("?")[0].split("/").filter(Boolean).map(decodeURIComponent);
+          const [head] = parts;
+
+          if (head === "organisations") return this.ok(SIM_COMPANIES);
+          if (head === "identity") return this.ok(SIM_COMPANIES[0]);
+          if (head === "stakeholders") return this.stakeholders(method, parts, body, origin);
+          if (head === "sensors") return this.sensors(method, parts, origin);
+          if (head === "batches") return this.batchRoutes(method, parts, body, origin);
+          if (head === "temperature") return this.temperature(method, parts, body, origin);
+          if (head === "verdicts") return this.ok([]);
+          return this.no("Not found.", 404);
+        },
+
+        stakeholders(method, parts, body, origin) {
+          if (method === "POST" && parts[1] === "bootstrap") {
+            if (this.companyAt(origin) !== "regulator") {
+              return this.no("Only the regulator can bootstrap the registry.");
+            }
+            if (this.registered.regulator) return this.no("The registry already has a regulator.");
+            this.registered.regulator = true;
+            this.commit("regulator registered as REGULATOR", "the regulator");
+            return this.ok({ stakeholderId: body.stakeholderId });
+          }
+
+          if (method === "POST" && parts.length === 1) {
+            const refused = this.requireRegulator(origin);
+            if (refused) return this.no(refused);
+            const name = String(body.role ?? "").toLowerCase();
+            if (this.registered[name]) return this.no(`'${body.stakeholderId}' already exists.`);
+            this.registered[name] = true;
+            this.commit(`${name} registered as ${body.role}`, "the regulator");
+            return this.ok({ stakeholderId: body.stakeholderId });
+          }
+
+          if (method === "GET") {
+            const name = String(parts[1] ?? "").split("-")[0];
+            if (!this.registered[name]) return this.no("No such stakeholder.", 404);
+            const entry = this.chain.find((block) => block.what.startsWith(`${name} registered`));
+            return this.ok({
+              stakeholderId: parts[1],
+              role: name.toUpperCase(),
+              active: true,
+              createdAt: entry?.at,
+              createdTxId: entry?.txId
+            });
+          }
+
+          return this.no("Not found.", 404);
+        },
+
+        sensors(method, parts, origin) {
+          if (method === "POST" && parts.length === 1) {
+            const refused = this.requireRegulator(origin);
+            if (refused) return this.no(refused);
+            if (this.sensor) return this.no(`Sensor '${SENSOR.sensorId}' already has a key.`);
+            const entry = this.commit(
+              `${SENSOR.sensorId}'s public key vouched for`,
+              "the regulator"
+            );
+            this.sensor = { active: true, at: entry.at, txId: entry.txId };
+            return this.ok({ sensorId: SENSOR.sensorId });
+          }
+
+          if (method === "POST" && (parts[2] === "revoke" || parts[2] === "reactivate")) {
+            const refused = this.requireRegulator(origin);
+            if (refused) return this.no(refused);
+            if (!this.sensor) return this.no("No such sensor.", 404);
+            const active = parts[2] === "reactivate";
+            if (this.sensor.active === active) {
+              return this.no(
+                `Sensor '${SENSOR.sensorId}' is already ${active ? "active" : "revoked"}.`
+              );
+            }
+            this.sensor.active = active;
+            this.commit(
+              `${SENSOR.sensorId}'s key ${active ? "restored" : "revoked"}`,
+              "the regulator"
+            );
+            return this.ok({ sensorId: SENSOR.sensorId, active });
+          }
+
+          if (method === "GET") {
+            if (!this.sensor) return this.no("No registered key.", 404);
+            return this.ok({
+              sensorId: SENSOR.sensorId,
+              publicKey: SENSOR.publicKey,
+              algorithm: "ed25519",
+              active: this.sensor.active,
+              registeredAt: this.sensor.at,
+              registeredTxId: this.sensor.txId
+            });
+          }
+
+          return this.no("Not found.", 404);
+        },
+
+        // The same order the contract enforces, and the same message when it is broken.
+        batchRoutes(method, parts, body, origin) {
+          const STEPS = {
+            PROCESSING: ["CREATED", "PROCESSED", "processor"],
+            TRANSPORT: ["PROCESSED", "IN_TRANSIT", "logistics"],
+            DELIVERY: ["IN_TRANSIT", "DELIVERED", "retailer"]
+          };
+
+          if (method === "POST" && parts.length === 1) {
+            const who = this.companyAt(origin);
+            if (who !== "farm") {
+              return this.no(
+                `Stakeholder '${who}-001' has role '${who?.toUpperCase()}', but this operation requires one of: FARM.`
+              );
+            }
+            if (!this.registered.farm) return this.no("The farm is not on the register.");
+            if (this.batches[body.batchId])
+              return this.no(`Batch '${body.batchId}' already exists.`);
+            const entry = this.commit(`${body.batchId} — created at the farm`, "the farm");
+            this.batches[body.batchId] = { status: "CREATED", history: [entry] };
+            return this.ok({ batchId: body.batchId });
+          }
+
+          const batch = this.batches[parts[1]];
+
+          if (method === "POST" && parts[2] === "events") {
+            if (!batch) return this.no(`Batch '${parts[1]}' does not exist.`, 404);
+            const [from, to, role] = STEPS[String(body.eventType).toUpperCase()] ?? [];
+            const who = this.companyAt(origin);
+            if (who !== role) {
+              return this.no(
+                `Stakeholder '${who}-001' has role '${who?.toUpperCase()}', but this operation requires one of: ${role?.toUpperCase()}.`
+              );
+            }
+            if (batch.status !== from) {
+              return this.no(
+                `Batch '${parts[1]}' cannot move from '${batch.status}' to '${to}'; expected current status '${from}'.`
+              );
+            }
+            batch.status = to;
+            batch.history.push(this.commit(`${parts[1]} — ${describeStatus(to)}`, `the ${role}`));
+            return this.ok({ batchId: parts[1] });
+          }
+
+          if (method === "POST" && parts[2] === "recall") {
+            const refused = this.requireRegulator(origin);
+            if (refused) return this.no(refused);
+            if (!batch) return this.no(`Batch '${parts[1]}' does not exist.`, 404);
+            batch.status = "RECALLED";
+            batch.history.push(this.commit(`${parts[1]} — recalled`, "the regulator"));
+            return this.ok({ batchId: parts[1] });
+          }
+
+          if (method === "GET" && parts[2] === "history") {
+            if (!batch) return this.no("No such batch.", 404);
+            return this.ok(
+              batch.history.map((entry) => ({
+                txId: entry.txId,
+                timestamp: entry.at,
+                submittedByStakeholderId: `${entry.by.replace("the ", "")}-001`,
+                batch: { status: entry.status ?? null }
+              }))
+            );
+          }
+
+          if (method === "GET") {
+            if (!batch) return this.no("No such batch.", 404);
+            return this.ok({
+              batchId: parts[1],
+              status: batch.status,
+              statusBeforeBreach: batch.statusBeforeBreach
+            });
+          }
+
+          return this.no("Not found.", 404);
+        },
+
+        temperature(method, parts, body, origin) {
+          if (method === "POST" && parts[1] === "batches" && parts[3] === "evidence") {
+            const who = this.companyAt(origin);
+            if (who !== "oracle") {
+              return this.no(
+                `Stakeholder '${who}-001' has role '${who?.toUpperCase()}', but this operation requires one of: ORACLE.`
+              );
+            }
+            return this.ok({});
+          }
+
+          if (method === "POST" && parts[3] === "resolve-breach") {
+            const refused = this.requireRegulator(origin);
+            if (refused) return this.no(refused);
+            const batch = this.batches[parts[2]];
+            if (!batch || batch.status !== "COLD_CHAIN_BREACH") {
+              return this.no(`Batch '${parts[2]}' does not have an unresolved cold-chain breach.`);
+            }
+            batch.status = batch.statusBeforeBreach ?? "IN_TRANSIT";
+            batch.statusBeforeBreach = undefined;
+            batch.history.push(
+              this.commit(`${parts[2]} — ${describeStatus(batch.status)}`, "the regulator")
+            );
+            return this.ok({});
+          }
+
+          if (method === "GET" && parts[1] === "batches" && parts[3] === "evidence") {
+            return this.ok(
+              Object.values(this.evidence)
+                .filter((record) => record.batchId === parts[2])
+                .map((record) => ({ evidenceId: record.evidenceId }))
+            );
+          }
+
+          const record = this.evidence[parts[2]];
+
+          if (method === "GET" && parts[3] === "readings") {
+            if (!record) return this.no("No such evidence.", 404);
+            return this.ok(
+              record.readings.map((reading) => ({
+                sensorId: SENSOR.sensorId,
+                sequence: reading.sequence,
+                recordedAt: reading.recordedAt,
+                celsius: reading.celsius,
+                signature: "simulated"
+              }))
+            );
+          }
+
+          if (method === "GET" && parts[3] === "verify") {
+            if (!record) return this.no("No such evidence.", 404);
+            const現 = record.readings;
+            // The same three comparisons the real verifier makes, against the same three sources.
+            const recomputedHash = this.digest(
+              現.map((reading) => `${reading.sequence}:${reading.celsius}`).join("|")
+            );
+            const failures = 現
+              .filter((reading) => reading.celsius !== reading.signed)
+              .map((reading) => reading.sequence);
+            const temperatures = 現.map((reading) => Number(reading.celsius));
+            const recomputed = {
+              minCelsius: Math.min(...temperatures),
+              maxCelsius: Math.max(...temperatures),
+              readingCount: 現.length
+            };
+
+            return this.ok({
+              evidenceId: record.evidenceId,
+              batchId: record.batchId,
+              match: recomputedHash === record.anchoredHash,
+              anchoredHash: record.anchoredHash,
+              recomputedHash,
+              statisticsMatch:
+                recomputed.minCelsius === record.reported.minCelsius &&
+                recomputed.maxCelsius === record.reported.maxCelsius &&
+                recomputed.readingCount === record.reported.readingCount,
+              anchoredStatistics: record.reported,
+              recomputedStatistics: recomputed,
+              signaturesMatch: failures.length === 0,
+              signatureFailures: failures,
+              signatureIssue: failures.length ? "FORGED" : null
+            });
+          }
+
+          if (method === "GET" && parts[1] === "evidence") {
+            if (!record) return this.no("No such evidence.", 404);
+            return this.ok({
+              evidenceId: record.evidenceId,
+              submittedAt: record.at,
+              submittedTxId: record.txId,
+              complianceOutcome: record.outcome
+            });
+          }
+
+          return this.no("Not found.", 404);
+        },
+
+        // Stands in for the demo helper: signs, stores, anchors, and lies in the three ways it can.
+        run(payload) {
+          const batch = this.batches[payload.batchId];
+          if (!batch)
+            return { ok: false, body: { error: `Batch '${payload.batchId}' does not exist.` } };
+          if (!this.sensor) {
+            return {
+              ok: false,
+              body: {
+                error: `Sensor '${SENSOR.sensorId}' has no key on the ledger. The regulator must register it first.`
+              }
+            };
+          }
+          if (!this.sensor.active) {
+            return {
+              ok: false,
+              body: {
+                error: `Sensor '${SENSOR.sensorId}' has had its key revoked, so its readings are refused.`
+              }
+            };
+          }
+
+          // What the sensor measured is fixed here, before the oracle gets a chance to change it.
+          const readings = payload.readings.map((reading, index) => ({
+            sequence: index + 1,
+            recordedAt: `2026-01-01T${reading.recordedAt}:00Z`,
+            celsius: Number(reading.celsius),
+            signed: Number(reading.celsius)
+          }));
+
+          if (payload.mode === "fabricate" && payload.fabricate) {
+            const target = readings.find((r) => r.sequence === payload.fabricate.sequence);
+            if (target) target.celsius = Number(payload.fabricate.celsius);
+          }
+
+          if (payload.mode === "honest") {
+            const bad = readings.find((reading) => reading.celsius !== reading.signed);
+            if (bad) {
+              return {
+                ok: false,
+                body: {
+                  error: `Reading ${bad.sequence} does not match its signature, so it was altered after the sensor recorded it. Nothing has been submitted.`
+                }
+              };
+            }
+          }
+
+          const temperatures = readings.map((reading) => reading.celsius);
+          const honest = {
+            minCelsius: Math.min(...temperatures),
+            maxCelsius: Math.max(...temperatures),
+            readingCount: readings.length
+          };
+          const reported =
+            payload.mode === "fake-summary" && payload.fakeStatistics
+              ? { ...honest, ...payload.fakeStatistics }
+              : honest;
+
+          const anchoredHash = this.digest(
+            readings.map((reading) => `${reading.sequence}:${reading.celsius}`).join("|")
+          );
+          const evidenceId = `EV-${payload.batchId}-${anchoredHash.slice(0, 8)}`;
+          if (this.evidence[evidenceId]) {
+            return {
+              ok: false,
+              body: { error: `Temperature evidence '${evidenceId}' already exists.` }
+            };
+          }
+
+          // The contract decides, from the numbers it was given rather than the ones stored.
+          const outcome =
+            reported.minCelsius >= 0 && reported.maxCelsius <= 5 ? "COMPLIANT" : "UNSAFE";
+          const entry = this.commit(`Temperature evidence anchored — ${outcome}`, "the oracle");
+
+          if (outcome === "UNSAFE" && batch.status !== "RECALLED") {
+            batch.statusBeforeBreach = batch.status;
+            batch.status = "COLD_CHAIN_BREACH";
+            entry.what = `${payload.batchId} — held: temperature out of range · ${entry.what}`;
+            batch.history.push(entry);
+          }
+
+          this.evidence[evidenceId] = {
+            evidenceId,
+            batchId: payload.batchId,
+            readings,
+            anchoredHash,
+            reported,
+            outcome,
+            at: entry.at,
+            txId: entry.txId
+          };
+
+          return { ok: true, body: { evidenceId, complianceOutcome: outcome } };
+        },
+
+        tamper(evidenceId, celsius = 3.2) {
+          const record = this.evidence[evidenceId];
+          if (!record) return { ok: false, body: { error: "No stored readings to change." } };
+          const warmest = [...record.readings].sort((a, b) => b.celsius - a.celsius)[0];
+          const old = warmest.celsius;
+          warmest.celsius = celsius;
+          return {
+            ok: true,
+            body: {
+              changed: { sequence: warmest.sequence, old_celsius: old, new_celsius: celsius }
+            }
+          };
+        }
+      };
+
       async function call(method, path, { origin, body } = {}) {
+        if (SIM) {
+          return sim.handle(method, path, body, origin);
+        }
+
         const response = await fetch((origin ?? reader()) + path, {
           method,
           headers: body ? { "content-type": "application/json" } : {},
@@ -831,6 +1480,13 @@
       async function refreshChain() {
         const origin = reader();
         if (!origin) return;
+
+        // The simulation keeps its own chain, linked block to block, so there is nothing to
+        // reassemble from separate ledger reads.
+        if (SIM) {
+          state.blocks = [...sim.chain];
+          return;
+        }
 
         const blocks = [];
 
@@ -1034,12 +1690,15 @@
         }
 
         try {
-          const response = await fetch(`${DEMO_ORIGIN}/demo/run`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(payload)
-          });
-          const body = await response.json();
+          const result = SIM
+            ? sim.run(payload)
+            : await fetch(`${DEMO_ORIGIN}/demo/run`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify(payload)
+              }).then(async (response) => ({ ok: response.ok, body: await response.json() }));
+          const { body } = result;
+          const response = { ok: result.ok };
 
           if (!response.ok) {
             say("refused", body.error ?? "The oracle refused these readings.");
@@ -1082,12 +1741,15 @@
         render();
 
         try {
-          const response = await fetch(`${DEMO_ORIGIN}/demo/tamper`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ evidenceId: state.evidenceId })
-          });
-          const body = await response.json();
+          const result = SIM
+            ? sim.tamper(state.evidenceId)
+            : await fetch(`${DEMO_ORIGIN}/demo/tamper`, {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ evidenceId: state.evidenceId })
+              }).then(async (response) => ({ ok: response.ok, body: await response.json() }));
+          const { body } = result;
+          const response = { ok: result.ok };
 
           if (!response.ok) {
             say("broken", body.error ?? "The change could not be made.");
@@ -1217,7 +1879,9 @@
                 ${
                   state.registered[company.name]
                     ? `<span class="pill ok"><i></i>Registered</span>`
-                    : `<button class="sm" data-register="${company.name}">Register</button>`
+                    : `<button class="sm" data-register="${company.name}">${
+                        company.name === "regulator" ? "Join first" : "Register"
+                      }</button>`
                 }
               </div>`
           )
@@ -1225,9 +1889,9 @@
 
         const sensorState = state.sensorOnChain
           ? state.sensorOnChain.active
-            ? `<span class="pill ok"><i></i>Vouched for</span>`
+            ? `<span class="pill ok"><i></i>On the chain</span>`
             : `<span class="pill broken"><i></i>Revoked</span>`
-          : `<button class="sm" data-do="register-sensor">Vouch for it</button>`;
+          : `<button class="sm" data-do="register-sensor">Put on the chain</button>`;
 
         return `
           <div class="actions">
@@ -1236,12 +1900,12 @@
 
           <div>
             <span class="label">Companies</span>
-            <div>${companies}</div>
+            <div class="wells">${companies}</div>
           </div>
 
           <div>
-            <span class="label">Sensor</span>
-            <div>
+            <span class="label">Sensor keys</span>
+            <div class="wells">
               <div class="srow">
                 <div class="what">
                   <b>${SENSOR.sensorId}</b>
@@ -1304,36 +1968,87 @@
         `;
       }
 
-      function oracleDesk() {
-        const rows = state.readings
-          .map(
-            (reading, index) => `
-              <tr>
-                <td>${index + 1}</td>
-                <td><input class="num" style="width:74px" data-reading="${index}" data-field="recordedAt" value="${escapeHtml(reading.recordedAt)}" /></td>
-                <td><input class="num" data-reading="${index}" data-field="celsius" value="${escapeHtml(reading.celsius)}" /></td>
-              </tr>`
-          )
+      /**
+       * Draws the run against the safe band, so a breach is a dot outside a green stripe rather
+       * than a number somebody has to compare in their head.
+       */
+      function tempChart(readings, safeMin = 0, safeMax = 5, height = 150) {
+        const W = 640;
+        const pad = { t: 14, r: 12, b: 22, l: 38 };
+        const temperatures = readings.map((reading) => Number(reading.celsius) || 0);
+        const lo = Math.min(safeMin - 2, ...(temperatures.length ? temperatures : [safeMin]));
+        const hi = Math.max(safeMax + 3, ...(temperatures.length ? temperatures : [safeMax]));
+        const x = (index) =>
+          readings.length < 2
+            ? W / 2
+            : pad.l + (W - pad.l - pad.r) * (index / (readings.length - 1));
+        const y = (value) => pad.t + (height - pad.t - pad.b) * (1 - (value - lo) / (hi - lo));
+
+        const dots = readings
+          .map((reading, index) => {
+            const value = Number(reading.celsius) || 0;
+            const out = value < safeMin || value > safeMax;
+            return `${out ? `<circle cx="${x(index)}" cy="${y(value)}" r="8" fill="var(--broken-tint)"/>` : ""}
+              <circle cx="${x(index)}" cy="${y(value)}" r="3.2" fill="${out ? "var(--broken)" : "var(--ok)"}"/>`;
+          })
           .join("");
+
+        return `
+          <svg class="chart" viewBox="0 0 ${W} ${height}" role="img" aria-label="Temperature readings">
+            <rect x="${pad.l}" y="${y(safeMax)}" width="${W - pad.l - pad.r}" height="${y(safeMin) - y(safeMax)}" fill="var(--ok-tint)"/>
+            <line x1="${pad.l}" x2="${W - pad.r}" y1="${y(safeMax)}" y2="${y(safeMax)}" stroke="var(--ok)" stroke-dasharray="4 4" stroke-width="1"/>
+            <line x1="${pad.l}" x2="${W - pad.r}" y1="${y(safeMin)}" y2="${y(safeMin)}" stroke="var(--ok)" stroke-dasharray="4 4" stroke-width="1"/>
+            <text x="${pad.l - 6}" y="${y(safeMax) + 3}" text-anchor="end">${safeMax}°C</text>
+            <text x="${pad.l - 6}" y="${y(safeMin) + 3}" text-anchor="end">${safeMin}°C</text>
+            <text class="band" x="${W - pad.r - 4}" y="${y(safeMax) + 12}" text-anchor="end">safe band</text>
+            ${
+              readings.length > 1
+                ? `<polyline points="${readings.map((reading, index) => `${x(index)},${y(Number(reading.celsius) || 0)}`).join(" ")}" fill="none" stroke="var(--ink)" stroke-width="1.5"/>`
+                : ""
+            }
+            ${dots}
+            ${readings.length ? `<text x="${pad.l}" y="${height - 6}">${escapeHtml(readings[0].recordedAt)}</text>` : ""}
+            ${readings.length > 1 ? `<text x="${W - pad.r}" y="${height - 6}" text-anchor="end">${escapeHtml(readings.at(-1).recordedAt)}</text>` : ""}
+          </svg>`;
+      }
+
+      function oracleDesk() {
+        // A reading whose value no longer equals what the sensor signed. The oracle can change the
+        // number, but the signature beneath it stops describing it, and the card says so.
+        const cards = state.readings
+          .map((reading, index) => {
+            const intact = Number(reading.celsius) === Number(reading.signed ?? reading.celsius);
+            return `
+              <div class="reading">
+                <span class="at">${escapeHtml(reading.recordedAt)}</span>
+                <input class="num ${intact ? "" : "broken"}" data-reading="${index}" data-field="celsius" value="${escapeHtml(reading.celsius)}" />
+                <span class="sig ${intact ? "" : "broken"}">${intact ? `sig ${signatureStub(reading)}` : "sig broken"}</span>
+              </div>`;
+          })
+          .join("");
+
+        const temperatures = state.readings.map((reading) => Number(reading.celsius) || 0);
+        const unsafe = temperatures.some((value) => value < 0 || value > 5);
 
         return `
           <div>
             <span class="label">What the sensor recorded</span>
-            <table>
-              <thead>
-                <tr><th style="width:34px">#</th><th>Time</th><th>°C</th></tr>
-              </thead>
-              <tbody>${rows}</tbody>
-            </table>
-            <div class="actions" style="margin-top:12px">
-              <button class="sm quiet" data-do="preset-clean">Load a clean run</button>
-              <button class="sm quiet" data-do="preset-warm">Load a too warm run</button>
+            <div class="segmented">
+              <button data-do="preset-clean" class="${state.preset === "clean" ? "on" : ""}">Compliant run</button>
+              <button data-do="preset-warm" class="${state.preset === "warm" ? "on" : ""}">Too warm run</button>
             </div>
+            <div class="readings">${cards}</div>
+            ${tempChart(state.readings)}
           </div>
 
-          <div class="actions">
+          <div class="fingerprint">
+            <span class="label">Fingerprint</span>
+            <span class="value">${escapeHtml(fingerprint(state.readings).slice(0, 12))}…</span>
+            <span class="state" style="color:${unsafe ? "var(--broken)" : "var(--ok)"}">
+              ${unsafe ? "outside the safe band" : "inside the safe band"}
+            </span>
             <button class="primary" data-do="anchor" ${state.batch ? "" : "disabled"}>
-              Anchor these readings
+              Anchor on the chain
             </button>
           </div>
 
@@ -1342,11 +2057,11 @@
             <div>
               <div class="srow">
                 <div class="what">
-                  <b>Rewrite the warmest reading before anchoring it</b>
-                  <span>The sensor already signed the real one, so the signature will not fit.</span>
+                  <b>Change a stored reading behind the app's back</b>
+                  <span>Straight into the database, after the fingerprint was committed.</span>
                 </div>
-                <button class="danger sm" data-do="fabricate" ${state.batch ? "" : "disabled"}>
-                  Fake a reading
+                <button class="danger sm" data-do="tamper" ${state.evidenceId ? "" : "disabled"}>
+                  Secretly edit a reading
                 </button>
               </div>
               <div class="srow">
@@ -1364,11 +2079,11 @@
               </div>
               <div class="srow">
                 <div class="what">
-                  <b>Change a stored reading behind the app's back</b>
-                  <span>Straight into the database, after the fingerprint was committed.</span>
+                  <b>Rewrite the warmest reading before anchoring it</b>
+                  <span>The sensor already signed the real one, so the signature will not fit.</span>
                 </div>
-                <button class="danger sm" data-do="tamper" ${state.evidenceId ? "" : "disabled"}>
-                  Secretly edit a reading
+                <button class="danger sm" data-do="fabricate" ${state.batch ? "" : "disabled"}>
+                  Fake a reading
                 </button>
               </div>
             </div>
@@ -1447,8 +2162,17 @@
 
       function renderFeed() {
         const count = state.blocks.length;
-        $("chainTitle").textContent =
-          `Chain · ${count} ${count === 1 ? "transaction" : "transactions"}`;
+        // Blocks when the chain is simulated and linked block to block. Transactions when it is
+        // Fabric, which groups them into blocks this page never sees.
+        const unit = SIM
+          ? count === 1
+            ? "block"
+            : "blocks"
+          : count === 1
+            ? "transaction"
+            : "transactions";
+        $("chainTitle").textContent = `Chain · ${count} ${unit}`;
+        $("chainNote").lastChild.textContent = SIM ? "All copies agree" : "committed";
 
         const ghosts = state.ghosts
           .map(
@@ -1470,11 +2194,17 @@
             state.seen.add(block.txId);
             return `
               <div class="block${fresh}">
-                <div class="n">${count - index}</div>
+                <div class="n">${block.n ?? count - index}</div>
                 <div class="what">
                   <b>${escapeHtml(block.what)}</b>
                   <span class="by">signed by ${escapeHtml(block.by)}</span>
-                  <span class="tx">tx ${escapeHtml(String(block.txId).slice(0, 26))}…</span>
+                  <span class="tx">${
+                    block.hash
+                      ? `hash ${escapeHtml(block.hash.slice(0, 10))}… · prev ${
+                          block.prev ? `${escapeHtml(block.prev.slice(0, 10))}…` : "—"
+                        }`
+                      : `tx ${escapeHtml(String(block.txId).slice(0, 26))}…`
+                  }</span>
                 </div>
               </div>`;
           })
@@ -1645,7 +2375,7 @@
                   origin: originOf("farm"),
                   body: {
                     batchId: state.batchId,
-                    origin: "Green Pastures Dairy",
+                    origin: "Homelander's Mother Milk Dairy",
                     location: "Bega NSW"
                   }
                 }),
@@ -1741,8 +2471,10 @@
         }
 
         if (action === "preset-clean" || action === "preset-warm") {
+          state.preset = action === "preset-clean" ? "clean" : "warm";
           state.readings = (action === "preset-clean" ? CLEAN_RUN : WARM_RUN).map((reading) => ({
-            ...reading
+            ...reading,
+            signed: reading.celsius
           }));
           say(
             "",
@@ -1757,7 +2489,13 @@
       document.addEventListener("input", (event) => {
         const cell = event.target.closest("[data-reading]");
         if (cell) {
+          // Editing here is the oracle changing a measurement, not the sensor taking a new one, so
+          // the signed value stays where it was and the card shows the two disagreeing.
           state.readings[Number(cell.dataset.reading)][cell.dataset.field] = cell.value;
+          state.preset = null;
+          render();
+          cell.focus();
+          cell.setSelectionRange(cell.value.length, cell.value.length);
         }
       });
 
@@ -1767,7 +2505,8 @@
         state.batch = null;
         state.evidenceId = null;
         state.verification = null;
-        state.readings = CLEAN_RUN.map((reading) => ({ ...reading }));
+        state.preset = "clean";
+        state.readings = CLEAN_RUN.map((reading) => ({ ...reading, signed: reading.celsius }));
         say("", "New batch id. The farm puts it on the ledger.");
         await refreshChain();
         render();
@@ -1789,33 +2528,50 @@
       // ------------------------------------------------------------ start
 
       async function start() {
-        const directory = await fetch("/organisations").then((response) => response.json());
+        if (SIM) {
+          document.body.classList.add("sim");
+          state.companies = SIM_COMPANIES.map((company) => ({
+            ...company,
+            up: true,
+            certificateId: `sim-cert-${company.name}`
+          }));
+          sim.reset();
+          say("", "Simulation. Start with the regulator and register the six companies.");
+        } else {
+          const directory = await fetch("/organisations").then((response) => response.json());
 
-        state.companies = await Promise.all(
-          directory.map(async (company) => {
-            try {
-              const identity = await fetch(`${company.origin}/identity`).then((response) =>
-                response.json()
-              );
-              return { ...company, up: true, certificateId: identity.certificateId };
-            } catch {
-              return { ...company, up: false, certificateId: "" };
-            }
-          })
-        );
+          state.companies = await Promise.all(
+            directory.map(async (company) => {
+              try {
+                const identity = await fetch(`${company.origin}/identity`).then((response) =>
+                  response.json()
+                );
+                return { ...company, up: true, certificateId: identity.certificateId };
+              } catch {
+                return { ...company, up: false, certificateId: "" };
+              }
+            })
+          );
+
+          const down = state.companies.filter((company) => !company.up);
+          if (down.length) {
+            say(
+              "broken",
+              `Not answering: ${down.map((company) => company.name).join(", ")}. ` +
+                `Start all six backends, or switch to the simulation.`
+            );
+          }
+        }
 
         state.batchId = `BATCH-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
         $("batchField").value = state.batchId;
-
-        const down = state.companies.filter((company) => !company.up);
-        if (down.length) {
-          say(
-            "broken",
-            `Not answering: ${down.map((company) => company.name).join(", ")}. Start all six backends.`
-          );
-        }
+        $("modeToggle").textContent = SIM ? "Use the real network" : "Use the simulation";
+        $("modeToggle").addEventListener("click", () => {
+          location.search = SIM ? "" : "?mode=sim";
+        });
 
         await refreshRegistrations();
+        await refreshBatch();
         await refreshChain();
         render();
       }
