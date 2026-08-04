@@ -23,9 +23,9 @@ altered unnoticed, and a shopper can look up a carton without holding any blockc
 - **The network itself.** Six organisations, one per company, defined in this repository rather
   than borrowed from Fabric's samples, with scripts to bring them up and deploy the chaincode.
 
-The only interface is a single static control panel served by each backend, plus the REST API
-underneath it. It is a demo harness rather than a product: in reality each company would run its
-own application.
+- **A demo console.** One React page in `apps/demo-console`, built into the backends' static
+  directory so all six serve it, plus the REST API underneath it. It is a demo harness rather than
+  a product: in reality each company would run its own application.
 
 ## Getting started
 
@@ -111,38 +111,53 @@ pnpm demo:tamper  # alter a stored reading, then verify it to see the mismatch
 ## Demo
 
 With the network, database and backends running, open <http://localhost:3001>. All six serve the
-same page, so any of 3001 to 3006 will do.
+same page, so any of 3001 to 3006 will do. `pnpm build` compiles it; `pnpm console:dev` runs it
+against Vite instead if you are changing it.
 
-Choose which company's backend to send to, choose a batch, and drive the system in any order. Every
-line in the log names the port that answered, and the contract's own reply is shown, so a refusal
-reads as a refusal rather than a fault. The chips along the top say which of the six are running.
+Clicking a company chip is becoming that company: the next request goes to that company's own
+backend, signed with that company's own certificate. The regulator's desk registers everyone and
+the two sensor public keys, the farm creates a batch, and the processor, logistics and retailer
+move it along. One sentence at the top right narrates whatever just happened, and the panel below
+it is the batch's real history on the ledger.
 
-**Set up demo** registers the regulator and the five other companies in one go. It asks each
-company's own backend for its certificate ID first, so it needs all six running, and every
-registration is sent to the regulator's backend because registering is the regulator's to do.
+Two of the demo's moments need a helper the backends deliberately do not provide, because they are
+things a well-behaved system would refuse to do. Run it beside the backends:
 
-Temperature evidence comes from the oracle rather than from the page. The oracle stores the readings
-off-chain and anchors the fingerprint in the same run, so submitting evidence from a browser would
-put a record on the ledger with nothing behind it:
+```bash
+pnpm demo:server   # port 3016
+```
+
+With it running, the oracle's desk does the whole real pipeline from typed-in temperatures: signed
+as SENSOR-001, stored in PostgreSQL, fingerprint anchored on Fabric, verdict decided by the
+contract. Its **try to cheat** rows then do the two things an oracle actually could:
+
+- **Secretly edit a reading** goes straight into PostgreSQL, around the application.
+- **Anchor a fake summary** stores honest readings but describes them to the contract with a range
+  you type in.
+
+Either way, have another company press **Check the readings**. Do it as the **retailer**: it keeps
+no readings of its own, so its backend fetches them from the oracle, recomputes the fingerprint
+itself, and compares that against an anchor it read off the ledger with its own certificate. A
+company catching its supplier altering records is what anchoring off-chain data is for, and it is
+not something the oracle checking its own database could ever show.
+
+The regulator has a **try to cheat** row too, and it is the shortest thing to demonstrate:
+submitting temperature readings is refused, in the contract's own words, even though the regulator
+signed it.
+
+Without the helper the page still works: the oracle anchors only the summary through
+`POST /temperature/batches/:id/evidence`, and tampering stays on the terminal with
+`pnpm demo:tamper --evidence <evidence-id> --confirm-tamper`. The oracle can also be driven from a
+readings file instead of the page:
 
 ```bash
 pnpm oracle:dev                            # compliant readings for BATCH-001
 pnpm oracle:dev data/unsafe-readings.csv   # a cold-chain breach for BATCH-002
 ```
 
-Tampering is done straight against the oracle's database, deliberately going around the
-application:
-
-```bash
-pnpm demo:tamper --evidence <evidence-id> --confirm-tamper
-```
-
-Press **Show evidence** again afterwards and the off-chain panel has changed while the anchored
-hash has not. Do it with the **retailer** selected: the retailer keeps no readings of its own, so
-its backend fetches them from the oracle, recomputes the fingerprint itself, and compares that
-against an anchor it read off the ledger with its own certificate. A company catching its supplier
-altering records is what anchoring off-chain data is for, and it is not something the oracle
-checking its own database could ever show.
+If the network is down, <http://localhost:3001/?mode=sim> is the same console over an in-memory
+chain. Nothing is real, but every refusal and every check behaves the same way, and blocks can be
+edited in place to watch the hashes after them break.
 
 ## Business Rules
 

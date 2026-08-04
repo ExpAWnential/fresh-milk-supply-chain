@@ -94,7 +94,7 @@ describe("tampering with anchored evidence", () => {
     );
   });
 
-  // Unanchored evidence cannot demonstrate ledger-backed tamper detection.
+  // Unanchored evidence has no immutable ledger fingerprint to compare after the change.
   it("refuses evidence that was never anchored", async () => {
     for (const overrides of [
       { submissionStatus: "PENDING" as const },
