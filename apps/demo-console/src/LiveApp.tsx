@@ -25,9 +25,14 @@ import {
   PresetToggle,
   SettingRow,
   UNSAFE_PAIRS,
+  blockDetail,
+  blockDetailLabel,
+  blockDetailValue,
   blockNumber,
+  blockRow,
   captionStat,
   cheatLabel,
+  chevron,
   chipRow,
   column,
   columns,
@@ -137,6 +142,13 @@ interface Batch {
   readonly statusBeforeBreach?: string;
 }
 
+// One row the helper rewrote directly in the oracle's database.
+interface ChangedReading {
+  readonly old_celsius: string;
+  readonly new_celsius: string;
+  readonly recorded_at: string;
+}
+
 interface HistoryEntry {
   readonly txId?: string;
   readonly timestamp?: string;
@@ -160,7 +172,9 @@ export function LiveApp() {
   const [liveHash, setLiveHash] = useState("");
   const [evidenceId, setEvidenceId] = useState<string | null>(null);
   const [verify, setVerify] = useState<Verification | null>(null);
-  const { ghosts, ghost } = useGhosts();
+  // Expanding one block at a time keeps the history feed compact and predictable.
+  const [openBlock, setOpenBlock] = useState<number | null>(null);
+  const { ghosts, ghost, clearGhosts } = useGhosts();
   const [caption, setCaption] = useState<Caption>({ tone: "chill", text: OPENING_CAPTION });
   const [origin, setOrigin] = useState(HOME_ORIGIN);
 
@@ -276,8 +290,7 @@ export function LiveApp() {
     );
     setRegistered(Object.fromEntries(results.filter(([, ok]) => ok)));
 
-    // Without this the sensor rows offer to register a key the ledger is already holding, and the
-    // regulator's first click of the demo comes back refused.
+    // Read existing sensor registrations so the interface does not offer a duplicate transaction.
     const keys = await Promise.all(
       SENSORS.map(async (s) => {
         const r = await call("GET", `/sensors/${encodeURIComponent(s.sensorId)}`, {
@@ -544,10 +557,14 @@ export function LiveApp() {
       });
       const j = await res.json().catch(() => null);
       if (res.ok) {
-        const c = j.changedReading || {};
+        const changed: ChangedReading[] = j.changedReadings || [];
+        // PostgreSQL returns fixed-scale numerics, so remove trailing zeros before displaying them.
+        const listed = changed
+          .map((c) => `${Number(c.old_celsius)} °C at ${(c.recorded_at || "").slice(11, 16)}`)
+          .join(", ");
         say(
           "broken",
-          `Straight into PostgreSQL, around the app: ${c.old_celsius ?? "a reading"} °C now reads ${c.new_celsius ?? "different"} °C. The anchor on the ledger has not moved. Now have any company check the readings.`
+          `Straight into PostgreSQL, around the app: ${listed} now all read ${Number(changed[0]?.new_celsius)}. The breach looks gone, but the anchor on the ledger has not moved. Now have any company check the readings.`
         );
         const r2 = await call(
           "GET",
@@ -640,6 +657,18 @@ export function LiveApp() {
     }
   }
 
+  const restoreRows = () => {
+    if (preset === "db") {
+      loadEvidence();
+      say("chill", "Reloaded from the oracle's database.");
+      return;
+    }
+    const id = preset || "compliant";
+    setPreset(id);
+    setRows(id === "warm" ? UNSAFE_ROWS : DEFAULT_ROWS);
+    say("chill", "Sensor data restored to what SENSOR-001 actually recorded.");
+  };
+
   const newBatch = () => {
     const id = `BATCH-${Math.floor(1000 + Math.random() * 9000)}`;
     setBatchId(id);
@@ -647,8 +676,14 @@ export function LiveApp() {
     setHistory([]);
     setRows(DEFAULT_ROWS);
     setPreset("compliant");
+    setOpenBlock(null);
     setEvidenceId(null);
     setVerify(null);
+    setLie({ min: "1.8", max: "3.6" });
+    clearGhosts();
+    setOrg("regulator");
+    // Reset only the oracle's off-chain rows because committed ledger history must remain immutable.
+    fetch(DEMO_URL + "/demo/reset", { method: "POST" }).catch(() => {});
     loadDirectory().then((cs) => {
       probeRegistrations(cs);
       refreshBatch(id, cs);
@@ -834,28 +869,33 @@ export function LiveApp() {
     ),
     oracle: (
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <PresetToggle
-          options={[
-            ["compliant", "Compliant run"],
-            ["warm", "Too warm run"],
-            ["db", "From the database"]
-          ]}
-          selected={preset}
-          onPick={(id) => {
-            setPreset(id);
-            if (id === "db") {
-              loadEvidence();
-              return;
-            }
-            setRows(id === "compliant" ? DEFAULT_ROWS : UNSAFE_ROWS);
-            say(
-              "chill",
-              id === "compliant"
-                ? "Sensor run loaded: every reading inside 0 to 5 °C."
-                : "Sensor run loaded: the truck got warm around 09:00."
-            );
-          }}
-        />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <PresetToggle
+            options={[
+              ["compliant", "Compliant run"],
+              ["warm", "Too warm run"],
+              ["db", "From the database"]
+            ]}
+            selected={preset}
+            onPick={(id) => {
+              setPreset(id);
+              if (id === "db") {
+                loadEvidence();
+                return;
+              }
+              setRows(id === "compliant" ? DEFAULT_ROWS : UNSAFE_ROWS);
+              say(
+                "chill",
+                id === "compliant"
+                  ? "Sensor run loaded: every reading inside 0 to 5 °C."
+                  : "Sensor run loaded: the truck got warm around 09:00."
+              );
+            }}
+          />
+          <Button variant="quiet" size="sm" onClick={restoreRows}>
+            Restore the sensor&apos;s data
+          </Button>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
           {rows.map((r, i) => (
             <div key={i} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -866,7 +906,6 @@ export function LiveApp() {
                 value={r.celsius}
                 onChange={(e) => {
                   const v = e.target.value;
-                  setPreset(null);
                   setRows((current) => current.map((x, j) => (j === i ? { ...x, celsius: v } : x)));
                 }}
                 style={{ ...readingInput, border: "1px solid var(--line)" }}
@@ -897,55 +936,58 @@ export function LiveApp() {
             Anchor on the chain
           </Button>
         </div>
-        <div style={{ borderTop: "1px solid var(--line)", marginTop: -6 }}>
-          <div style={cheatLabel}>try to cheat</div>
-          <SettingRow text="Change a stored reading behind the app's back">
-            <Button size="sm" variant="danger" onClick={tamperDb}>
-              Secretly edit a reading
-            </Button>
-          </SettingRow>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              padding: "9px 0",
-              borderTop: "1px solid var(--hairline)",
-              flexWrap: "wrap"
-            }}
-          >
-            <span
+        {/* These mutations apply only to an unsafe reading set, where there is a breach to hide. */}
+        {preset === "warm" ? (
+          <div style={{ borderTop: "1px solid var(--line)", marginTop: -6 }}>
+            <div style={cheatLabel}>try to cheat</div>
+            <SettingRow text="Change a stored reading behind the app's back">
+              <Button size="sm" variant="danger" onClick={tamperDb}>
+                Secretly edit a reading
+              </Button>
+            </SettingRow>
+            <div
               style={{
-                ...settingText,
-                display: "inline-flex",
+                display: "flex",
                 alignItems: "center",
-                gap: 6,
+                gap: 12,
+                padding: "9px 0",
+                borderTop: "1px solid var(--hairline)",
                 flexWrap: "wrap"
               }}
             >
-              Tell the chain the milk stayed between
-              <input
-                type="text"
-                inputMode="decimal"
-                value={lie.min}
-                onChange={(e) => setLie((l) => ({ ...l, min: e.target.value }))}
-                style={lieInput}
-              />
-              and
-              <input
-                type="text"
-                inputMode="decimal"
-                value={lie.max}
-                onChange={(e) => setLie((l) => ({ ...l, max: e.target.value }))}
-                style={lieInput}
-              />
-              °C
-            </span>
-            <Button size="sm" variant="danger" onClick={() => anchorFromTable(true)}>
-              Anchor a fake summary
-            </Button>
+              <span
+                style={{
+                  ...settingText,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  flexWrap: "wrap"
+                }}
+              >
+                Tell the chain the milk stayed between
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={lie.min}
+                  onChange={(e) => setLie((l) => ({ ...l, min: e.target.value }))}
+                  style={lieInput}
+                />
+                and
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={lie.max}
+                  onChange={(e) => setLie((l) => ({ ...l, max: e.target.value }))}
+                  style={lieInput}
+                />
+                °C
+              </span>
+              <Button size="sm" variant="danger" onClick={() => anchorFromTable(true)}>
+                Anchor a fake summary
+              </Button>
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
     )
   };
@@ -1074,6 +1116,8 @@ export function LiveApp() {
                 history.map((e, i) => {
                   const b = e.batch || {};
                   const st = (b.status || "").replaceAll("_", " ").toLowerCase();
+                  const n = history.length - 1 - i;
+                  const open = openBlock === n;
                   return (
                     <div
                       key={e.txId || i}
@@ -1096,23 +1140,21 @@ export function LiveApp() {
                       ) : null}
                       <div
                         style={{
+                          ...blockRow,
                           border: "1px solid " + (i === 0 ? "var(--chill)" : "var(--line)"),
-                          background: i === 0 ? "var(--chill-tint)" : "var(--well)",
-                          borderRadius: 10,
-                          padding: "8px 12px",
-                          display: "flex",
-                          gap: 10,
-                          alignItems: "flex-start"
+                          background: i === 0 ? "var(--chill-tint)" : "var(--well)"
                         }}
                       >
                         <span
+                          onClick={() => setOpenBlock(open ? null : n)}
+                          title={open ? "Hide the block's contents" : "Show the block's contents"}
                           style={{
                             ...blockNumber,
                             background: "var(--chill-tint)",
                             color: "var(--chill-deep)"
                           }}
                         >
-                          {history.length - 1 - i}
+                          {n}
                         </span>
                         <span style={{ flex: 1, minWidth: 0 }}>
                           <span
@@ -1152,6 +1194,39 @@ export function LiveApp() {
                             tx {short(e.txId)}
                           </span>
                         </span>
+                        <button
+                          type="button"
+                          onClick={() => setOpenBlock(open ? null : n)}
+                          style={chevron}
+                        >
+                          {open ? "▲" : "▼"}
+                        </button>
+                        {open ? (
+                          <div style={{ ...blockDetail, borderTop: "1px solid var(--hairline)" }}>
+                            <span style={blockDetailLabel}>block</span>
+                            <span style={{ ...mono, color: "var(--ink-2)" }}>{n}</span>
+                            <span style={blockDetailLabel}>tx id</span>
+                            <span style={{ ...mono, ...blockDetailValue }}>{e.txId || "—"}</span>
+                            <span style={blockDetailLabel}>submitted by</span>
+                            <span style={{ color: "var(--ink-2)" }}>
+                              {e.submittedByStakeholderId || "unknown"}
+                            </span>
+                            {e.timestamp ? (
+                              <>
+                                <span style={blockDetailLabel}>time</span>
+                                <span style={{ ...mono, color: "var(--ink-2)" }}>
+                                  {String(e.timestamp).slice(0, 19).replace("T", " ")}
+                                </span>
+                              </>
+                            ) : null}
+                            <span style={blockDetailLabel}>record</span>
+                            <span style={{ ...mono, ...blockDetailValue, whiteSpace: "pre-wrap" }}>
+                              {e.isDelete
+                                ? "deleted"
+                                : JSON.stringify(b, null, 1).replace(/[{}"]/g, "").trim()}
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   );

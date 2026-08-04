@@ -27,8 +27,13 @@ import {
   STAGES,
   SettingRow,
   UNSAFE_PAIRS,
+  blockDetail,
+  blockDetailLabel,
+  blockDetailValue,
   blockNumber,
+  blockRow,
   captionStat,
+  chevron,
   cheatLabel,
   chipRow,
   column,
@@ -83,6 +88,11 @@ const DEFAULT_ROWS = signRows(DEFAULT_PAIRS);
 const UNSAFE_ROWS = signRows(UNSAFE_PAIRS);
 const rowsData = (rows: readonly Row[]) =>
   rows.map((r) => ({ at: r.at, celsius: Number(r.celsius) || 0 }));
+
+const outOfRange = (celsius: string) => {
+  const value = Number(celsius);
+  return value < 0 || value > 5;
+};
 
 interface Block {
   readonly n: number;
@@ -166,6 +176,8 @@ export function SimApp() {
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [verify, setVerify] = useState<Verification | null>(null);
   const [blocks, setBlocks] = useState<readonly Block[]>([genesis()]);
+  // Expanding one block at a time keeps the history feed compact and predictable.
+  const [openBlock, setOpenBlock] = useState<number | null>(null);
   const { ghosts, ghost } = useGhosts();
   const [caption, setCaption] = useState<Caption>({ tone: "chill", text: OPENING_CAPTION });
 
@@ -440,20 +452,35 @@ export function SimApp() {
     }
   };
 
+  // Hiding a breach means correcting every reading that betrays it, not just the worst one.
   const secretlyEdit = () => {
     if (!anchor) {
       say("neutral", "Anchor readings first, then edit them behind the app's back.");
       return;
     }
-    const idx = rows.reduce((m, r, i) => (Number(r.celsius) > Number(rows[m].celsius) ? i : m), 0);
-    const old = rows[idx].celsius;
-    const next = (Number(old) || 0) + 1;
-    setPreset(null);
-    setRows((current) => current.map((x, j) => (j === idx ? { ...x, celsius: String(next) } : x)));
+    const bad = rows.filter((r) => outOfRange(r.celsius));
+    if (bad.length === 0) {
+      say("neutral", "Nothing is out of range, so there is nothing to hide.");
+      return;
+    }
+    setRows((current) =>
+      current.map((x) => (outOfRange(x.celsius) ? { ...x, celsius: "3.2" } : x))
+    );
     say(
       "broken",
-      `Straight into the database, around the app: ${old} °C at ${rows[idx].at} now reads ${next}. The anchor on the chain has not moved. Now have any company check the readings.`
+      `Straight into the database, around the app: ${bad
+        .map((r) => r.celsius + " °C at " + r.at)
+        .join(
+          ", "
+        )} now all read 3.2. The breach looks gone, but the anchor on the chain has not moved. Now have any company check the readings.`
     );
+  };
+
+  const restoreRows = () => {
+    const id = preset || "compliant";
+    setPreset(id);
+    setRows(id === "warm" ? UNSAFE_ROWS : DEFAULT_ROWS);
+    say("chill", "Sensor data restored to what SENSOR-001 actually recorded.");
   };
 
   const reset = () => {
@@ -463,6 +490,7 @@ export function SimApp() {
     setRecalled(false);
     setRows(DEFAULT_ROWS);
     setPreset("compliant");
+    setOpenBlock(null);
     setAnchor(null);
     setVerify(null);
     setOrg("regulator");
@@ -472,11 +500,11 @@ export function SimApp() {
   };
 
   const liveHash = fakeHash(rowsData(rows));
-  const fpState = !anchor
-    ? ["var(--muted)", "not anchored yet"]
-    : liveHash === anchor.hash
-      ? ["var(--ok)", "matches the chain"]
-      : ["var(--broken)", "differs from the chain"];
+  // Show the last anchor without evaluating it until the user explicitly requests verification.
+  const fpState = [
+    "var(--muted)",
+    anchor ? "last anchor " + short(anchor.hash) : "not anchored yet"
+  ];
 
   const surface: Record<Org, JSX.Element> = {
     regulator: (
@@ -609,53 +637,46 @@ export function SimApp() {
     ),
     oracle: (
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        <PresetToggle
-          options={[
-            ["compliant", "Compliant run"],
-            ["warm", "Too warm run"]
-          ]}
-          selected={preset}
-          onPick={(id) => {
-            setRows(id === "compliant" ? DEFAULT_ROWS : UNSAFE_ROWS);
-            setPreset(id);
-            say(
-              "chill",
-              id === "compliant"
-                ? "Sensor run loaded: every reading inside 0 to 5 °C."
-                : "Sensor run loaded: the truck got warm around 09:00."
-            );
-          }}
-        />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <PresetToggle
+            options={[
+              ["compliant", "Compliant run"],
+              ["warm", "Too warm run"]
+            ]}
+            selected={preset}
+            onPick={(id) => {
+              setRows(id === "compliant" ? DEFAULT_ROWS : UNSAFE_ROWS);
+              setPreset(id);
+              say(
+                "chill",
+                id === "compliant"
+                  ? "Sensor run loaded: every reading inside 0 to 5 °C."
+                  : "Sensor run loaded: the truck got warm around 09:00."
+              );
+            }}
+          />
+          <Button variant="quiet" size="sm" onClick={restoreRows}>
+            Restore the sensor&apos;s data
+          </Button>
+        </div>
+        {/* Editing a reading does not verify it automatically. Signature checks remain explicit. */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-          {rows.map((r, i) => {
-            const ok = sigOf(r.at, r.celsius) === r.sig;
-            return (
-              <div key={i} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                <span style={{ ...mono, fontSize: 10, color: "var(--muted)" }}>{r.at}</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={r.celsius}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setPreset(null);
-                    setRows((current) =>
-                      current.map((x, j) => (j === i ? { ...x, celsius: v } : x))
-                    );
-                  }}
-                  style={{
-                    ...readingInput,
-                    border: "1px solid " + (ok ? "var(--line)" : "var(--broken)")
-                  }}
-                />
-                <span
-                  style={{ ...mono, fontSize: 9, color: ok ? "var(--faint)" : "var(--broken)" }}
-                >
-                  {ok ? "sig " + r.sig : "sig broken"}
-                </span>
-              </div>
-            );
-          })}
+          {rows.map((r, i) => (
+            <div key={i} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              <span style={{ ...mono, fontSize: 10, color: "var(--muted)" }}>{r.at}</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={r.celsius}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setRows((current) => current.map((x, j) => (j === i ? { ...x, celsius: v } : x)));
+                }}
+                style={{ ...readingInput, border: "1px solid var(--line)" }}
+              />
+              <span style={{ ...mono, fontSize: 9, color: "var(--faint)" }}>sig {r.sig}</span>
+            </div>
+          ))}
         </div>
         <TempChart readings={rowsData(rows)} height={150} />
         <div
@@ -678,55 +699,58 @@ export function SimApp() {
             Anchor on the chain
           </Button>
         </div>
-        <div style={{ borderTop: "1px solid var(--line)", marginTop: -6 }}>
-          <div style={cheatLabel}>try to cheat</div>
-          <SettingRow text="Change a stored reading behind the app's back">
-            <Button size="sm" variant="danger" onClick={secretlyEdit}>
-              Secretly edit a reading
-            </Button>
-          </SettingRow>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              padding: "9px 0",
-              borderTop: "1px solid var(--hairline)",
-              flexWrap: "wrap"
-            }}
-          >
-            <span
+        {/* These mutations apply only to an unsafe reading set, where there is a breach to hide. */}
+        {preset === "warm" ? (
+          <div style={{ borderTop: "1px solid var(--line)", marginTop: -6 }}>
+            <div style={cheatLabel}>try to cheat</div>
+            <SettingRow text="Change a stored reading behind the app's back">
+              <Button size="sm" variant="danger" onClick={secretlyEdit}>
+                Secretly edit a reading
+              </Button>
+            </SettingRow>
+            <div
               style={{
-                ...settingText,
-                display: "inline-flex",
+                display: "flex",
                 alignItems: "center",
-                gap: 6,
+                gap: 12,
+                padding: "9px 0",
+                borderTop: "1px solid var(--hairline)",
                 flexWrap: "wrap"
               }}
             >
-              Tell the chain the milk stayed between
-              <input
-                type="text"
-                inputMode="decimal"
-                value={lie.min}
-                onChange={(e) => setLie((l) => ({ ...l, min: e.target.value }))}
-                style={lieInput}
-              />
-              and
-              <input
-                type="text"
-                inputMode="decimal"
-                value={lie.max}
-                onChange={(e) => setLie((l) => ({ ...l, max: e.target.value }))}
-                style={lieInput}
-              />
-              °C
-            </span>
-            <Button size="sm" variant="danger" onClick={() => anchorReadings(true)}>
-              Anchor a fake summary
-            </Button>
+              <span
+                style={{
+                  ...settingText,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  flexWrap: "wrap"
+                }}
+              >
+                Tell the chain the milk stayed between
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={lie.min}
+                  onChange={(e) => setLie((l) => ({ ...l, min: e.target.value }))}
+                  style={lieInput}
+                />
+                and
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={lie.max}
+                  onChange={(e) => setLie((l) => ({ ...l, max: e.target.value }))}
+                  style={lieInput}
+                />
+                °C
+              </span>
+              <Button size="sm" variant="danger" onClick={() => anchorReadings(true)}>
+                Anchor a fake summary
+              </Button>
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
     )
   };
@@ -859,97 +883,141 @@ export function SimApp() {
           >
             <div style={feedScroll}>
               <GhostRows ghosts={ghosts} />
-              {chain.map((b, i) => (
-                <div
-                  key={b.n}
-                  style={{ position: "relative", paddingBottom: i < chain.length - 1 ? 14 : 0 }}
-                >
-                  {i < chain.length - 1 ? (
-                    <div
-                      style={{
-                        position: "absolute",
-                        left: 17,
-                        top: "calc(100% - 14px)",
-                        height: 14,
-                        width: 2,
-                        background: b.valid && chain[i + 1].valid ? "var(--line)" : "var(--broken)"
-                      }}
-                    ></div>
-                  ) : null}
+              {chain.map((b, i) => {
+                const open = openBlock === b.n;
+                return (
                   <div
-                    className={i === 0 ? "fm-block-new" : ""}
-                    style={{
-                      border:
-                        "1px solid " +
-                        (!b.valid ? "var(--broken)" : i === 0 ? "var(--chill)" : "var(--line)"),
-                      background: !b.valid
-                        ? "var(--broken-tint)"
-                        : i === 0
-                          ? "var(--chill-tint)"
-                          : "var(--well)",
-                      borderRadius: 10,
-                      padding: "8px 12px",
-                      display: "flex",
-                      gap: 10,
-                      alignItems: "flex-start"
-                    }}
+                    key={b.n}
+                    style={{ position: "relative", paddingBottom: i < chain.length - 1 ? 14 : 0 }}
                   >
-                    <span
+                    {i < chain.length - 1 ? (
+                      <div
+                        style={{
+                          position: "absolute",
+                          left: 17,
+                          top: "calc(100% - 14px)",
+                          height: 14,
+                          width: 2,
+                          background:
+                            b.valid && chain[i + 1].valid ? "var(--line)" : "var(--broken)"
+                        }}
+                      ></div>
+                    ) : null}
+                    <div
+                      className={i === 0 ? "fm-block-new" : ""}
                       style={{
-                        ...blockNumber,
-                        background: !b.valid ? "var(--broken-tint)" : "var(--chill-tint)",
-                        color: !b.valid ? "var(--broken)" : "var(--chill-deep)"
+                        ...blockRow,
+                        border:
+                          "1px solid " +
+                          (!b.valid ? "var(--broken)" : i === 0 ? "var(--chill)" : "var(--line)"),
+                        background: !b.valid
+                          ? "var(--broken-tint)"
+                          : i === 0
+                            ? "var(--chill-tint)"
+                            : "var(--well)"
                       }}
                     >
-                      {b.n}
-                    </span>
-                    <span style={{ flex: 1, minWidth: 0 }}>
-                      <input
-                        value={b.data}
-                        onChange={(e) => editBlock(b.n, e.target.value)}
-                        style={{
-                          display: "block",
-                          width: "100%",
-                          boxSizing: "border-box",
-                          fontFamily: "var(--font-ui)",
-                          fontSize: 12.5,
-                          fontWeight: 600,
-                          color: !b.valid ? "var(--broken)" : "var(--ink)",
-                          background: "transparent",
-                          border: "1px dashed transparent",
-                          borderRadius: 4,
-                          padding: "1px 4px",
-                          margin: "0 -4px"
-                        }}
-                        onFocus={(e) => (e.target.style.borderColor = "var(--faint)")}
-                        onBlur={(e) => (e.target.style.borderColor = "transparent")}
-                      />
                       <span
+                        onClick={() => setOpenBlock(open ? null : b.n)}
+                        title={open ? "Hide the block's contents" : "Show the block's contents"}
                         style={{
-                          display: "block",
-                          fontSize: 11,
-                          color: "var(--muted)",
-                          marginTop: 2
+                          ...blockNumber,
+                          background: !b.valid ? "var(--broken-tint)" : "var(--chill-tint)",
+                          color: !b.valid ? "var(--broken)" : "var(--chill-deep)"
                         }}
                       >
-                        signed by {b.n === 0 ? b.by : "the " + b.by}
+                        {b.n}
                       </span>
-                      <span
-                        style={{
-                          display: "block",
-                          ...mono,
-                          fontSize: 10,
-                          color: !b.valid ? "var(--broken)" : "var(--faint)",
-                          marginTop: 3
-                        }}
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <input
+                          value={b.data}
+                          onChange={(e) => editBlock(b.n, e.target.value)}
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            boxSizing: "border-box",
+                            fontFamily: "var(--font-ui)",
+                            fontSize: 12.5,
+                            fontWeight: 600,
+                            color: !b.valid ? "var(--broken)" : "var(--ink)",
+                            background: "transparent",
+                            border: "1px dashed transparent",
+                            borderRadius: 4,
+                            padding: "1px 4px",
+                            margin: "0 -4px"
+                          }}
+                          onFocus={(e) => (e.target.style.borderColor = "var(--faint)")}
+                          onBlur={(e) => (e.target.style.borderColor = "transparent")}
+                        />
+                        <span
+                          style={{
+                            display: "block",
+                            fontSize: 11,
+                            color: "var(--muted)",
+                            marginTop: 2
+                          }}
+                        >
+                          signed by {b.n === 0 ? b.by : "the " + b.by}
+                        </span>
+                        <span
+                          style={{
+                            display: "block",
+                            ...mono,
+                            fontSize: 10,
+                            color: !b.valid ? "var(--broken)" : "var(--faint)",
+                            marginTop: 3
+                          }}
+                        >
+                          hash {short(b.derivedHash)} · prev{" "}
+                          {b.derivedPrev === "—" ? "—" : short(b.derivedPrev)}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setOpenBlock(open ? null : b.n)}
+                        style={chevron}
                       >
-                        hash {short(b.derivedHash)} · prev{" "}
-                        {b.derivedPrev === "—" ? "—" : short(b.derivedPrev)}
-                      </span>
-                    </span>
+                        {open ? "▲" : "▼"}
+                      </button>
+                      {open ? (
+                        <div
+                          style={{
+                            ...blockDetail,
+                            borderTop:
+                              "1px solid " + (!b.valid ? "rgba(179,38,30,.2)" : "var(--hairline)")
+                          }}
+                        >
+                          <span style={blockDetailLabel}>block</span>
+                          <span style={{ ...mono, color: "var(--ink-2)" }}>{b.n}</span>
+                          <span style={blockDetailLabel}>data</span>
+                          <span style={{ ...blockDetailValue, color: "var(--ink)" }}>{b.data}</span>
+                          <span style={blockDetailLabel}>signed by</span>
+                          <span style={{ color: "var(--ink-2)" }}>
+                            {b.n === 0 ? b.by : "the " + b.by}
+                          </span>
+                          <span style={blockDetailLabel}>hash</span>
+                          <span style={{ ...mono, ...blockDetailValue }}>{b.committedHash}</span>
+                          <span style={blockDetailLabel}>prev hash</span>
+                          <span style={{ ...mono, ...blockDetailValue }}>{b.committedPrev}</span>
+                          {!b.valid ? (
+                            <>
+                              <span style={{ ...blockDetailLabel, color: "var(--broken)" }}>
+                                recomputed
+                              </span>
+                              <span
+                                style={{ ...mono, ...blockDetailValue, color: "var(--broken)" }}
+                              >
+                                {b.derivedHash} — does not match what was committed, so this block
+                                was rewritten
+                              </span>
+                            </>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Panel>
         </div>
