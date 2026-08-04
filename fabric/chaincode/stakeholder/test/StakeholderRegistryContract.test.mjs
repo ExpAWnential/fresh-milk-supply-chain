@@ -257,3 +257,44 @@ test("a regulator can revoke a sensor key, and the record survives revocation", 
     /Sensor 'SENSOR-404' has no registered key/
   );
 });
+
+// A device that has been reinspected has to be usable again, or one revocation ends its life.
+test("a regulator can put a revoked sensor back in service", async () => {
+  const contract = new StakeholderRegistryContract();
+  const stub = new MemoryStub();
+  const regulatorContext = context(stub, "cert-regulator", REGULATOR_MSP_ID);
+
+  await contract.bootstrapRegulator(regulatorContext, "regulator-001");
+  await contract.registerSensorKey(regulatorContext, "SENSOR-001", SENSOR_PUBLIC_KEY, "ed25519");
+  await contract.revokeSensorKey(regulatorContext, "SENSOR-001");
+
+  stub.txNumber = 3;
+  await contract.reactivateSensorKey(regulatorContext, "SENSOR-001");
+
+  const restored = JSON.parse(await contract.getSensorKey(regulatorContext, "SENSOR-001"));
+  assert.equal(restored.active, true);
+  assert.equal(restored.publicKey, SENSOR_PUBLIC_KEY, "the same key, not a replacement");
+  assert.equal(restored.updatedTxId, "tx-3", "the restoration is stamped in its own transaction");
+  assert.equal(stub.events.at(-1).name, "SensorKeyReactivated");
+
+  await expectReject(
+    contract.reactivateSensorKey(regulatorContext, "SENSOR-001"),
+    /already active/
+  );
+});
+
+test("only an active regulator can put a sensor back in service", async () => {
+  const contract = new StakeholderRegistryContract();
+  const stub = new MemoryStub();
+  const regulatorContext = context(stub, "cert-regulator", REGULATOR_MSP_ID);
+
+  await contract.bootstrapRegulator(regulatorContext, "regulator-001");
+  await contract.registerSensorKey(regulatorContext, "SENSOR-001", SENSOR_PUBLIC_KEY, "ed25519");
+  await contract.revokeSensorKey(regulatorContext, "SENSOR-001");
+  await contract.registerStakeholder(regulatorContext, "oracle-001", "ORACLE", "cert-oracle");
+
+  await expectReject(
+    contract.reactivateSensorKey(context(stub, "cert-oracle", "OracleMSP"), "SENSOR-001"),
+    /regulator/i
+  );
+});

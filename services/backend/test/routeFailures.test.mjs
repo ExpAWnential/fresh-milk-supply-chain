@@ -18,6 +18,7 @@ test("every endpoint passes the contract's refusal back to the caller", async ()
         { sensorId: "SENSOR-001", publicKey: "MCowBQYDK2Vw", algorithm: "ed25519" }
       ],
       ["POST", "/sensors/SENSOR-001/revoke"],
+      ["POST", "/sensors/SENSOR-001/reactivate"],
       ["GET", "/sensors/SENSOR-001"],
       ["POST", "/batches", { batchId: "b1", origin: "o", location: "l" }],
       ["POST", "/batches/b1/events", { eventType: "DELIVERY", location: "l" }],

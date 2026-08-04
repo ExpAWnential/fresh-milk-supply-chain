@@ -38,6 +38,15 @@ export function createSensorRouter(connect: GatewayConnector): Router {
     }
   });
 
+  router.post("/:sensorId/reactivate", async (req, res) => {
+    try {
+      await registry.submit("reactivateSensorKey", req.params.sensorId);
+      res.json({ sensorId: req.params.sensorId, active: true });
+    } catch (error) {
+      sendGatewayError(res, error);
+    }
+  });
+
   router.get("/:sensorId", async (req, res) => {
     try {
       res.json(await registry.evaluateJson("getSensorKey", req.params.sensorId));

@@ -313,6 +313,34 @@ export class StakeholderRegistryContract extends Contract {
     this.emitEvent(ctx, "SensorKeyRevoked", revoked);
   }
 
+  /**
+   * Restores trust in a key the regulator had withdrawn, for a device that has been reinspected.
+   *
+   * The audit record keeps every step, so a key that was revoked and restored is not the same
+   * thing as one that was never doubted.
+   */
+  @Transaction()
+  public async reactivateSensorKey(ctx: Context, sensorId: string): Promise<void> {
+    const regulator = await this.requireActiveRegulator(ctx);
+
+    const sensorKey = await this.getSensorKeyRecord(ctx, sensorId);
+    if (sensorKey.active) {
+      throw new Error(`Sensor '${sensorKey.sensorId}' is already active.`);
+    }
+
+    const metadata = getTransactionMetadata(ctx);
+    const restored: SensorKey = {
+      ...sensorKey,
+      active: true,
+      updatedByStakeholderId: regulator.stakeholderId,
+      updatedTxId: metadata.txId,
+      updatedAt: metadata.timestamp
+    };
+
+    await this.putSensorKey(ctx, restored);
+    this.emitEvent(ctx, "SensorKeyReactivated", restored);
+  }
+
   /** Returns the public key and status needed to verify a sensor's readings. */
   @Transaction(false)
   @Returns("string")
