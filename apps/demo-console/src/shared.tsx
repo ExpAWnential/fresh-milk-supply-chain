@@ -35,7 +35,7 @@ export const UNSAFE_PAIRS: readonly (readonly [string, number])[] = [
 ];
 
 export const HOME_ORIGIN = {
-  farm: "Homelander's Mother Milk Dairy",
+  farm: "Homelander's Milk Dairy",
   place: "Vought Pastures"
 };
 
