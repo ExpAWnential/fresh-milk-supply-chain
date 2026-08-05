@@ -1,5 +1,5 @@
 /**
- * The live console: the same screen as the simulation, driving the six real backends.
+ * Connects the interactive supply chain console to the six organisation backends.
  *
  * Selecting a company chip changes which origin the next request goes to, and each backend signs
  * with only its own certificate. That is what makes a refusal here mean something: the request was
@@ -135,6 +135,8 @@ interface Verification {
   readonly signatureFailures?: readonly number[];
   readonly fabricTransactionId?: string | null;
   readonly by: string;
+  // The failing readings named by time rather than by sequence number.
+  readonly failTimes?: readonly string[];
 }
 
 interface Batch {
@@ -171,12 +173,23 @@ interface AnchorEntry {
   readonly submittedAt?: string;
 }
 
-// Batch events and temperature anchors are separate ledger records, shown in one feed.
+// A locally recorded registration, which has no batch history from which the feed can retrieve it.
+interface RegistrationEntry {
+  readonly label: string;
+  readonly ts: string;
+}
+
+// Batch events, temperature anchors and registrations, shown in one feed.
 type FeedRow =
   | { readonly kind: "batch"; readonly ts: string; readonly event: HistoryEntry }
-  | { readonly kind: "anchor"; readonly ts: string; readonly anchor: AnchorEntry };
+  | { readonly kind: "anchor"; readonly ts: string; readonly anchor: AnchorEntry }
+  | {
+      readonly kind: "registration";
+      readonly ts: string;
+      readonly registration: RegistrationEntry;
+    };
 
-/** Renders the metadata and expansion behaviour shared by both kinds of ledger record. */
+/** Renders the metadata and expansion behaviour shared by every kind of record in the feed. */
 function FeedBlock({
   n,
   newest,
@@ -233,11 +246,20 @@ function FeedBlock({
           <span style={{ display: "block", fontSize: 11, color: "var(--muted)", marginTop: 2 }}>
             {byline}
           </span>
-          <span
-            style={{ display: "block", ...mono, fontSize: 10, color: "var(--faint)", marginTop: 3 }}
-          >
-            tx {short(tx)}
-          </span>
+          {/* Locally recorded registrations omit a transaction ID because none was retrieved. */}
+          {tx === undefined ? null : (
+            <span
+              style={{
+                display: "block",
+                ...mono,
+                fontSize: 10,
+                color: "var(--faint)",
+                marginTop: 3
+              }}
+            >
+              tx {short(tx)}
+            </span>
+          )}
         </span>
         <button type="button" onClick={onToggle} style={chevron}>
           {open ? "▲" : "▼"}
@@ -258,6 +280,9 @@ export function LiveApp() {
   const [batch, setBatch] = useState<Batch | null>(null);
   const [history, setHistory] = useState<readonly HistoryEntry[]>([]);
   const [anchors, setAnchors] = useState<readonly AnchorEntry[]>([]);
+  // Registrations are ledger transactions but belong to no batch history. Keep accepted ones in
+  // local state so they can appear in the combined feed, with reload clearing that local record.
+  const [regEvents, setRegEvents] = useState<readonly RegistrationEntry[]>([]);
   const [registered, setRegistered] = useState<Record<string, boolean>>({});
   const [sensorReg, setSensorReg] = useState<Record<string, boolean>>({});
   const [rows, setRows] = useState<readonly Row[]>(DEFAULT_ROWS);
@@ -276,22 +301,38 @@ export function LiveApp() {
   const [origin, setOrigin] = useState(HOME_ORIGIN);
 
   const say = (tone: Caption["tone"], text: string) => setCaption({ tone, text });
+  const logReg = (label: string) =>
+    setRegEvents((current) => [...current, { label, ts: new Date().toISOString() }]);
   const byName = (name: string) => companies.find((c) => c.name === name);
   const regOrigin = () => byName("regulator")?.origin;
 
-  // The fingerprint the oracle would anchor for what is currently in the table.
+  // The fingerprint the oracle would anchor for what is currently in the table. The canonical form
+  // belongs to the storage package, so the helper computes it and a hash made here would not match
+  // the ledger. Falling back to a local digest keeps the bar populated when the helper is down.
   useEffect(() => {
     let on = true;
-    sha256Hex(
-      JSON.stringify({
-        batchId,
-        readings: rows.map((r) => ({ recordedAt: r.at, celsius: Number(r.celsius) || 0 }))
-      })
-    ).then((hash) => {
-      if (on) setLiveHash(hash);
-    });
+    const data = rows.map((r) => ({ recordedAt: r.at, celsius: Number(r.celsius) || 0 }));
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(DEMO_URL + "/demo/hash", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ batchId, readings: data })
+        });
+        const j = await res.json().catch(() => null);
+        if (on && j && j.hash) {
+          setLiveHash(j.hash);
+          return;
+        }
+      } catch {
+        // Fall through to the local digest below.
+      }
+      const local = await sha256Hex(JSON.stringify({ batchId, readings: data }));
+      if (on) setLiveHash(local);
+    }, 250);
     return () => {
       on = false;
+      clearTimeout(timer);
     };
   }, [rows, batchId]);
 
@@ -467,6 +508,7 @@ export function LiveApp() {
       });
       if (r.status >= 200 && r.status < 300) {
         setRegistered((x) => ({ ...x, regulator: true }));
+        logReg("regulator joined as the first company");
         say("ok", "The regulator is in. Register the others.");
       }
       return;
@@ -481,6 +523,7 @@ export function LiveApp() {
     });
     if (r.status >= 200 && r.status < 300) {
       setRegistered((x) => ({ ...x, [name]: true }));
+      logReg(`${name} registered by the regulator`);
       say("ok", `The ${name} is registered on the ledger.`);
     }
   }
@@ -492,6 +535,7 @@ export function LiveApp() {
     });
     if (r.status >= 200 && r.status < 300) {
       setSensorReg((x) => ({ ...x, [s.sensorId]: true }));
+      logReg(`${s.sensorId}'s public key registered`);
       say(
         "ok",
         `${s.sensorId}'s public key is on the ledger. Anyone can check its signatures now.`
@@ -532,6 +576,20 @@ export function LiveApp() {
     }
     setRegistered(Object.fromEntries(fresh.map((c) => [c.name, true])));
     setSensorReg(Object.fromEntries(SENSORS.map((s) => [s.sensorId, true])));
+    // Stamped a millisecond apart so the feed keeps the order they were sent in.
+    const started = Date.now();
+    const labels = [
+      ...fresh.map((c) =>
+        c.name === "regulator"
+          ? "regulator joined as the first company"
+          : `${c.name} registered by the regulator`
+      ),
+      ...SENSORS.map((s) => `${s.sensorId}'s public key registered`)
+    ];
+    setRegEvents((current) => [
+      ...current,
+      ...labels.map((label, i) => ({ label, ts: new Date(started + i).toISOString() }))
+    ]);
     say(
       "ok",
       "Registration sent to your real ledger: six companies and two sensor keys, all signed by the regulator's certificate."
@@ -547,7 +605,10 @@ export function LiveApp() {
         origin: byName("farm")?.origin,
         body: { batchId, origin: origin.farm, location: origin.place }
       },
-      () => say("ok", `${batchId} created on the ledger. Its origin can never be changed.`)
+      () => {
+        setVerify(null);
+        say("ok", `${batchId} created on the ledger. Its origin can never be changed.`);
+      }
     );
 
   const step = (evType: string, who: string, msg: string, location: string) =>
@@ -556,7 +617,10 @@ export function LiveApp() {
       "POST",
       `/batches/${encodeURIComponent(batchId)}/events`,
       { origin: byName(who)?.origin, body: { eventType: evType, location } },
-      () => say("ok", msg)
+      () => {
+        setVerify(null);
+        say("ok", msg);
+      }
     );
 
   const recall = () =>
@@ -605,6 +669,7 @@ export function LiveApp() {
       const j = await res.json().catch(() => null);
       if (res.ok) {
         setEvidenceId(j.evidenceId);
+        setVerify(null);
         await refreshBatch();
         if (fake) {
           say(
@@ -659,6 +724,7 @@ export function LiveApp() {
     );
     if (r.status >= 200 && r.status < 300) {
       setEvidenceId(evidenceId2);
+      setVerify(null);
       say(
         unsafe ? "broken" : "ok",
         (unsafe
@@ -666,6 +732,28 @@ export function LiveApp() {
           : "Anchored on the real ledger. ") +
           "Note: only the summary reached the ledger this time; the readings themselves were not stored."
       );
+    }
+  }
+
+  /**
+   * Sends the table to the oracle's database once evidence exists.
+   *
+   * After anchoring, the table is the database rather than a staging pad, so editing a cell has to
+   * change the stored row. Before anchoring there is nothing to write to, and the edit travels with
+   * the next run instead.
+   */
+  async function writeThrough(values: readonly Row[]) {
+    if (!evidenceId) return;
+    const set = values.map((r) => ({ recordedAt: r.at, celsius: Number(r.celsius) || 0 }));
+    try {
+      const res = await fetch(DEMO_URL + "/demo/tamper", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ evidenceId, set })
+      });
+      if (!res.ok) ghost("the edit did not reach the oracle's database");
+    } catch {
+      ghost("the edit did not reach the oracle's database");
     }
   }
 
@@ -751,7 +839,11 @@ export function LiveApp() {
 
   async function doVerify(who: string) {
     const ev = evidenceId ?? (await loadEvidence());
-    if (!ev) return;
+    if (!ev) {
+      ghost("nothing has been anchored yet");
+      say("refused", "Nothing anchored yet. The oracle goes first.");
+      return;
+    }
     const r = await call("GET", `/temperature/evidence/${encodeURIComponent(ev)}/verify`, {
       origin: byName(who)?.origin
     });
@@ -761,7 +853,11 @@ export function LiveApp() {
       return;
     }
     const v = r.body as Omit<Verification, "by">;
-    setVerify({ ...v, by: who });
+    // Convert ledger sequence numbers to the timestamps used to identify readings in the table.
+    const failTimes = (v.signatureFailures ?? []).map(
+      (sequence) => rows[sequence - 1]?.at ?? String(sequence)
+    );
+    setVerify({ ...v, by: who, failTimes });
     if (v.match === false) {
       say(
         "broken",
@@ -775,7 +871,12 @@ export function LiveApp() {
     } else if (v.signaturesMatch === false) {
       say(
         "broken",
-        "Caught by a signature. Fingerprint and summary agree, but a reading was never signed by the sensor."
+        `Caught by a signature. Fingerprint and summary agree, but the ${failTimes.length ? failTimes.join(", ") + " " : ""}reading was never signed by the sensor. The oracle submitted a number the sensor never measured.`
+      );
+    } else if (v.signaturesMatch === null) {
+      say(
+        "refused",
+        "Fingerprint and summary check out, but there is no sensor key on the chain, so the signatures cannot be checked. The regulator registers it."
       );
     } else {
       say(
@@ -793,8 +894,11 @@ export function LiveApp() {
     }
     const id = preset || "compliant";
     setPreset(id);
-    setRows(id === "warm" ? UNSAFE_ROWS : DEFAULT_ROWS);
-    setSignedRows(id === "warm" ? UNSAFE_ROWS : DEFAULT_ROWS);
+    const original = id === "warm" ? UNSAFE_ROWS : DEFAULT_ROWS;
+    setRows(original);
+    setSignedRows(original);
+    // Repairs the database too, so a tampered run verifies clean again without re-anchoring.
+    writeThrough(original);
     say("chill", "Sensor data restored to what SENSOR-001 actually recorded.");
   };
 
@@ -843,6 +947,11 @@ export function LiveApp() {
       kind: "anchor" as const,
       ts: String(anchor.submittedAt ?? ""),
       anchor
+    })),
+    ...regEvents.map((registration) => ({
+      kind: "registration" as const,
+      ts: registration.ts,
+      registration
     }))
   ].sort((a, b) => b.ts.localeCompare(a.ts));
 
@@ -911,10 +1020,9 @@ export function LiveApp() {
             <Button
               size="sm"
               variant="danger"
-              onClick={() => {
+              onClick={async () => {
                 const temps = rows.map((r) => Number(r.celsius) || 0);
-                act(
-                  "regulator tried to submit readings",
+                const r = await call(
                   "POST",
                   `/temperature/batches/${encodeURIComponent(batchId)}/evidence`,
                   {
@@ -931,6 +1039,23 @@ export function LiveApp() {
                     }
                   }
                 );
+                if (r.status === 0) {
+                  ghost("try to submit: backend did not answer");
+                  say("broken", "No answer from the backend. Is the network running?");
+                } else if (r.status >= 200 && r.status < 300) {
+                  await refreshBatch();
+                  say(
+                    "broken",
+                    "The contract accepted readings from the regulator. That is a bug worth reporting."
+                  );
+                } else {
+                  // The contract's own words stay in the ghost row; the caption says what it means.
+                  ghost(`regulator tried to submit temperature readings: ${explain(r.body)}`);
+                  say(
+                    "refused",
+                    "Signed by the regulator, and still refused: only the oracle may submit temperature evidence. Not even the regulator outranks the rules."
+                  );
+                }
               }}
             >
               Try to submit readings
@@ -1055,6 +1180,7 @@ export function LiveApp() {
                   const v = e.target.value;
                   setRows((current) => current.map((x, j) => (j === i ? { ...x, celsius: v } : x)));
                 }}
+                onBlur={() => writeThrough(rows)}
                 style={{ ...readingInput, border: "1px solid var(--line)" }}
               />
             </div>
@@ -1188,16 +1314,22 @@ export function LiveApp() {
             <Panel
               title="Verification"
               right={stat(
-                verify.match && verify.statisticsMatch !== false && verify.signaturesMatch !== false
+                verify.match && verify.statisticsMatch !== false && verify.signaturesMatch === true
                   ? "var(--ok)"
-                  : "var(--broken)",
+                  : verify.match &&
+                      verify.statisticsMatch !== false &&
+                      verify.signaturesMatch === null
+                    ? "var(--refused)"
+                    : "var(--broken)",
                 verify.match === false
                   ? "Caught by the fingerprint"
                   : verify.statisticsMatch === false
                     ? "Caught by the summary"
                     : verify.signaturesMatch === false
                       ? "Caught by a signature"
-                      : "Clean"
+                      : verify.signaturesMatch === null
+                        ? "Unchecked"
+                        : "Clean"
               )}
             >
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1220,13 +1352,10 @@ export function LiveApp() {
                     [
                       "signatures",
                       verify.signaturesMatch === null
-                        ? "could not check"
+                        ? "no sensor key on the chain to check against"
                         : verify.signaturesMatch
                           ? "all signed by the sensor"
-                          : "signature failure" +
-                            (verify.signatureFailures && verify.signatureFailures.length
-                              ? ": reading " + verify.signatureFailures.join(", ")
-                              : ""),
+                          : `the ${(verify.failTimes ?? []).join(", ") || "?"} reading does not fit its signature`,
                       verify.signaturesMatch ?? null
                     ],
                     // The transaction is reported rather than judged, so it carries no verdict.
@@ -1340,6 +1469,30 @@ export function LiveApp() {
                         <span style={blockDetailLabel}>tx id</span>
                         <span style={{ ...mono, ...blockDetailValue }}>
                           {a.submittedTxId || "—"}
+                        </span>
+                      </FeedBlock>
+                    );
+                  }
+
+                  if (f.kind === "registration") {
+                    const r = f.registration;
+                    return (
+                      <FeedBlock
+                        key={"r" + r.ts + r.label}
+                        {...shell}
+                        title={r.label}
+                        byline={"the regulator" + (time ? " · " + time : "")}
+                      >
+                        <span style={blockDetailLabel}>kind</span>
+                        <span style={{ color: "var(--ink-2)" }}>registration</span>
+                        <span style={blockDetailLabel}>submitted by</span>
+                        <span style={{ color: "var(--ink-2)" }}>the regulator</span>
+                        <span style={blockDetailLabel}>time</span>
+                        <span style={{ ...mono, color: "var(--ink-2)" }}>{time}</span>
+                        <span style={blockDetailLabel}>note</span>
+                        <span style={{ color: "var(--ink-2)" }}>
+                          logged by this page when the ledger accepted the transaction; the ledger
+                          holds the authoritative record
                         </span>
                       </FeedBlock>
                     );

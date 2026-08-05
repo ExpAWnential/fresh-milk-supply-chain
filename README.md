@@ -11,12 +11,13 @@ altered unnoticed, and a shopper can look up a carton without holding any blockc
 From the repository root:
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 Docker with 8 GB of memory is the only prerequisite. The console is on <http://localhost:3001>,
 already registered and ready to use. The first run takes ten to twenty minutes, most of it building
-a chaincode container per organisation. `docker compose down -v` removes everything.
+a chaincode container per organisation. The image carries the built services, so `--build` is what
+picks up changed or newly pulled code. `docker compose down -v` removes everything.
 
 ## What is in here
 
@@ -70,11 +71,3 @@ whatever just happened, and the panel below it is the batch's real history on th
 
 If the network is down, <http://localhost:3001/?mode=sim> is the same console over an in-memory
 chain, with nothing real behind it.
-
-## Documentation
-
-- `docs/code-overview.md` — what each part does and how a request flows through it.
-- `docs/transaction-flow.md` — endorsement, ordering and validation in detail.
-- `docs/design.md` — the design and how it meets the assignment requirements.
-- `docs/rules-and-limitations.md` — what the contracts enforce, and what this does not do.
-- `docs/setup.md` — running it as host processes instead of containers, for development.
